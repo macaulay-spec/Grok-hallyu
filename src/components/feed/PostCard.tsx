@@ -110,7 +110,9 @@ export function PostCard({ post, onLike, onSave }: PostCardProps) {
 
 function getTimeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
+  if (diff < 0) return 'now';
   const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'now';
   if (mins < 60) return `${mins}m ago`;
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours}h ago`;

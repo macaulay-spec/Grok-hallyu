@@ -65,7 +65,13 @@ export default function ProfileScreen() {
           style={{ marginTop: spacing['2xl'] }}
         />
 
-        <TouchableOpacity onPress={signOut} style={styles.signOut}>
+        <TouchableOpacity
+          onPress={async () => {
+            await signOut();
+            router.replace('/(auth)/welcome');
+          }}
+          style={styles.signOut}
+        >
           <Text variant="body" color={colors.error}>
             Sign out
           </Text>

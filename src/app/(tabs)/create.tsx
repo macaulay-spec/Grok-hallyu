@@ -1,15 +1,10 @@
-import { useEffect } from 'react';
-import { router } from 'expo-router';
 import { View } from 'react-native';
 
 /**
- * This tab only exists to host the center “+” button.
- * Tapping it opens the create-post modal.
+ * Placeholder for the center "+" tab.
+ * The actual create flow is opened via tabPress listener → /create-post modal.
+ * This screen should never be visible.
  */
 export default function CreateTab() {
-  useEffect(() => {
-    router.push('/create-post');
-  }, []);
-
   return <View />;
 }

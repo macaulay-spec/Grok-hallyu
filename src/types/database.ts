@@ -1,6 +1,7 @@
 /**
  * Hallyu Database Types
  * Matches the Supabase schema exactly
+ * Includes Relationships: [] required by @supabase/supabase-js v2.45+
  */
 
 export type Json =
@@ -42,6 +43,7 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
         };
+        Relationships: [];
       };
       dramas: {
         Row: {
@@ -80,6 +82,7 @@ export interface Database {
           episode_count?: number | null;
           created_at?: string;
         };
+        Relationships: [];
       };
       posts: {
         Row: {
@@ -109,6 +112,7 @@ export interface Database {
           created_at?: string;
           updated_at?: string;
         };
+        Relationships: [];
       };
       post_dramas: {
         Row: {
@@ -123,6 +127,7 @@ export interface Database {
           post_id?: string;
           drama_id?: string;
         };
+        Relationships: [];
       };
       comments: {
         Row: {
@@ -146,6 +151,7 @@ export interface Database {
           body?: string;
           created_at?: string;
         };
+        Relationships: [];
       };
       likes: {
         Row: {
@@ -163,6 +169,7 @@ export interface Database {
           post_id?: string;
           created_at?: string;
         };
+        Relationships: [];
       };
       saves: {
         Row: {
@@ -180,6 +187,7 @@ export interface Database {
           post_id?: string;
           created_at?: string;
         };
+        Relationships: [];
       };
       follows_users: {
         Row: {
@@ -197,6 +205,7 @@ export interface Database {
           following_id?: string;
           created_at?: string;
         };
+        Relationships: [];
       };
       follows_dramas: {
         Row: {
@@ -214,6 +223,7 @@ export interface Database {
           drama_id?: string;
           created_at?: string;
         };
+        Relationships: [];
       };
       notifications: {
         Row: {
@@ -246,6 +256,7 @@ export interface Database {
           read?: boolean;
           created_at?: string;
         };
+        Relationships: [];
       };
       reports: {
         Row: {
@@ -272,7 +283,20 @@ export interface Database {
           reason?: string | null;
           created_at?: string;
         };
+        Relationships: [];
       };
+    };
+    Views: {
+      [_ in never]: never;
+    };
+    Functions: {
+      [_ in never]: never;
+    };
+    Enums: {
+      [_ in never]: never;
+    };
+    CompositeTypes: {
+      [_ in never]: never;
     };
   };
 }

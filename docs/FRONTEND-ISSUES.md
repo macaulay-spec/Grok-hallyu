@@ -8,6 +8,56 @@ Verified with `npx tsc --noEmit` (TypeScript ~5.3, strict) on 2026-09-17.
 
 ---
 
+## ⚡ STATUS UPDATE — after the fix zip was applied (2026-09-17, second pass)
+
+Verification: `npx tsc --noEmit` → **0 errors ✅** · `npx expo export --platform android` → **bundles clean ✅** · assets valid PNGs at correct sizes ✅
+
+| Item | Status | Note |
+|------|--------|------|
+| A1 Relationships | ✅ FIXED* | *`Relationships: []` alone was NOT enough — see A3 below |
+| A2 Input style | ✅ FIXED | |
+| A3 Views/Functions missing | ✅ FIXED (by auditor) | New root cause, see below |
+| B1 dead "+" tab | ✅ FIXED | tabPress now pushes `/create-post` directly |
+| B2 onboarding gate | ✅ FIXED | Gate now checks `username`; onboarding upsert sets it — but see **B8** |
+| B3 sign-out stranding | ✅ FIXED | Profile tab now navigates to welcome |
+| B4 avatar upload unchecked | ✅ FIXED | Throws on upload error |
+| B5 swallowed errors | ✅ FIXED | create-post throws; follows_dramas logs warning |
+| B6 feed refresh after post | ⬜ OPEN | `(tabs)/index.tsx` untouched |
+| B7 seed UUIDs | ✅ FIXED | Proper uuid-format ids + `length > 10` filter before DB write |
+| C1 missing assets | ✅ FIXED | icon/adaptive-icon 1024×1024, splash 1284×2778, valid PNGs |
+| C2 lint script broken | ⬜ OPEN | package.json untouched |
+| C3 AsyncStorage tokens | ⬜ OPEN | supabase.ts untouched |
+| C4 unused deps | ⬜ OPEN | package.json untouched |
+| C5 react-native-web missing | ⬜ OPEN | package.json untouched |
+| C6 no eas.json | ⬜ OPEN | |
+| D push→navigate (tabs)/index | ⬜ OPEN | file untouched |
+| D auth-context double fetch | ⬜ OPEN | file untouched |
+| D welcome ImageBackground | ✅ FIXED | |
+| D getTimeAgo "0m ago" | ✅ FIXED | "now" + future-date guard |
+| D signup `data` unused | ⬜ OPEN | signup.tsx untouched |
+
+### A3. (NEW, fixed) `Database['public']` was missing `Views`/`Functions` — the true cause of the `never` errors
+`package.json` allows `@supabase/supabase-js@^2.45.0`, which installs **2.116.0**.
+In postgrest-js 2.x, `GenericSchema = { Tables; Views; Functions }`, and
+`SupabaseClient` resolves `Schema` to **`never`** when `Database['public']` doesn't
+extend it. Adding `Relationships: []` (A1) was necessary but NOT sufficient —
+`Views`, `Functions` (plus `Enums`, `CompositeTypes` to match `supabase gen types`
+output) had to be added to `src/types/database.ts`. Done; typecheck is now clean.
+Lesson: pin the supabase-js version or generate types with `supabase gen types typescript`
+instead of hand-maintaining the file.
+
+### B8. (NEW, open) Username collision blocks onboarding — `src/app/(onboarding)/profile.tsx:76`
+The B2 fix generates `username` as
+`displayName.trim().toLowerCase().replace(/\s+/g, '_').slice(0, 30)`, but
+`profiles.username` has a **UNIQUE constraint** (`supabase/schema.sql:11`). Two users
+who both enter e.g. "Alex Morgan" → second upsert fails with
+`duplicate key value violates unique constraint` → user is stuck in onboarding with a
+generic "Something went wrong" alert. Fix: on unique-violation (Postgres error code
+23505) retry with a random numeric suffix, or let the user pick/edit a username and
+check availability before submitting.
+
+---
+
 ## A. TypeScript compile errors — `npm run typecheck` currently fails (5 errors)
 
 ### A1. Root cause: `src/types/database.ts` — missing `Relationships` key

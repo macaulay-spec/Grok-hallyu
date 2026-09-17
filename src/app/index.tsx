@@ -19,8 +19,8 @@ export default function Index() {
     const timer = setTimeout(() => {
       if (!session) {
         router.replace('/(auth)/welcome');
-      } else if (!profile?.display_name) {
-        // User exists but hasn't finished onboarding
+      } else if (!profile || !profile.username) {
+        // No profile yet, or onboarding not finished (username is set only in onboarding)
         router.replace('/(onboarding)/dramas');
       } else {
         router.replace('/(tabs)');

@@ -38,7 +38,14 @@ export default function EditProfileScreen() {
         const fileName = `${user.id}/avatar.${ext}`;
         const response = await fetch(avatarUri);
         const blob = await response.blob();
-        await supabase.storage.from('avatars').upload(fileName, blob, { upsert: true });
+        const { error: uploadError } = await supabase.storage
+          .from('avatars')
+          .upload(fileName, blob, { upsert: true });
+
+        if (uploadError) {
+          throw new Error(uploadError.message || 'Avatar upload failed');
+        }
+
         const { data } = supabase.storage.from('avatars').getPublicUrl(fileName);
         avatarUrl = data.publicUrl;
       }

@@ -70,9 +70,10 @@ export default function OnboardingProfileScreen() {
         }
       }
 
-      // Upsert profile
+      // Upsert profile — username marks onboarding as complete
       const { error } = await supabase.from('profiles').upsert({
         id: user.id,
+        username: displayName.trim().toLowerCase().replace(/\s+/g, '_').slice(0, 30),
         display_name: displayName.trim(),
         bio: bio.trim() || null,
         avatar_url: avatarUrl,
@@ -81,15 +82,18 @@ export default function OnboardingProfileScreen() {
 
       if (error) throw error;
 
-      // Optionally follow the selected dramas
+      // Optionally follow the selected dramas (only if they are real UUIDs)
       if (dramaIds) {
-        const ids = dramaIds.split(',').filter(Boolean);
+        const ids = dramaIds.split(',').filter((id) => id.length > 10); // skip short seed ids
         if (ids.length > 0) {
           const rows = ids.map((drama_id) => ({
             user_id: user.id,
             drama_id,
           }));
-          await supabase.from('follows_dramas').upsert(rows);
+          const { error: followError } = await supabase.from('follows_dramas').upsert(rows);
+          if (followError) {
+            console.warn('Could not follow dramas:', followError.message);
+          }
         }
       }
 

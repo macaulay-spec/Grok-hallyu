@@ -38,7 +38,7 @@ export function Input({
         style={[
           styles.input,
           focused && styles.inputFocused,
-          error && styles.inputError,
+          error ? styles.inputError : undefined,
           style,
         ]}
         {...props}

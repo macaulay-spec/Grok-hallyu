@@ -1,5 +1,5 @@
 import React from 'react';
-import { Tabs } from 'expo-router';
+import { Tabs, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { View, StyleSheet } from 'react-native';
 import { colors, spacing } from '@/constants/theme';
@@ -47,7 +47,7 @@ export default function TabsLayout() {
         listeners={{
           tabPress: (e) => {
             e.preventDefault();
-            // Handled by the create screen itself redirecting to modal
+            router.push('/create-post');
           },
         }}
       />

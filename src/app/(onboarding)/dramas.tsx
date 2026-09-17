@@ -141,7 +141,7 @@ export default function OnboardingDramasScreen() {
 
 const SEED_DRAMAS: Drama[] = [
   {
-    id: '1',
+    id: '00000000-0000-4000-8000-000000000001',
     title: 'Crash Landing on You',
     original_title: '사랑의 불시착',
     poster_url: 'https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=400',
@@ -153,7 +153,7 @@ const SEED_DRAMAS: Drama[] = [
     created_at: new Date().toISOString(),
   },
   {
-    id: '2',
+    id: '00000000-0000-4000-8000-000000000002',
     title: 'Goblin',
     original_title: '도깨비',
     poster_url: 'https://images.unsplash.com/photo-1518674660708-6f684e78f4f6?w=400',
@@ -165,7 +165,7 @@ const SEED_DRAMAS: Drama[] = [
     created_at: new Date().toISOString(),
   },
   {
-    id: '3',
+    id: '00000000-0000-4000-8000-000000000003',
     title: 'Squid Game',
     original_title: '오징어 게임',
     poster_url: 'https://images.unsplash.com/photo-1626814026160-2237a95fc5a0?w=400',
@@ -177,7 +177,7 @@ const SEED_DRAMAS: Drama[] = [
     created_at: new Date().toISOString(),
   },
   {
-    id: '4',
+    id: '00000000-0000-4000-8000-000000000004',
     title: 'The Glory',
     original_title: '더 글로리',
     poster_url: 'https://images.unsplash.com/photo-1485846234645-a62644f84728?w=400',
@@ -189,7 +189,7 @@ const SEED_DRAMAS: Drama[] = [
     created_at: new Date().toISOString(),
   },
   {
-    id: '5',
+    id: '00000000-0000-4000-8000-000000000005',
     title: 'Business Proposal',
     original_title: '사내맞선',
     poster_url: 'https://images.unsplash.com/photo-1522869635100-9f4c5e86aa37?w=400',
@@ -201,7 +201,7 @@ const SEED_DRAMAS: Drama[] = [
     created_at: new Date().toISOString(),
   },
   {
-    id: '6',
+    id: '00000000-0000-4000-8000-000000000006',
     title: 'Extraordinary Attorney Woo',
     original_title: '이상한 변호사 우영우',
     poster_url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400',

@@ -15,12 +15,12 @@ import { colors, spacing, radius } from '@/constants/theme';
 
 // Simple static discovery for MVP – later connect to real search
 const TRENDING = [
-  { id: '1', title: 'Queen of Tears', year: 2024, poster: 'https://images.unsplash.com/photo-1485846234645-a62644f84728?w=300' },
-  { id: '2', title: 'Lovely Runner', year: 2024, poster: 'https://images.unsplash.com/photo-1518674660708-6f684e78f4f6?w=300' },
-  { id: '3', title: 'Goblin', year: 2016, poster: 'https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=300' },
-  { id: '4', title: 'The Glory', year: 2022, poster: 'https://images.unsplash.com/photo-1626814026160-2237a95fc5a0?w=300' },
-  { id: '5', title: 'Crash Landing on You', year: 2019, poster: 'https://images.unsplash.com/photo-1522869635100-9f4c5e86aa37?w=300' },
-  { id: '6', title: 'Business Proposal', year: 2022, poster: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300' },
+  { id: '00000000-0000-4000-8000-000000000001', title: 'Queen of Tears', year: 2024, poster: 'https://images.unsplash.com/photo-1485846234645-a62644f84728?w=300' },
+  { id: '00000000-0000-4000-8000-000000000002', title: 'Lovely Runner', year: 2024, poster: 'https://images.unsplash.com/photo-1518674660708-6f684e78f4f6?w=300' },
+  { id: '00000000-0000-4000-8000-000000000003', title: 'Goblin', year: 2016, poster: 'https://images.unsplash.com/photo-1536440136628-849c177e76a1?w=300' },
+  { id: '00000000-0000-4000-8000-000000000004', title: 'The Glory', year: 2022, poster: 'https://images.unsplash.com/photo-1626814026160-2237a95fc5a0?w=300' },
+  { id: '00000000-0000-4000-8000-000000000005', title: 'Crash Landing on You', year: 2019, poster: 'https://images.unsplash.com/photo-1522869635100-9f4c5e86aa37?w=300' },
+  { id: '00000000-0000-4000-8000-000000000006', title: 'Business Proposal', year: 2022, poster: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=300' },
 ];
 
 export default function SearchScreen() {

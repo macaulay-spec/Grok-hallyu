@@ -54,10 +54,12 @@ export default function CreatePostScreen() {
           .from('posts')
           .upload(fileName, blob);
 
-        if (!uploadError) {
-          const { data } = supabase.storage.from('posts').getPublicUrl(fileName);
-          mediaUrls = [data.publicUrl];
+        if (uploadError) {
+          throw new Error(uploadError.message || 'Image upload failed');
         }
+
+        const { data } = supabase.storage.from('posts').getPublicUrl(fileName);
+        mediaUrls = [data.publicUrl];
       }
 
       const { error } = await supabase.from('posts').insert({
