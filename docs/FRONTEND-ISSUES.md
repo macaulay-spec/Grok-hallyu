@@ -122,10 +122,29 @@ Zero imports found for: `expo-av`, `zustand`, `expo-font`, `expo-image`,
 Also `expo-system-ui` (package.json:29) is not registered in `app.json` → `plugins`,
 so it has no effect as configured.
 
+### C5. `npm run web` is broken — `react-native-web` missing
+`package.json:9` defines `"web": "expo start --web"`, but `react-native-web` is not in
+dependencies (web support in SDK 51 requires `react-native-web` + `react-dom`; only
+`react-dom` is present). `expo start --web` will fail or prompt to install.
+Fix: `npx expo install react-native-web` — or remove the `web` script if web is out of scope.
+
+### C6. No `eas.json` / EAS project config
+Stated goal is "Android APK first", but there is no `eas.json` and no
+`expo.extra.eas.projectId` in `app.json`. `eas build` will not work out of the box.
+Fix: run `eas build:configure` (creates eas.json + projectId) when the build step begins,
+or add a minimal eas.json with a `preview` profile using `"buildType": "apk"`.
+
 ---
 
 ## D. Trivial frontend polish
 
+- `src/app/(tabs)/index.tsx:87` — home header uses `router.push('/(tabs)/notifications')`
+  from INSIDE the tabs navigator; pushing a tab route can stack a duplicate tab
+  navigator. Use `router.navigate('/(tabs)/notifications')` (or switch tab via href).
+- `src/lib/auth-context.tsx:52,63` — profile is fetched twice on cold start
+  (`getSession().then(fetchProfile)` AND the `onAuthStateChange` initial callback both
+  call it), and again on every token refresh. Deduplicate (e.g. only fetch in
+  `onAuthStateChange`, which fires initially anyway).
 - `src/app/(auth)/welcome.tsx:2` — `ImageBackground` imported but never used.
 - `src/app/(auth)/signup.tsx:32` — `data` from `signUp()` unused; note the flow assumes
   a session exists immediately after signup, which breaks when Supabase email
@@ -144,7 +163,12 @@ so it has no effect as configured.
 
 Priority order: **A1 → A2** (make `npm run typecheck` pass), **B1** (dead + button),
 **B2** (unreachable onboarding), **C1** (build-blocking assets), **B3** (sign-out
-stranding), then B4-B7, C2-C4, D.
+stranding), then B4-B7, C2-C6, D.
+
+Verification done on 2026-09-17: `npx tsc --noEmit` (5 errors, all listed in A) and
+`npx expo export --platform android` (Metro bundle compiles cleanly — no other
+import/syntax/module-resolution errors exist in the JS). Everything statically
+verifiable without a configured Supabase project or a physical device is covered here.
 
 All items above are frontend/config only. Backend work (RLS policies, storage bucket
 policies, notification triggers, real UUID seed rows) is intentionally out of scope
