@@ -29,12 +29,11 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Setup Java (Temurin 17 + Gradle cache)
-        uses: actions/setup-java@v4
+      - name: Setup Java (Temurin 17)
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 17
-          cache: gradle
 
       - name: Install JS dependencies
         run: npm ci
@@ -46,6 +45,17 @@ jobs:
         run: npx expo prebuild --platform android --clean --no-install
         env:
           EXPO_NO_TELEMETRY: 1
+
+      # Gradle cache must come AFTER prebuild, since android/ is generated
+      # (gitignored) and doesn't exist at checkout time.
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle*', 'android/**/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
 
       # The Expo SDK 51 template signs release builds with the debug keystore
       # by default (verified in android/app/build.gradle), so assembleRelease
