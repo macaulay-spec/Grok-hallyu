@@ -1,0 +1,4 @@
+export const colors={background:'#0A0A0A',surface:'#141414',elevated:'#1A1A1A',text:'#FAFAFA',secondary:'#A1A1A1',accent:'#E11D48',border:'#27272A',muted:'#71717A',error:'#EF4444'};
+export const spacing={xs:4,sm:8,md:12,lg:16,xl:20,xxl:24,xxxl:32,huge:40,giant:48,massive:64};
+export const radius={sm:8,md:12,lg:16,xl:20,xxl:24,full:999};
+export const typography={display:{fontSize:36,lineHeight:42,fontWeight:'800' as const},h1:{fontSize:28,lineHeight:34,fontWeight:'800' as const},h2:{fontSize:22,lineHeight:28,fontWeight:'700' as const},h3:{fontSize:18,lineHeight:24,fontWeight:'700' as const},body:{fontSize:16,lineHeight:24,fontWeight:'400' as const},medium:{fontSize:15,lineHeight:21,fontWeight:'600' as const},caption:{fontSize:13,lineHeight:18,fontWeight:'500' as const},button:{fontSize:16,lineHeight:20,fontWeight:'700' as const}};

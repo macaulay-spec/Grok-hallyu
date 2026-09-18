@@ -1,0 +1,12 @@
+create extension if not exists "uuid-ossp";
+create table if not exists profiles(id uuid primary key references auth.users(id) on delete cascade,display_name text not null,username text unique not null,avatar_url text,bio text default '',created_at timestamptz default now());
+create table if not exists dramas(id uuid primary key default uuid_generate_v4(),title text not null,poster_url text,year int,genres text[] default '{}',synopsis text default '',cast_text text[] default '{}');
+create table if not exists posts(id uuid primary key default uuid_generate_v4(),user_id uuid references profiles(id) on delete cascade not null,body text default '',image_url text,created_at timestamptz default now());
+create table if not exists post_dramas(post_id uuid references posts(id) on delete cascade,drama_id uuid references dramas(id) on delete cascade,primary key(post_id,drama_id));
+create table if not exists comments(id uuid primary key default uuid_generate_v4(),post_id uuid references posts(id) on delete cascade,user_id uuid references profiles(id) on delete cascade,body text not null,created_at timestamptz default now());
+create table if not exists likes(post_id uuid references posts(id) on delete cascade,user_id uuid references profiles(id) on delete cascade,primary key(post_id,user_id));
+create table if not exists saves(post_id uuid references posts(id) on delete cascade,user_id uuid references profiles(id) on delete cascade,primary key(post_id,user_id));
+create table if not exists follows_users(follower_id uuid references profiles(id) on delete cascade,following_id uuid references profiles(id) on delete cascade,primary key(follower_id,following_id));
+create table if not exists follows_dramas(user_id uuid references profiles(id) on delete cascade,drama_id uuid references dramas(id) on delete cascade,primary key(user_id,drama_id));
+create table if not exists notifications(id uuid primary key default uuid_generate_v4(),user_id uuid references profiles(id) on delete cascade,actor_id uuid references profiles(id) on delete cascade,type text not null,post_id uuid references posts(id) on delete cascade,read boolean default false,created_at timestamptz default now());
+create table if not exists reports(id uuid primary key default uuid_generate_v4(),reporter_id uuid references profiles(id) on delete cascade,post_id uuid references posts(id) on delete cascade,reason text not null,created_at timestamptz default now());

@@ -1,0 +1,1 @@
+import React from'react';import{Image,StyleSheet}from'react-native';export function Avatar({uri,size=44}:{uri:string;size?:number}){return <Image source={{uri}} style={[s.i,{width:size,height:size,borderRadius:size/2}]}/>}const s=StyleSheet.create({i:{backgroundColor:'#222'}});
