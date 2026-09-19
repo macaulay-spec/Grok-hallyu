@@ -12,3 +12,4 @@ The demo app runs without Supabase. Add the values from `.env.example` for backe
 npx expo run:android
 
 The included `assets/` folder contains the local visual assets used by the demo screens.
+deploy
