@@ -1,0 +1,1 @@
+{"expo":{"name":"Hallyu","slug":"hallyu","version":"1.0.0","orientation":"portrait","userInterfaceStyle":"dark","scheme":"hallyu","plugins":["expo-router","expo-image-picker"],"android":{"package":"com.hallyu.app"}}}
