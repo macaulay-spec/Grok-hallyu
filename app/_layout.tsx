@@ -11,6 +11,7 @@ import { colors } from '../constants/theme';
 import { AuthProvider, useAuth } from '../lib/auth';
 import { catalog } from '../lib/catalog';
 import { syncSeedCatalog } from '../lib/catalogSync';
+import { SyncProvider } from '../lib/data/sync';
 import { useNetwork } from '../lib/hooks';
 import { demoState, freshMemberState, GUEST_ID, guestState, StoreProvider, useSlice, useStore } from '../lib/store';
 import { ME } from '../lib/selectors';
@@ -38,6 +39,7 @@ export default function RootLayout() {
             <StatusBar style="light" backgroundColor={colors.canvas} />
             <AccountSync />
             <CatalogSync />
+            <SyncProvider />
             <Stack
               screenOptions={{
                 headerShown: false,

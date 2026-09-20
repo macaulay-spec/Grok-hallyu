@@ -201,7 +201,13 @@ export type Action =
   | { type: 'seenActivity' }
   | { type: 'outbox.add'; mutation: Mutation }
   | { type: 'outbox.update'; id: string; patch: Partial<Mutation> }
-  | { type: 'outbox.remove'; id: string };
+  | { type: 'outbox.remove'; id: string }
+  // sync bookkeeping (local-only; never enqueued)
+  | { type: 'postState'; id: string; state: NonNullable<Post['state']> }
+  | { type: 'removePost'; id: string }
+  | { type: 'commentState'; id: string; state: NonNullable<Comment['state']> }
+  | { type: 'removeComment'; id: string }
+  | { type: 'restoreKey'; slice: 'watchlist' | 'reactions' | 'dramaNotify'; key: string; value?: unknown };
 
 function toggle(list: string[], id: string, on?: boolean): string[] {
   const has = list.includes(id);
@@ -225,6 +231,26 @@ function reducer(s: AppState, a: Action): AppState {
       return { ...s, outbox: s.outbox.map((m) => (m.id === a.id ? { ...m, ...a.patch } : m)) };
     case 'outbox.remove':
       return { ...s, outbox: s.outbox.filter((m) => m.id !== a.id) };
+    case 'postState':
+      return { ...s, posts: s.posts.map((p) => (p.id === a.id ? { ...p, state: a.state } : p)) };
+    case 'removePost':
+      return { ...s, posts: s.posts.filter((p) => p.id !== a.id) };
+    case 'commentState':
+      return { ...s, comments: s.comments.map((c) => (c.id === a.id ? { ...c, state: a.state } : c)) };
+    case 'removeComment': {
+      const c = s.comments.find((x) => x.id === a.id);
+      return {
+        ...s,
+        comments: s.comments.filter((x) => x.id !== a.id),
+        posts: c && c.state !== 'deleted' ? s.posts.map((p) => (p.id === c.postId ? { ...p, commentCount: Math.max(0, p.commentCount - 1) } : p)) : s.posts,
+      };
+    }
+    case 'restoreKey': {
+      const next = { ...(s[a.slice] as Record<string, unknown>) };
+      if (a.value === undefined) delete next[a.key];
+      else next[a.key] = a.value;
+      return { ...s, [a.slice]: next };
+    }
     case 'replace':
       return { ...a.state, hydrated: true };
     case 'onboarding':
@@ -486,7 +512,23 @@ function deserialise(raw: string): Partial<AppState> | null {
  */
 export const useHallyu = create<AppState>()(() => initialState());
 
+/**
+ * Dispatch seam. `dispatch` is what screens call: it applies the action optimistically and hands
+ * (prev, action, next) to the installed middleware — the sync layer uses that to enqueue the
+ * mutation for the backend. `dispatchLocal` bypasses the middleware for bookkeeping actions.
+ */
+export type DispatchMiddleware = (prev: AppState, action: Action, next: AppState) => void;
+let middleware: DispatchMiddleware | null = null;
+export function setDispatchMiddleware(m: DispatchMiddleware | null): void {
+  middleware = m;
+}
 export function dispatch(action: Action): void {
+  const prev = useHallyu.getState();
+  const next = reducer(prev, action);
+  useHallyu.setState(next, true);
+  middleware?.(prev, action, next);
+}
+export function dispatchLocal(action: Action): void {
   useHallyu.setState(reducer(useHallyu.getState(), action), true);
 }
 

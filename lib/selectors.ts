@@ -47,12 +47,18 @@ export function isCommentVeiled(s: AppState, c: Comment, post?: Post): boolean {
   return isVeiled({ spoiler: c.spoiler, context: post?.context ?? {} }, dramaId, viewer(s), getDrama(s, dramaId), c.id);
 }
 
+/** Active for everyone; pending/failed (not yet accepted by the backend) only for their author. */
+export function isLive(s: Pick<AppState, 'profile'>, p: { state?: Post['state']; authorId: string }): boolean {
+  const st = p.state ?? 'active';
+  return st === 'active' || ((st === 'pending' || st === 'failed') && p.authorId === s.profile.id);
+}
+
 /** Posts that should never appear for this viewer (blocked/muted/deleted/hidden). */
 export function visiblePosts(s: AppState, posts: Post[] = s.posts): Post[] {
   const mutedWords = s.prefs.mutedWords.map((w) => w.toLowerCase());
   return posts.filter(
     (p) =>
-      (p.state ?? 'active') === 'active' &&
+      isLive(s, p) &&
       !s.blockedUsers.includes(p.authorId) &&
       !s.mutedUsers.includes(p.authorId) &&
       !(p.context.dramaId && s.mutedDramas.includes(p.context.dramaId)) &&
@@ -148,7 +154,7 @@ export function postsForActor(s: AppState, actorId: string): Post[] {
 }
 
 export function postsByUser(s: AppState, userId: string): Post[] {
-  return s.posts.filter((p) => p.authorId === userId && (p.state ?? 'active') === 'active').sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return s.posts.filter((p) => p.authorId === userId && isLive(s, p)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 export function commentsFor(s: AppState, postId: string): Comment[] {

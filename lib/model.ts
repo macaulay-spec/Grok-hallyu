@@ -134,7 +134,8 @@ export interface Post {
   commentCount: number;
   saveCount: number;
   shareCount: number;
-  state?: 'active' | 'deleted' | 'hidden' | 'pending';
+  /** pending/failed = waiting for / rejected by the backend (only ever true for your own content) */
+  state?: 'active' | 'deleted' | 'hidden' | 'pending' | 'failed';
 }
 
 export interface Comment {
@@ -147,7 +148,7 @@ export interface Comment {
   createdAt: string;
   spoiler: SpoilerLevel;
   reactions: ReactionCounts;
-  state?: 'active' | 'deleted' | 'hidden';
+  state?: 'active' | 'deleted' | 'hidden' | 'pending' | 'failed';
 }
 
 export interface WatchlistItem {

@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Animated, FlatList, NativeScrollEvent, NativeSyntheticEvent, Pressable, StyleSheet, View } from 'react-native';
 import { DramaRail } from '../../components/drama/DramaCard';
 import { PostCard } from '../../components/feed/PostCard';
 import { useTabBarMotion } from '../../components/navigation/TabBarMotion';
@@ -12,6 +12,7 @@ import { UserCard } from '../../components/people/UserRow';
 import { Avatar } from '../../components/ui/Avatar';
 import { Button } from '../../components/ui/Button';
 import { IconButton } from '../../components/ui/IconButton';
+import { useRefresh } from '../../components/ui/Refresh';
 import { Screen, useListPadding } from '../../components/ui/Screen';
 import { SectionHeader } from '../../components/ui/Section';
 import { Segmented } from '../../components/ui/Segmented';
@@ -21,9 +22,10 @@ import { Text } from '../../components/ui/Text';
 import { TopBar, Wordmark } from '../../components/ui/TopBar';
 import { colors, radius, space } from '../../constants/theme';
 import { useAuth } from '../../lib/auth';
-import { useApp } from '../../lib/hooks';
+import { haptic, useApp, useReduceMotion } from '../../lib/hooks';
 import { Post } from '../../lib/model';
 import { airingEpisodes, forYou, following, recommendedDramas, recommendedPeople, shorts, trendingDiscussions } from '../../lib/selectors';
+import { getState } from '../../lib/store';
 
 type Row = { key: string; kind: 'post'; post: Post; reason?: string } | { key: string; kind: 'shorts' } | { key: string; kind: 'dramas' } | { key: string; kind: 'people' } | { key: string; kind: 'discussions' } | { key: string; kind: 'guest' };
 
@@ -37,13 +39,61 @@ export default function Home() {
   const auth = useAuth();
   const { state, me, unread } = useApp();
   const [tab, setTab] = useState<'forYou' | 'following'>('forYou');
-  const [refreshing, setRefreshing] = useState(false);
   const listRef = useRef<FlatList<Row>>(null);
+  const { control: refreshControl, onRefresh: pull, refreshing } = useRefresh('home');
+  const reduceMotion = useReduceMotion(state.prefs.reduceMotion);
   const padding = useListPadding();
   const guest = auth.status !== 'signedIn';
 
   const tonight = useMemo(() => airingEpisodes(state, -30, 36).filter(({ drama }) => state.follows.dramas.includes(drama.id) || drama.status === 'airing').slice(0, 8), [state]);
-  const feed = useMemo(() => (tab === 'forYou' ? forYou(state) : following(state)), [state, tab]);
+  const liveFeed = useMemo(() => (tab === 'forYou' ? forYou(state) : following(state)), [state, tab]);
+
+  // Feed stability: the list you are reading never reshuffles under your thumb. New posts that
+  // arrive while you're scrolled down surface as a "New posts" pill; pulling down or tapping it
+  // re-syncs the visible feed with the live ranking.
+  const [feed, setFeed] = useState(liveFeed);
+  const atTop = useRef(true);
+  const shownHead = useRef<string | undefined>(liveFeed[0]?.post.id);
+  const newCount = useMemo(() => {
+    const shown = new Set(feed.map((r) => r.post.id));
+    return liveFeed.filter((r) => !shown.has(r.post.id)).length;
+  }, [liveFeed, feed]);
+  useEffect(() => {
+    // Same membership (edits, reactions, deletions) → adopt live data silently. New posts while at top → adopt too.
+    if (newCount === 0 || atTop.current) {
+      setFeed(liveFeed);
+      shownHead.current = liveFeed[0]?.post.id;
+    }
+  }, [liveFeed, newCount]);
+  useEffect(() => {
+    setFeed(liveFeed);
+    setPage(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+  const showNew = () => {
+    setFeed(liveFeed);
+    setPage(1);
+    listRef.current?.scrollToOffset({ offset: 0, animated: !reduceMotion });
+    haptic.select();
+  };
+
+  // Pagination: render 12 posts at a time; the footer spinner appears while the next page mounts.
+  const PAGE = 12;
+  const [page, setPage] = useState(1);
+  const [paging, setPaging] = useState(false);
+  const hasMore = feed.length > page * PAGE;
+  const loadMore = useCallback(() => {
+    if (!hasMore || paging) return;
+    setPaging(true);
+    setTimeout(() => {
+      setPage((p) => p + 1);
+      setPaging(false);
+    }, 350);
+  }, [hasMore, paging]);
+  const pillY = useRef(new Animated.Value(-60)).current;
+  useEffect(() => {
+    Animated.spring(pillY, { toValue: newCount > 0 && !atTop.current ? 0 : -60, useNativeDriver: true, damping: 18, stiffness: 220 }).start();
+  }, [newCount, pillY]);
   const shortList = useMemo(() => shorts(state), [state]);
   const recs = useMemo(() => recommendedDramas(state, 10), [state]);
   const people = useMemo(() => recommendedPeople(state, 6), [state]);
@@ -52,8 +102,8 @@ export default function Home() {
   const rows = useMemo<Row[]>(() => {
     const out: Row[] = [];
     if (guest) out.push({ key: 'guest', kind: 'guest' });
-    feed.forEach((r, i) => {
-      out.push({ key: r.post.id, kind: 'post', post: r.post, reason: tab === 'forYou' ? r.reason : r.reason });
+    feed.slice(0, page * PAGE).forEach((r, i) => {
+      out.push({ key: r.post.id, kind: 'post', post: r.post, reason: r.reason });
       if (tab === 'forYou') {
         if (i === 2 && shortList.length) out.push({ key: 'shorts', kind: 'shorts' });
         if (i === 5 && recs.length) out.push({ key: 'dramas', kind: 'dramas' });
@@ -63,12 +113,27 @@ export default function Home() {
     });
     if (tab === 'forYou' && feed.length && feed.length <= 5 && recs.length) out.push({ key: 'dramas', kind: 'dramas' });
     return out;
-  }, [feed, guest, tab, shortList.length, recs.length, people.length, discussions.length]);
+  }, [feed, page, guest, tab, shortList.length, recs.length, people.length, discussions.length]);
 
-  const onRefresh = useCallback(() => {
-    setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 700);
-  }, []);
+  const onRefresh = useCallback(async () => {
+    await pull();
+    const fresh = getState();
+    setFeed(tab === 'forYou' ? forYou(fresh) : following(fresh));
+    setPage(1);
+  }, [pull, tab]);
+
+  const onScroll = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      tabBar.onScroll(e);
+      const top = e.nativeEvent.contentOffset.y < 80;
+      if (top !== atTop.current) {
+        atTop.current = top;
+        if (top && newCount) showNew();
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tabBar.onScroll, newCount],
+  );
 
   const renderItem = useCallback(
     ({ item }: { item: Row }) => {
@@ -165,7 +230,7 @@ export default function Home() {
       <Segmented items={[{ key: 'forYou', label: 'For You' }, { key: 'following', label: 'Following', dot: tab !== 'following' && following(state).some((r) => new Date(r.post.createdAt) > new Date(state.lastSeenActivity)) && !guest }]} value={tab} onChange={(t) => { setTab(t); listRef.current?.scrollToOffset({ offset: 0, animated: false }); }} />
       <FlatList
         ref={listRef}
-        onScroll={tabBar.onScroll}
+        onScroll={onScroll}
         scrollEventThrottle={16}
         data={rows}
         keyExtractor={(r) => r.key}
@@ -173,12 +238,18 @@ export default function Home() {
         ListHeaderComponent={header}
         ListEmptyComponent={empty}
         contentContainerStyle={[padding, { paddingTop: space.x4 }]}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} colors={[colors.accent]} progressBackgroundColor={colors.surface2} />}
+        refreshControl={React.cloneElement(refreshControl, { onRefresh })}
+        onEndReached={loadMore}
+        onEndReachedThreshold={0.6}
         initialNumToRender={6}
         windowSize={7}
         removeClippedSubviews
         ListFooterComponent={
-          rows.length ? (
+          hasMore || paging ? (
+            <View style={styles.footer} accessibilityLabel="Loading more posts">
+              <ActivityIndicator color={colors.textTertiary} />
+            </View>
+          ) : rows.length ? (
             <View style={styles.footer}>
               <Ionicons name="checkmark-done-outline" size={18} color={colors.textTertiary} />
               <Text variant="caption" tone="tertiary">
@@ -189,6 +260,15 @@ export default function Home() {
           ) : null
         }
       />
+      {/* New posts pill */}
+      <Animated.View pointerEvents={newCount > 0 ? 'auto' : 'none'} style={[styles.pillHost, { transform: [{ translateY: pillY }] }]}>
+        <Pressable onPress={showNew} style={styles.pill} accessibilityRole="button" accessibilityLabel={`${newCount} new posts, scroll to top`}>
+          <Ionicons name="arrow-up" size={14} color={colors.onAccent} />
+          <Text variant="label" tone="onAccent">
+            {newCount === 1 ? '1 new post' : `${newCount} new posts`}
+          </Text>
+        </Pressable>
+      </Animated.View>
     </Screen>
   );
 }
@@ -198,4 +278,6 @@ const styles = StyleSheet.create({
   module: { paddingVertical: space.x6, borderBottomWidth: 1, borderBottomColor: colors.borderSubtle },
   footer: { alignItems: 'center', gap: space.x2, paddingVertical: space.x8 },
   dot: { position: 'absolute', top: 8, right: 8, width: 9, height: 9, borderRadius: 5, backgroundColor: colors.accent, borderWidth: 2, borderColor: colors.canvas },
+  pillHost: { position: 'absolute', top: 108, left: 0, right: 0, alignItems: 'center' },
+  pill: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 36, paddingHorizontal: 14, borderRadius: 18, backgroundColor: colors.accent, shadowColor: '#000', shadowOpacity: 0.35, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 6 },
 });

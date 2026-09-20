@@ -17,6 +17,7 @@ import { Button } from '../../components/ui/Button';
 import { Chip, ChipRow } from '../../components/ui/Chip';
 import { IconButton } from '../../components/ui/IconButton';
 import { Backdrop, Poster } from '../../components/ui/Poster';
+import { useRefresh } from '../../components/ui/Refresh';
 import { Screen, useListPadding } from '../../components/ui/Screen';
 import { KeyValue, ProgressBar, SectionHeader } from '../../components/ui/Section';
 import { Segmented } from '../../components/ui/Segmented';
@@ -46,6 +47,7 @@ export default function DramaHub() {
   const require = useRequireMember();
   const { width } = useLayout();
   const padding = useListPadding(false);
+  const refresh = useRefresh('drama');
   const drama = getDrama(params.id);
   const [tab, setTab] = useState<Tab>(params.tab ?? 'overview');
   const [filter, setFilter] = useState<Filter>('all');
@@ -339,15 +341,16 @@ export default function DramaHub() {
       }
     >
       {tab === 'episodes' ? (
-        <Animated.FlatList data={eps} keyExtractor={(e) => e.id} onScroll={onScroll} scrollEventThrottle={16} ListHeaderComponent={header} contentContainerStyle={padding} renderItem={({ item: e }) => <EpisodeCard drama={drama} episode={e} postCount={posts.filter((p) => p.context.season === e.season && p.context.episode === e.number).length} />} ListEmptyComponent={<EmptyState compact icon="film-outline" title="No episodes listed" body={drama.status === 'upcoming' ? 'The schedule lands closer to the premiere.' : 'We don’t have the episode list for this title yet.'} />} />
+        <Animated.FlatList data={eps} keyExtractor={(e) => e.id} onScroll={onScroll} scrollEventThrottle={16} refreshControl={refresh.control} ListHeaderComponent={header} contentContainerStyle={padding} renderItem={({ item: e }) => <EpisodeCard drama={drama} episode={e} postCount={posts.filter((p) => p.context.season === e.season && p.context.episode === e.number).length} />} ListEmptyComponent={<EmptyState compact icon="film-outline" title="No episodes listed" body={drama.status === 'upcoming' ? 'The schedule lands closer to the premiere.' : 'We don’t have the episode list for this title yet.'} />} />
       ) : tab === 'cast' ? (
-        <Animated.FlatList data={drama.cast} keyExtractor={(c) => c.actorId} onScroll={onScroll} scrollEventThrottle={16} ListHeaderComponent={header} contentContainerStyle={padding} renderItem={({ item: c }) => { const a = getActor(c.actorId); return a ? <ActorCard actor={a} role={c.role} layout="row" right={<FollowButton kind="actors" id={a.id} name={a.name} />} /> : null; }} ListEmptyComponent={<EmptyState compact icon="people-outline" title="Cast not available" body="We’re missing the credits for this title." />} />
+        <Animated.FlatList data={drama.cast} keyExtractor={(c) => c.actorId} onScroll={onScroll} scrollEventThrottle={16} refreshControl={refresh.control} ListHeaderComponent={header} contentContainerStyle={padding} renderItem={({ item: c }) => { const a = getActor(c.actorId); return a ? <ActorCard actor={a} role={c.role} layout="row" right={<FollowButton kind="actors" id={a.id} name={a.name} />} /> : null; }} ListEmptyComponent={<EmptyState compact icon="people-outline" title="Cast not available" body="We’re missing the credits for this title." />} />
       ) : (
         <Animated.FlatList
           data={data}
           keyExtractor={(p) => p.id}
           onScroll={onScroll}
           scrollEventThrottle={16}
+          refreshControl={refresh.control}
           ListHeaderComponent={header}
           contentContainerStyle={padding}
           renderItem={({ item: p }) => <PostCard post={p} hideContext />}

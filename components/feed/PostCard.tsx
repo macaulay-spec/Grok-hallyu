@@ -15,6 +15,7 @@ import { Text } from '../ui/Text';
 import { useToast } from '../ui/Toast';
 import { ReactionButton, ReactionSummary } from './Reactions';
 import { SpoilerBlock, SpoilerTag } from './SpoilerBlock';
+import { SyncStrip } from './SyncStrip';
 import { RichText } from './RichText';
 
 export const KIND_LABEL: Record<DiscussionKind, string> = { general: 'Discussion', theory: 'Theory', ending: 'Ending talk', character: 'Character', scene: 'Scene', question: 'Question' };
@@ -199,6 +200,9 @@ function PostCardBase({ post, reason, detail, hideContext, style, onOpenComments
         <SpoilerBlock id={post.id} level={post.spoiler} drama={drama} season={post.context.season} episode={post.context.episode} veiled={veiled}>
           {Body}
         </SpoilerBlock>
+
+        {/* Delivery state for your own content */}
+        <SyncStrip postId={post.id} state={post.state} noun={TYPE_LABEL[post.type].toLowerCase()} />
 
         {/* Hashtags */}
         {post.hashtags.length && !detail ? null : null}

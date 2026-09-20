@@ -6,7 +6,7 @@ import { AccessibilityInfo, Platform, useWindowDimensions } from 'react-native';
 import { marginFor, motion, windowClass, WindowClass } from '../constants/theme';
 import { useAuth } from './auth';
 import * as sel from './selectors';
-import { AppState, clearPersisted, dispatch, reset, useHallyu } from './store';
+import { AppState, clearPersisted, dispatch, reset, useHallyu, useSlice } from './store';
 
 /**
  * Tracked store access. Getters called during render register the exact values they read, and the
@@ -88,13 +88,15 @@ export function useRequireMember() {
   );
 }
 
+/** Device connectivity, honouring the dev network simulator (Settings → Data & storage). */
 export function useNetwork() {
   const [online, setOnline] = useState(true);
+  const simulatedOffline = useSlice((s) => s.prefs.devNetwork === 'offline');
   useEffect(() => {
     const sub = NetInfo.addEventListener((st) => setOnline(st.isConnected !== false && st.isInternetReachable !== false));
     return () => sub();
   }, []);
-  return online;
+  return online && !simulatedOffline;
 }
 
 export function useLayout(): { width: number; height: number; wc: WindowClass; margin: number; isLandscape: boolean; columns: number } {

@@ -10,6 +10,7 @@ import { ShortsRail } from '../../components/feed/ShortCard';
 import { TonightRail } from '../../components/home/TonightRail';
 import { SearchField } from '../../components/search/SearchField';
 import { Poster } from '../../components/ui/Poster';
+import { useRefresh } from '../../components/ui/Refresh';
 import { ScrollScreen, Screen } from '../../components/ui/Screen';
 import { SectionHeader } from '../../components/ui/Section';
 import { Tap } from '../../components/ui/Tap';
@@ -27,6 +28,7 @@ import { allDramas } from '../../lib/store';
 export default function Explore() {
   const router = useRouter();
   const tabBar = useTabBarMotion();
+  const refresh = useRefresh('explore');
   const { state } = useApp();
   const { width } = useLayout();
   const trending = useMemo(() => trendingDramas(state, 10), [state]);
@@ -43,7 +45,7 @@ export default function Explore() {
 
   return (
     <Screen header={<TopBar mode="root" title="Explore" large />}>
-      <ScrollScreen tabbed onScroll={tabBar.onScroll} scrollEventThrottle={16}>
+      <ScrollScreen tabbed onScroll={tabBar.onScroll} scrollEventThrottle={16} refreshControl={refresh.control}>
         <View style={{ paddingHorizontal: space.margin, marginBottom: space.x6 }}>
           <SearchField asButton placeholder="Dramas, actors, people, posts…" onPressButton={() => router.push('/search')} />
         </View>

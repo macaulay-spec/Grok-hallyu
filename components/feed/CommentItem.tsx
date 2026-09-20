@@ -13,6 +13,7 @@ import { useToast } from '../ui/Toast';
 import { ReactionButton } from './Reactions';
 import { RichText } from './RichText';
 import { SpoilerBlock, SpoilerTag } from './SpoilerBlock';
+import { SyncStrip } from './SyncStrip';
 
 interface CommentItemProps {
   comment: Comment;
@@ -82,6 +83,7 @@ function CommentItemBase({ comment, post, isReply, onReply, highlighted, replyCo
               <RichText text={comment.body} variant="bodySmall" />
             </Text>
           </SpoilerBlock>
+          <SyncStrip commentId={comment.id} state={comment.state} noun={isReply ? 'reply' : 'comment'} compact />
           <View style={styles.actions}>
             <ReactionButton targetId={comment.id} counts={comment.reactions} isComment compactMode />
             <Pressable onPress={() => require('reply to comments', () => onReply(comment))} hitSlop={8} accessibilityRole="button" accessibilityLabel="Reply">

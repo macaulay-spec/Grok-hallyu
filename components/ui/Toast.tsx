@@ -22,6 +22,10 @@ interface ToastValue {
 
 const Ctx = createContext<ToastValue>({ show: () => {} });
 
+/** Module-level bus so non-React code (sync engine, catalog) can toast through the mounted provider. */
+let bus: ToastValue['show'] | null = null;
+export const toast: ToastValue = { show: (o) => bus?.(o) };
+
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toast, setToast] = useState<ToastOptions | null>(null);
   const y = useRef(new Animated.Value(80)).current;
@@ -55,6 +59,13 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => () => {
     if (timer.current) clearTimeout(timer.current);
   }, []);
+
+  useEffect(() => {
+    bus = show;
+    return () => {
+      if (bus === show) bus = null;
+    };
+  }, [show]);
 
   const value = useMemo(() => ({ show }), [show]);
   const bottom = (toast?.aboveTabBar === false ? 0 : sizes.tabBar) + insets.bottom + space.x3;
