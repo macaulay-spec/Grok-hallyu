@@ -25,9 +25,21 @@ export const SPOILER_HELP: Record<SpoilerLevel, string> = {
  * hidden from *you* — "Spoiler for Episode 8 — you’re on Episode 5" earns more trust than a generic
  * warning, and tells you exactly how far to watch before tapping Reveal.
  */
-export function veilCopy(level: SpoilerLevel, dramaTitle?: string, season?: number, episode?: number, multiSeason = false, progress?: Pick<WatchlistItem, 'status' | 'season' | 'currentEpisode'>): string {
+export function veilCopy(
+  level: SpoilerLevel,
+  dramaTitle?: string,
+  season?: number,
+  episode?: number,
+  multiSeason = false,
+  progress?: Pick<WatchlistItem, 'status' | 'season' | 'currentEpisode'>,
+): string {
   const ep = episode ? `${multiSeason && season ? `S${season} ` : ''}Episode ${episode}` : undefined;
-  const at = progress && progress.status === 'watching' ? (progress.currentEpisode ? `you’re on ${multiSeason ? `S${progress.season} ` : ''}Episode ${progress.currentEpisode}` : 'you haven’t started yet') : undefined;
+  const at =
+    progress && progress.status === 'watching'
+      ? progress.currentEpisode
+        ? `you’re on ${multiSeason ? `S${progress.season} ` : ''}Episode ${progress.currentEpisode}`
+        : 'you haven’t started yet'
+      : undefined;
   const want = progress?.status === 'want';
   switch (level) {
     case 'episode':
@@ -90,4 +102,22 @@ export function hasWatched(wl: WatchlistItem | undefined, season: number, episod
   if (season < wl.season) return true;
   if (season > wl.season) return false;
   return wl.currentEpisode >= episode;
+}
+
+/**
+ * A soft safety net for the composer: if the text reads like a spoiler but no level is set, suggest
+ * one. Heuristic on purpose — it nudges, never blocks. Returns null when nothing looks risky.
+ */
+export function suggestSpoilerLevel(text: string, ctx: { episode?: number; totalEpisodes?: number } = {}): { level: Exclude<SpoilerLevel, 'none'>; reason: string } | null {
+  const t = text.toLowerCase();
+  if (t.length < 12) return null;
+  if (/\b(finale|final episode|last episode|the ending|ending was|how it ends|ends with|dies at the end|end of the show|last ep)\b/.test(t))
+    return { level: 'ending', reason: 'This talks about how it ends.' };
+  const nums = [...t.matchAll(/\b(?:ep|episode|e)\.?\s*(\d{1,3})\b/g)].map((m) => Number(m[1])).filter((n) => n > 0 && n < 200);
+  const max = nums.length ? Math.max(...nums) : 0;
+  if (max && ctx.totalEpisodes && max >= ctx.totalEpisodes) return { level: 'ending', reason: `Episode ${max} is the last one.` };
+  if (max && (!ctx.episode || max > ctx.episode)) return { level: 'episode', reason: `You mention Episode ${max}.` };
+  if (/\b(dies|died|killed|death|murderer|the killer is|turns out|plot twist|twist was|reveal(ed)? that|is actually|secretly|breaks? up|gets? married|pregnant|betray(s|ed)?)\b/.test(t))
+    return { level: ctx.episode ? 'episode' : 'season', reason: 'This sounds like a plot reveal.' };
+  return null;
 }
