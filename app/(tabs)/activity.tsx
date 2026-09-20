@@ -3,6 +3,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useMemo, useState } from 'react';
 import { Pressable, SectionList, StyleSheet, View } from 'react-native';
 import { Avatar } from '../../components/ui/Avatar';
+import { useTabBarMotion } from '../../components/navigation/TabBarMotion';
 import { Button } from '../../components/ui/Button';
 import { Poster } from '../../components/ui/Poster';
 import { Screen, useListPadding } from '../../components/ui/Screen';
@@ -23,6 +24,7 @@ const GROUP_LABEL: Record<NotificationGroup, string> = { social: 'Social', drama
 /** Activity — grouped, calm, actionable. Not an unread-number graveyard. */
 export default function Activity() {
   const router = useRouter();
+  const tabBar = useTabBarMotion();
   const auth = useAuth();
   const { state, dispatch, getUser, getDrama, getPost, getCollection } = useApp();
   const [tab, setTab] = useState<Tab>('all');
@@ -90,6 +92,8 @@ export default function Activity() {
     <Screen header={<TopBar mode="root" title="Activity" large right={counts.all ? <Button label="Mark all read" variant="ghost" size="sm" onPress={() => dispatch({ type: 'readNotifications', group: 'all' })} /> : null} />}>
       <Segmented scrollable items={[{ key: 'all', label: 'All', dot: counts.all > 0 }, { key: 'social', label: 'Social', dot: counts.social > 0 }, { key: 'drama', label: 'Dramas', dot: counts.drama > 0 }, { key: 'mentions', label: 'Mentions', dot: counts.mentions > 0 }, { key: 'system', label: 'System', dot: counts.system > 0 }]} value={tab} onChange={setTab} />
       <SectionList
+        onScroll={tabBar.onScroll}
+        scrollEventThrottle={16}
         sections={sections}
         keyExtractor={(n) => n.id}
         contentContainerStyle={[padding, sections.length ? null : { flex: 1 }]}

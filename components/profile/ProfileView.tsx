@@ -12,6 +12,7 @@ import { FollowButton } from '../drama/FollowButton';
 import { PostCard } from '../feed/PostCard';
 import { ShortTile } from '../feed/ShortCard';
 import { Avatar } from '../ui/Avatar';
+import { useTabBarMotion } from '../navigation/TabBarMotion';
 import { Button } from '../ui/Button';
 import { IconButton } from '../ui/IconButton';
 import { Poster } from '../ui/Poster';
@@ -26,6 +27,7 @@ type Tab = 'posts' | 'shorts' | 'reviews' | 'collections';
 
 /** Profile body shared by You and /user/[handle]. Owns the header, shelves, tabs and the private/blocked states. */
 export function ProfileView({ user, isMe, headerExtra }: { user: User; isMe: boolean; headerExtra?: React.ReactNode }) {
+  const tabBar = useTabBarMotion();
   const router = useRouter();
   const toast = useToast();
   const { state, dispatch, me, getDrama, watch } = useApp();
@@ -181,6 +183,8 @@ export function ProfileView({ user, isMe, headerExtra }: { user: User; isMe: boo
     <>
       {tab === 'collections' ? (
         <FlatList
+          onScroll={tabBar.onScroll}
+          scrollEventThrottle={16}
           data={collections}
           key="collections"
           numColumns={2}
@@ -193,6 +197,8 @@ export function ProfileView({ user, isMe, headerExtra }: { user: User; isMe: boo
         />
       ) : tab === 'shorts' ? (
         <FlatList
+          onScroll={tabBar.onScroll}
+          scrollEventThrottle={16}
           data={byTab}
           key="shorts"
           numColumns={3}
@@ -204,7 +210,7 @@ export function ProfileView({ user, isMe, headerExtra }: { user: User; isMe: boo
           ListEmptyComponent={<EmptyState icon="videocam-outline" title={emptyCopy.shorts.title} body={emptyCopy.shorts.body} actionLabel={emptyCopy.shorts.action} onAction={emptyCopy.shorts.go} />}
         />
       ) : (
-        <FlatList data={byTab} key={tab} keyExtractor={(p) => p.id} ListHeaderComponent={header} contentContainerStyle={padding} renderItem={({ item }) => <PostCard post={item} />} ListEmptyComponent={<EmptyState icon={tab === 'reviews' ? 'star-outline' : 'chatbubble-outline'} title={emptyCopy[tab].title} body={emptyCopy[tab].body} actionLabel={emptyCopy[tab].action} onAction={emptyCopy[tab].go} />} />
+        <FlatList onScroll={tabBar.onScroll} scrollEventThrottle={16} data={byTab} key={tab} keyExtractor={(p) => p.id} ListHeaderComponent={header} contentContainerStyle={padding} renderItem={({ item }) => <PostCard post={item} />} ListEmptyComponent={<EmptyState icon={tab === 'reviews' ? 'star-outline' : 'chatbubble-outline'} title={emptyCopy[tab].title} body={emptyCopy[tab].body} actionLabel={emptyCopy[tab].action} onAction={emptyCopy[tab].go} />} />
       )}
       <Sheet visible={menu} onClose={() => setMenu(false)} title={`@${user.handle}`}>
         <SheetRow icon="share-social-outline" label="Share profile" onPress={() => { setMenu(false); share(); }} />

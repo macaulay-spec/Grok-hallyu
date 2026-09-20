@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, BackHandler, Dimensions, KeyboardAvoidingView, Modal, PanResponder, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, motion, radius, space } from '../../constants/theme';
+import { springs } from '../../lib/motion';
 import { Text } from './Text';
 
 export interface SheetProps {
@@ -20,7 +21,7 @@ export interface SheetProps {
 
 /**
  * Bottom sheet: surface.2, top radius lg, 32×4 handle, overlay scrim.
- * Slide 260ms emphasized-decelerate in, 160ms out. Drag on the header to dismiss.
+ * Springs in (gentle), slides out in 160ms. Drag on the header to dismiss.
  */
 export function Sheet({ visible, onClose, title, subtitle, detent = 'content', blocking, children, footer, scroll = true, headerRight }: SheetProps) {
   const insets = useSafeAreaInsets();
@@ -41,7 +42,7 @@ export function Sheet({ visible, onClose, title, subtitle, detent = 'content', b
       setMounted(true);
       y.setValue(screenH);
       Animated.parallel([
-        Animated.timing(y, { toValue: 0, duration: motion.medium, useNativeDriver: true }),
+        Animated.spring(y, { toValue: 0, ...springs.gentle }),
         Animated.timing(scrim, { toValue: 1, duration: motion.medium, useNativeDriver: true }),
       ]).start();
     } else if (mounted) {
@@ -67,7 +68,7 @@ export function Sheet({ visible, onClose, title, subtitle, detent = 'content', b
       },
       onPanResponderRelease: (_, g) => {
         if ((g.dy > 120 || g.vy > 1.2) && !blocking) onClose();
-        else Animated.spring(y, { toValue: 0, useNativeDriver: true, damping: 20, stiffness: 260 }).start();
+        else Animated.spring(y, { toValue: 0, ...springs.gentle }).start();
       },
     }),
   ).current;

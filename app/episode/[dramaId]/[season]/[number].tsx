@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
-import { FlatList, Pressable, Share, StyleSheet, View } from 'react-native';
+import { Animated, Pressable, Share, StyleSheet, View } from 'react-native';
 import { CreateSheet } from '../../../../components/create/CreateSheet';
 import { episodeState } from '../../../../components/drama/EpisodeCard';
+import { LivePulse, LiveReactions } from '../../../../components/feed/LiveReactions';
 import { PostCard } from '../../../../components/feed/PostCard';
 import { ReactionMeter } from '../../../../components/feed/Reactions';
 import { Button } from '../../../../components/ui/Button';
@@ -16,9 +17,10 @@ import { EmptyState, ErrorState, InlineNotice } from '../../../../components/ui/
 import { Text } from '../../../../components/ui/Text';
 import { useToast } from '../../../../components/ui/Toast';
 import { TopBar } from '../../../../components/ui/TopBar';
-import { colors, radius, space } from '../../../../constants/theme';
+import { colors, fonts, radius, space } from '../../../../constants/theme';
 import { countdown, dayLabel, runtimeLabel, shortDate, timeOfDay } from '../../../../lib/format';
 import { haptic, useApp, useLayout, useRequireMember } from '../../../../lib/hooks';
+import { heroInterpolations, useScrollY, withAlpha } from '../../../../lib/motion';
 import { emptyReactions, Post } from '../../../../lib/model';
 import { getEpisode, postsForEpisode } from '../../../../lib/selectors';
 import { hasWatched } from '../../../../lib/spoiler';
@@ -42,6 +44,7 @@ export default function EpisodeRoom() {
   const [filter, setFilter] = useState<Filter>('all');
   const [create, setCreate] = useState(false);
   const [gateDismissed, setGateDismissed] = useState(false);
+  const { scrollY, onScroll } = useScrollY();
 
   const drama = getDrama(dramaId);
   const episode = drama ? getEpisode(drama, season, number) : undefined;
@@ -74,10 +77,20 @@ export default function EpisodeRoom() {
       toast.show({ message: number >= total ? `${drama.title} completed 🎉` : `Episode ${number} marked watched`, tone: 'success', icon: 'checkmark-circle' });
     });
 
+  const heroH = Math.min(300, Math.round(width * 9 / 16));
+  const hero = heroInterpolations(scrollY, heroH, heroH - 20);
+  const here = st === 'live' ? posts.length * 9 + 3 : 0;
+
   const header = (
     <View>
-      <Backdrop uri={episode.stillUrl ?? drama.backdropUrl ?? drama.posterUrl ?? drama.posterLocal} fallbackColor={drama.tone} width="100%" height={Math.min(300, Math.round(width * 9 / 16))} label={`Episode ${number} still`}>
+      <View pointerEvents="none" style={[styles.wash, { height: heroH + 180, backgroundColor: withAlpha(drama.tone, 0.5) }]} />
+      <Animated.View style={{ height: heroH, overflow: 'hidden', opacity: hero.heroFade, transform: [{ translateY: hero.parallax }, { scale: hero.stretch }] }}>
+      <Backdrop uri={episode.stillUrl ?? drama.backdropUrl ?? drama.posterUrl ?? drama.posterLocal} fallbackColor={drama.tone} width="100%" height={heroH} label={`Episode ${number} still`}>
         <View style={styles.scrim} />
+        <View pointerEvents="none" style={StyleSheet.absoluteFill} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+          <Text style={styles.numeral}>{String(number).padStart(2, '0')}</Text>
+        </View>
+        <LiveReactions counts={meter} active={st === 'live'} style={{ right: 0, bottom: 0 }} />
         <View style={styles.heroText}>
           <Pressable onPress={() => router.push(`/drama/${drama.id}`)} accessibilityRole="link" style={{ flexDirection: 'row', alignItems: 'center', gap: space.x2 }}>
             <Poster drama={drama} width={28} rounded={4} />
@@ -91,15 +104,16 @@ export default function EpisodeRoom() {
             {episode.title ? ` — ${episode.title}` : ''}
           </Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            {st === 'live' ? <View style={styles.live} /> : null}
-            <Text variant="caption" style={{ color: colors.textSecondary }}>
-              {st === 'live' ? 'Just aired · room is live' : st === 'upcoming' && episode.airDate ? `Airs ${dayLabel(episode.airDate)} · ${timeOfDay(episode.airDate)} · ${countdown(episode.airDate)}` : [episode.airDate ? shortDate(episode.airDate) : 'TBA', runtimeLabel(episode.runtime)].filter(Boolean).join(' · ')}
+            {st === 'live' ? <LivePulse size={6} style={{ marginLeft: -6 }} /> : null}
+            <Text variant="caption" style={{ color: st === 'live' ? colors.onMedia : colors.textSecondary }}>
+              {st === 'live' ? `Live · ${here} in the room` : st === 'upcoming' && episode.airDate ? `Airs ${dayLabel(episode.airDate)} · ${timeOfDay(episode.airDate)} · ${countdown(episode.airDate)}` : [episode.airDate ? shortDate(episode.airDate) : 'TBA', runtimeLabel(episode.runtime)].filter(Boolean).join(' · ')}
               {' · '}
               {posts.length} {posts.length === 1 ? 'post' : 'posts'}
             </Text>
           </View>
         </View>
       </Backdrop>
+      </Animated.View>
 
       <View style={styles.nav}>
         <Button label={prev ? `Ep ${prev.number}` : 'First'} icon="chevron-back" variant="ghost" size="sm" disabled={!prev} onPress={() => prev && router.replace(`/episode/${drama.id}/${season}/${prev.number}`)} />
@@ -167,10 +181,12 @@ export default function EpisodeRoom() {
   );
 
   return (
-    <Screen header={<TopBar mode="stack" transparent title={`Ep ${number}`} subtitle={drama.title} right={<IconButton icon="share-social-outline" label="Share" onPress={() => Share.share({ message: `${drama.title} Ep ${number} on Hallyu — https://hallyu.app/d/${drama.id}/e/${season}/${number}` })} />} />}>
-      <FlatList<Post>
+    <Screen header={<TopBar mode="stack" transparent title={`Ep ${number}`} subtitle={drama.title} backgroundOpacity={hero.barOpacity} titleOpacity={hero.titleOpacity} titleRise={hero.titleRise} right={<IconButton icon="share-social-outline" label="Share" onPress={() => Share.share({ message: `${drama.title} Ep ${number} on Hallyu — https://hallyu.app/d/${drama.id}/e/${season}/${number}` })} />} />}>
+      <Animated.FlatList<Post>
         data={filtered}
         keyExtractor={(p) => p.id}
+        onScroll={onScroll}
+        scrollEventThrottle={16}
         ListHeaderComponent={header}
         contentContainerStyle={padding}
         renderItem={({ item: p }) => <PostCard post={p} hideContext />}
@@ -184,6 +200,8 @@ export default function EpisodeRoom() {
 
 const styles = StyleSheet.create({
   scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(10,10,10,0.5)' },
+  wash: { position: 'absolute', top: 0, left: 0, right: 0 },
+  numeral: { position: 'absolute', right: space.x2, top: 44, fontFamily: fonts.extrabold, fontSize: 132, lineHeight: 132, letterSpacing: -6, color: 'rgba(255,255,255,0.10)' },
   heroText: { position: 'absolute', left: space.margin, right: space.margin, bottom: space.x4, gap: 6 },
   live: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.live },
   nav: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: space.x2, paddingVertical: space.x2 },

@@ -3,7 +3,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Pressable, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 import { colors, motion, radius, space } from '../../constants/theme';
 import { compact } from '../../lib/format';
-import { haptic, useApp, useRequireMember } from '../../lib/hooks';
+import { haptic, useApp, useReduceMotion, useRequireMember } from '../../lib/hooks';
+import { springs } from '../../lib/motion';
 import { ReactionCounts, ReactionKind, REACTIONS } from '../../lib/model';
 import { reactionTotal, topReactions } from '../../lib/selectors';
 import { Sheet } from '../ui/Sheet';
@@ -73,20 +74,38 @@ export function ReactionPicker({ visible, onClose, current, onPick }: { visible:
   return (
     <Sheet visible={visible} onClose={onClose} title="How did it land?">
       <View style={styles.pickerRow}>
-        {REACTIONS.map((r) => {
+        {REACTIONS.map((r, i) => {
           const active = current === r.kind;
           return (
-            <Pressable key={r.kind} onPress={() => onPick(r.kind)} style={[styles.pick, active ? { backgroundColor: colors.accentSoft, borderColor: REACTION_COLOR[r.kind] } : null]} accessibilityRole="button" accessibilityState={{ selected: active }} accessibilityLabel={r.label}>
-              <ReactionGlyph kind={r.kind} size={26} active />
-              <Text variant="caption" style={{ color: active ? colors.textPrimary : colors.textSecondary }}>
-                {r.label}
-              </Text>
-            </Pressable>
+            <Stagger key={r.kind} index={i} visible={visible}>
+              <Pressable onPress={() => onPick(r.kind)} style={[styles.pick, active ? { backgroundColor: colors.accentSoft, borderColor: REACTION_COLOR[r.kind] } : null]} accessibilityRole="button" accessibilityState={{ selected: active }} accessibilityLabel={r.label}>
+                <ReactionGlyph kind={r.kind} size={26} active />
+                <Text variant="caption" style={{ color: active ? colors.textPrimary : colors.textSecondary }}>
+                  {r.label}
+                </Text>
+              </Pressable>
+            </Stagger>
           );
         })}
       </View>
     </Sheet>
   );
+}
+
+/** 30ms-per-item entrance for the picker: glyphs rise into place instead of appearing. */
+function Stagger({ index, visible, children }: { index: number; visible: boolean; children: React.ReactNode }) {
+  const reduce = useReduceMotion();
+  const a = useRef(new Animated.Value(reduce ? 1 : 0)).current;
+  useEffect(() => {
+    if (!visible) return;
+    if (reduce) {
+      a.setValue(1);
+      return;
+    }
+    a.setValue(0);
+    Animated.spring(a, { toValue: 1, delay: 60 + index * 30, ...springs.snappy }).start();
+  }, [visible, index, a, reduce]);
+  return <Animated.View style={{ opacity: a, transform: [{ translateY: a.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) }, { scale: a.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] }) }] }}>{children}</Animated.View>;
 }
 
 /** Stacked glyphs + total: "♥ 💧 ⚡ 412" — the summary shown on cards. */

@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React from 'react';
-import { StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
+import { Animated, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, sizes, space } from '../../constants/theme';
 import { IconButton } from './IconButton';
@@ -20,9 +20,13 @@ interface TopBarProps {
   style?: StyleProp<ViewStyle>;
   large?: boolean; // titleLarge
   safeTop?: boolean;
+  /** collapsing-hero support: the bar background fades in and the title rises in as the hero scrolls away */
+  backgroundOpacity?: Animated.Value | Animated.AnimatedInterpolation<number>;
+  titleOpacity?: Animated.Value | Animated.AnimatedInterpolation<number>;
+  titleRise?: Animated.Value | Animated.AnimatedInterpolation<number>;
 }
 
-export function TopBar({ title, subtitle, mode = 'stack', onBack, right, left, transparent, center, style, large, safeTop = true }: TopBarProps) {
+export function TopBar({ title, subtitle, mode = 'stack', onBack, right, left, transparent, center, style, large, safeTop = true, backgroundOpacity, titleOpacity, titleRise }: TopBarProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const back = () => {
@@ -32,6 +36,7 @@ export function TopBar({ title, subtitle, mode = 'stack', onBack, right, left, t
   };
   return (
     <View style={[styles.wrap, { paddingTop: safeTop ? insets.top : 0 }, transparent ? styles.transparent : null, style]}>
+      {backgroundOpacity ? <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: colors.canvas, opacity: backgroundOpacity }]} /> : null}
       <View style={styles.bar}>
         <View style={styles.side}>
           {left ?? (mode === 'stack' ? <IconButton icon="chevron-back" label="Back" onPress={back} tone={transparent ? 'onMedia' : 'default'} filled={transparent} /> : mode === 'modal' ? <IconButton icon="close" label="Close" onPress={back} tone={transparent ? 'onMedia' : 'default'} filled={transparent} /> : null)}
@@ -39,7 +44,7 @@ export function TopBar({ title, subtitle, mode = 'stack', onBack, right, left, t
         <View style={styles.center} pointerEvents="box-none">
           {center ??
             (title ? (
-              <View style={{ alignItems: mode === 'root' && !left ? 'flex-start' : 'center', flex: 1 }}>
+              <Animated.View style={[{ alignItems: mode === 'root' && !left ? 'flex-start' : 'center', flex: 1 }, titleOpacity ? { opacity: titleOpacity } : null, titleRise ? { transform: [{ translateY: titleRise }] } : null]}>
                 <Text variant={large ? 'titleLarge' : 'title'} numberOfLines={1} style={transparent ? { color: colors.onMedia } : null}>
                   {title}
                 </Text>
@@ -48,7 +53,7 @@ export function TopBar({ title, subtitle, mode = 'stack', onBack, right, left, t
                     {subtitle}
                   </Text>
                 ) : null}
-              </View>
+              </Animated.View>
             ) : null)}
         </View>
         <View style={[styles.side, { justifyContent: 'flex-end' }]}>{right}</View>

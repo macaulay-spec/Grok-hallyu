@@ -23,7 +23,7 @@ export function Poster({ drama, width, style, rounded = radius.sm, children }: P
   const source = drama.posterLocal ?? (drama.posterUrl ? { uri: drama.posterUrl } : null);
   const titleSize = Math.max(11, Math.min(18, width / 7));
   return (
-    <View style={[{ width, height, borderRadius: rounded, backgroundColor: drama.tone, overflow: 'hidden' }, style]} accessibilityRole="image" accessibilityLabel={`${drama.title} poster`}>
+    <View style={[{ width, height, borderRadius: rounded, backgroundColor: drama.tone, overflow: 'hidden' }, width >= 56 ? styles.edge : null, style]} accessibilityRole="image" accessibilityLabel={`${drama.title} poster`}>
       {source && !failed ? (
         <Image source={source} style={{ width, height }} contentFit="cover" transition={200} cachePolicy="memory-disk" onError={() => setFailed(true)} recyclingKey={drama.title} />
       ) : (
@@ -60,4 +60,5 @@ export function Backdrop({ uri, fallbackColor, width, height, children, style, l
 const styles = StyleSheet.create({
   fallback: { flex: 1, padding: 10, paddingTop: 14, justifyContent: 'flex-start' },
   rule: { width: 18, height: 2, backgroundColor: colors.accent, marginBottom: 8, borderRadius: 1 },
+  edge: { borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
 });

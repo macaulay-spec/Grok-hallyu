@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import React, { useMemo } from 'react';
 import { FlatList, Pressable, StyleSheet, View } from 'react-native';
 import { CollectionCard } from '../../components/collections/CollectionCard';
+import { useTabBarMotion } from '../../components/navigation/TabBarMotion';
 import { ActorRail } from '../../components/drama/ActorCard';
 import { DramaRail } from '../../components/drama/DramaCard';
 import { PostCard } from '../../components/feed/PostCard';
@@ -11,6 +12,7 @@ import { SearchField } from '../../components/search/SearchField';
 import { Poster } from '../../components/ui/Poster';
 import { ScrollScreen, Screen } from '../../components/ui/Screen';
 import { SectionHeader } from '../../components/ui/Section';
+import { Tap } from '../../components/ui/Tap';
 import { Text } from '../../components/ui/Text';
 import { TopBar } from '../../components/ui/TopBar';
 import { colors, radius, space } from '../../constants/theme';
@@ -24,6 +26,7 @@ import { allDramas } from '../../lib/store';
 /** Explore — editorial browsing. Search is a different job and lives one tap away. */
 export default function Explore() {
   const router = useRouter();
+  const tabBar = useTabBarMotion();
   const { state } = useApp();
   const { width } = useLayout();
   const trending = useMemo(() => trendingDramas(state, 10), [state]);
@@ -40,27 +43,27 @@ export default function Explore() {
 
   return (
     <Screen header={<TopBar mode="root" title="Explore" large />}>
-      <ScrollScreen tabbed>
+      <ScrollScreen tabbed onScroll={tabBar.onScroll} scrollEventThrottle={16}>
         <View style={{ paddingHorizontal: space.margin, marginBottom: space.x6 }}>
           <SearchField asButton placeholder="Dramas, actors, people, posts…" onPressButton={() => router.push('/search')} />
         </View>
 
         {lead ? (
-          <Pressable onPress={() => router.push(`/drama/${lead.id}`)} style={[styles.hero, { width: heroW, backgroundColor: lead.tone }]} accessibilityRole="button" accessibilityLabel={`Trending: ${lead.title}`}>
-            <Poster drama={lead} width={heroW} rounded={radius.lg} style={{ height: 220, opacity: 0.55, position: 'absolute' }} />
+          <Tap onPress={() => router.push(`/drama/${lead.id}`)} style={[styles.hero, { width: heroW, backgroundColor: lead.tone }]} accessibilityRole="button" accessibilityLabel={`Trending: ${lead.title}`}>
+            <Poster drama={lead} width={heroW} rounded={radius.lg} style={{ height: 260, opacity: 0.55, position: 'absolute' }} />
             <View style={styles.heroScrim} />
             <View style={styles.heroBody}>
               <Text variant="overline" tone="accent">
                 Trending · {compact(lead.followerCount)} fans
               </Text>
-              <Text variant="headline" style={{ color: colors.onMedia }} numberOfLines={2}>
+              <Text variant={lead.title.length <= 22 ? 'display' : 'headline'} style={{ color: colors.onMedia, letterSpacing: -0.8 }} numberOfLines={2}>
                 {lead.title}
               </Text>
               <Text variant="bodySmall" style={{ color: colors.textSecondary }} numberOfLines={2}>
                 {lead.synopsis}
               </Text>
             </View>
-          </Pressable>
+          </Tap>
         ) : null}
 
         <View style={styles.section}>
@@ -152,7 +155,7 @@ export default function Explore() {
 }
 
 const styles = StyleSheet.create({
-  hero: { alignSelf: 'center', height: 220, borderRadius: radius.lg, overflow: 'hidden', marginBottom: space.section, justifyContent: 'flex-end' },
+  hero: { alignSelf: 'center', height: 260, borderRadius: radius.lg, overflow: 'hidden', marginBottom: space.section, justifyContent: 'flex-end', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
   heroScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(10,10,10,0.45)' },
   heroBody: { padding: space.x4, gap: 4 },
   section: { marginBottom: space.section },

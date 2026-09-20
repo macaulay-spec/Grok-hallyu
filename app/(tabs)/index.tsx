@@ -4,6 +4,8 @@ import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
 import { DramaRail } from '../../components/drama/DramaCard';
 import { PostCard } from '../../components/feed/PostCard';
+import { useTabBarMotion } from '../../components/navigation/TabBarMotion';
+
 import { ShortsRail } from '../../components/feed/ShortCard';
 import { TonightRail } from '../../components/home/TonightRail';
 import { UserCard } from '../../components/people/UserRow';
@@ -31,6 +33,7 @@ type Row = { key: string; kind: 'post'; post: Post; reason?: string } | { key: s
  */
 export default function Home() {
   const router = useRouter();
+  const tabBar = useTabBarMotion();
   const auth = useAuth();
   const { state, me, unread } = useApp();
   const [tab, setTab] = useState<'forYou' | 'following'>('forYou');
@@ -162,6 +165,8 @@ export default function Home() {
       <Segmented items={[{ key: 'forYou', label: 'For You' }, { key: 'following', label: 'Following', dot: tab !== 'following' && following(state).some((r) => new Date(r.post.createdAt) > new Date(state.lastSeenActivity)) && !guest }]} value={tab} onChange={(t) => { setTab(t); listRef.current?.scrollToOffset({ offset: 0, animated: false }); }} />
       <FlatList
         ref={listRef}
+        onScroll={tabBar.onScroll}
+        scrollEventThrottle={16}
         data={rows}
         keyExtractor={(r) => r.key}
         renderItem={renderItem}

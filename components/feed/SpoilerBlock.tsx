@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useRef, useState } from 'react';
 import { Animated, Pressable, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 import { colors, motion, radius, space } from '../../constants/theme';
-import { haptic, useApp, useRequireMember } from '../../lib/hooks';
+import { haptic, useApp, useReduceMotion, useRequireMember } from '../../lib/hooks';
 import { Drama, SpoilerLevel } from '../../lib/model';
 import { veilCopy } from '../../lib/spoiler';
 import { Text } from '../ui/Text';
@@ -30,7 +30,10 @@ export function SpoilerBlock({ id, level, drama, season, episode, veiled, childr
   const require = useRequireMember();
   const toast = useToast();
   const [showing, setShowing] = useState(!veiled);
+  const [dissolving, setDissolving] = useState(false);
   const fade = useRef(new Animated.Value(veiled ? 0 : 1)).current;
+  const veilA = useRef(new Animated.Value(1)).current;
+  const reduce = useReduceMotion();
   if (!veiled && !showing) setShowing(true);
 
   const reveal = (markWatched?: boolean) => {
@@ -43,26 +46,26 @@ export function SpoilerBlock({ id, level, drama, season, episode, veiled, childr
         toast.show({ message: `Marked ${drama.title} Ep ${episode} watched`, icon: 'checkmark-circle' });
       });
     }
-    setShowing(true);
-    Animated.timing(fade, { toValue: 1, duration: motion.medium, useNativeDriver: true }).start();
+    if (reduce) {
+      fade.setValue(1);
+      setShowing(true);
+      return;
+    }
+    // The unveil: the real words rise in beneath the veil while the veil itself dissolves.
+    setDissolving(true);
+    fade.setValue(0);
+    veilA.setValue(1);
+    Animated.parallel([
+      Animated.timing(fade, { toValue: 1, duration: motion.long, useNativeDriver: true }),
+      Animated.timing(veilA, { toValue: 0, duration: motion.medium, delay: 60, useNativeDriver: true }),
+    ]).start(() => {
+      setShowing(true);
+      setDissolving(false);
+    });
   };
 
-  if (showing) {
-    return (
-      <Animated.View style={[{ opacity: fade }, style]}>
-        {children}
-        {veiled ? (
-          <Text variant="caption" tone="tertiary" style={{ marginTop: space.x1 }}>
-            Revealed · {veilCopy(level, undefined, season, episode, (drama?.seasons.length ?? 1) > 1)}
-          </Text>
-        ) : null}
-      </Animated.View>
-    );
-  }
-
-  const canMarkWatched = level === 'episode' && !!drama && !!episode && watch(drama.id)?.status !== 'completed';
-  return (
-    <View style={[styles.veil, compact ? styles.veilCompact : null, style]} accessibilityRole="button" accessibilityLabel={`${veilCopy(level, drama?.title, season, episode, (drama?.seasons.length ?? 1) > 1)}. Double tap to reveal.`} accessibilityHint="Hidden spoiler">
+  const veilBox = (
+    <View style={[styles.veil, compact ? styles.veilCompact : null]} accessibilityRole="button" accessibilityLabel={`${veilCopy(level, drama?.title, season, episode, (drama?.seasons.length ?? 1) > 1)}. Double tap to reveal.`} accessibilityHint="Hidden spoiler">
       <View style={styles.veilHeader}>
         <Ionicons name="eye-off-outline" size={compact ? 14 : 16} color={colors.textSecondary} />
         <Text variant={compact ? 'caption' : 'label'} tone="secondary" style={{ flex: 1 }} numberOfLines={2}>
@@ -73,7 +76,7 @@ export function SpoilerBlock({ id, level, drama, season, episode, veiled, childr
         <Pressable onPress={() => reveal(false)} style={styles.veilBtn} accessibilityRole="button" accessibilityLabel="Reveal">
           <Text variant="label">Reveal</Text>
         </Pressable>
-        {canMarkWatched ? (
+        {level === 'episode' && !!drama && !!episode && watch(drama.id)?.status !== 'completed' ? (
           <Pressable onPress={() => reveal(true)} style={styles.veilBtn} accessibilityRole="button" accessibilityLabel={`Reveal and mark episode ${episode} watched`}>
             <Text variant="label" tone="accent">
               I’ve seen Ep {episode}
@@ -83,6 +86,28 @@ export function SpoilerBlock({ id, level, drama, season, episode, veiled, childr
       </View>
     </View>
   );
+
+  if (showing || dissolving) {
+    return (
+      <View style={style}>
+        <Animated.View style={{ opacity: fade, transform: [{ translateY: fade.interpolate({ inputRange: [0, 1], outputRange: [6, 0] }) }] }}>
+          {children}
+          {veiled ? (
+            <Text variant="caption" tone="tertiary" style={{ marginTop: space.x1 }}>
+              Revealed · {veilCopy(level, undefined, season, episode, (drama?.seasons.length ?? 1) > 1)}
+            </Text>
+          ) : null}
+        </Animated.View>
+        {dissolving ? (
+          <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { opacity: veilA, transform: [{ scale: veilA.interpolate({ inputRange: [0, 1], outputRange: [0.985, 1] }) }] }]}>
+            {veilBox}
+          </Animated.View>
+        ) : null}
+      </View>
+    );
+  }
+
+  return <View style={style}>{veilBox}</View>;
 }
 
 /** Small tag shown next to metadata when a post carries a spoiler level (even when unveiled). */

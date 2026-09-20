@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
-import { FlatList, Pressable, Share, StyleSheet, View } from 'react-native';
+import { Animated, FlatList, Pressable, Share, StyleSheet, View } from 'react-native';
 import { AddToCollectionSheet } from '../../components/collections/AddToCollectionSheet';
 import { CollectionCard } from '../../components/collections/CollectionCard';
 import { ActorCard, ActorRail } from '../../components/drama/ActorCard';
@@ -30,6 +30,7 @@ import { colors, radius, sizes, space } from '../../constants/theme';
 import { catalog } from '../../lib/catalog';
 import { compact, countdown, dayLabel, timeOfDay } from '../../lib/format';
 import { useApp, useLayout, useLoad, useRequireMember } from '../../lib/hooks';
+import { heroInterpolations, useArrive, useScrollY, withAlpha } from '../../lib/motion';
 import { emptyReactions, Post, PostType } from '../../lib/model';
 import { collectionsContaining, postsForDrama, relatedDramas } from '../../lib/selectors';
 
@@ -54,6 +55,9 @@ export default function DramaHub() {
   const [collect, setCollect] = useState(false);
   const [create, setCreate] = useState(false);
   const [synopsisOpen, setSynopsisOpen] = useState(false);
+  const { scrollY, onScroll } = useScrollY();
+  const arrivePoster = useArrive(0);
+  const arriveTitle = useArrive(60);
 
   // Thin (search-imported) records get enriched from the catalog provider.
   const thin = !!drama?.provider && drama.episodes.length === 0 && drama.cast.length === 0;
@@ -90,20 +94,29 @@ export default function DramaHub() {
   const heroH = Math.min(420, Math.round(width * 9 / 16));
   const total = drama.seasons.find((s) => s.number === (item?.season ?? 1))?.episodeCount ?? drama.episodeCount;
   const share = () => Share.share({ message: `${drama.title} on Hallyu — https://hallyu.app/d/${drama.id}` });
+  const hero = heroInterpolations(scrollY, heroH, heroH + 8);
+  const editorial = drama.title.length <= 22;
 
   const header = (
     <View>
-      <Backdrop uri={drama.backdropUrl ?? drama.posterUrl ?? drama.posterLocal} fallbackColor={drama.tone} width="100%" height={heroH} label={`${drama.title} backdrop`}>
-        <View style={styles.heroScrim} />
-      </Backdrop>
+      {/* Poster-lit surface: the drama's own tone washes the hero block and the title area beneath it. */}
+      <View pointerEvents="none" style={[styles.wash, { height: heroH + 220, backgroundColor: withAlpha(drama.tone, 0.55) }]} />
+      <View pointerEvents="none" style={[styles.wash, { top: heroH + 220, height: 100, backgroundColor: withAlpha(drama.tone, 0.22) }]} />
+      <Animated.View style={{ height: heroH, overflow: 'hidden', opacity: hero.heroFade, transform: [{ translateY: hero.parallax }, { scale: hero.stretch }] }}>
+        <Backdrop uri={drama.backdropUrl ?? drama.posterUrl ?? drama.posterLocal} fallbackColor={drama.tone} width="100%" height={heroH} label={`${drama.title} backdrop`}>
+          <View style={styles.heroScrim} />
+        </Backdrop>
+      </Animated.View>
       <View style={styles.headRow}>
-        <Poster drama={drama} width={sizes.poster.m} style={{ marginTop: -56 }} />
-        <View style={{ flex: 1, gap: 2 }}>
-          <Text variant="headline" numberOfLines={2} accessibilityRole="header">
+        <Animated.View style={arrivePoster}>
+          <Poster drama={drama} width={sizes.poster.m} style={[{ marginTop: -56 }, styles.posterEdge]} />
+        </Animated.View>
+        <Animated.View style={[{ flex: 1, gap: 2 }, arriveTitle]}>
+          <Text variant={editorial ? 'display' : 'headline'} numberOfLines={3} accessibilityRole="header" style={editorial ? styles.editorialTitle : styles.headlineTitle}>
             {drama.title}
           </Text>
           {drama.originalTitle ? (
-            <Text variant="bodySmall" tone="secondary">
+            <Text variant="bodySmall" tone="secondary" style={{ marginTop: 2 }}>
               {drama.originalTitle}
             </Text>
           ) : null}
@@ -117,7 +130,7 @@ export default function DramaHub() {
             {drama.title} fandom · {compact(drama.followerCount + (following ? 1 : 0))} fans{talking ? ` · ${compact(talking)} talking this week` : ''}
             {drama.rating ? ` · ★ ${drama.rating.toFixed(1)}` : ''}
           </Text>
-        </View>
+        </Animated.View>
       </View>
       <ChipRow style={{ paddingHorizontal: space.margin, marginTop: space.x3 }}>
         {drama.genres.map((g) => (
@@ -132,7 +145,7 @@ export default function DramaHub() {
       </View>
 
       {liveEp || (next && drama.status !== 'completed') ? (
-        <Pressable onPress={() => router.push(`/episode/${drama.id}/${(liveEp ?? next)!.season}/${(liveEp ?? next)!.number}`)} style={styles.airing} accessibilityRole="button">
+        <Pressable onPress={() => router.push(`/episode/${drama.id}/${(liveEp ?? next)!.season}/${(liveEp ?? next)!.number}`)} style={[styles.airing, liveEp ? { backgroundColor: colors.accentSoft } : null]} accessibilityRole="button">
           <View style={[styles.dot, { backgroundColor: liveEp ? colors.live : colors.textTertiary }]} />
           <Text variant="label" style={{ flex: 1 }}>
             {liveEp ? `Episode ${liveEp.number} just aired — the room is live` : `Next: Episode ${next!.number}${next!.airDate ? ` · ${dayLabel(next!.airDate)} ${timeOfDay(next!.airDate)} · ${countdown(next!.airDate)}` : ''}`}
@@ -313,6 +326,9 @@ export default function DramaHub() {
           mode="stack"
           transparent
           title={drama.title}
+          backgroundOpacity={hero.barOpacity}
+          titleOpacity={hero.titleOpacity}
+          titleRise={hero.titleRise}
           right={
             <>
               <IconButton icon="share-social-outline" label="Share" onPress={share} />
@@ -323,13 +339,15 @@ export default function DramaHub() {
       }
     >
       {tab === 'episodes' ? (
-        <FlatList data={eps} keyExtractor={(e) => e.id} ListHeaderComponent={header} contentContainerStyle={padding} renderItem={({ item: e }) => <EpisodeCard drama={drama} episode={e} postCount={posts.filter((p) => p.context.season === e.season && p.context.episode === e.number).length} />} ListEmptyComponent={<EmptyState compact icon="film-outline" title="No episodes listed" body={drama.status === 'upcoming' ? 'The schedule lands closer to the premiere.' : 'We don’t have the episode list for this title yet.'} />} />
+        <Animated.FlatList data={eps} keyExtractor={(e) => e.id} onScroll={onScroll} scrollEventThrottle={16} ListHeaderComponent={header} contentContainerStyle={padding} renderItem={({ item: e }) => <EpisodeCard drama={drama} episode={e} postCount={posts.filter((p) => p.context.season === e.season && p.context.episode === e.number).length} />} ListEmptyComponent={<EmptyState compact icon="film-outline" title="No episodes listed" body={drama.status === 'upcoming' ? 'The schedule lands closer to the premiere.' : 'We don’t have the episode list for this title yet.'} />} />
       ) : tab === 'cast' ? (
-        <FlatList data={drama.cast} keyExtractor={(c) => c.actorId} ListHeaderComponent={header} contentContainerStyle={padding} renderItem={({ item: c }) => { const a = getActor(c.actorId); return a ? <ActorCard actor={a} role={c.role} layout="row" right={<FollowButton kind="actors" id={a.id} name={a.name} />} /> : null; }} ListEmptyComponent={<EmptyState compact icon="people-outline" title="Cast not available" body="We’re missing the credits for this title." />} />
+        <Animated.FlatList data={drama.cast} keyExtractor={(c) => c.actorId} onScroll={onScroll} scrollEventThrottle={16} ListHeaderComponent={header} contentContainerStyle={padding} renderItem={({ item: c }) => { const a = getActor(c.actorId); return a ? <ActorCard actor={a} role={c.role} layout="row" right={<FollowButton kind="actors" id={a.id} name={a.name} />} /> : null; }} ListEmptyComponent={<EmptyState compact icon="people-outline" title="Cast not available" body="We’re missing the credits for this title." />} />
       ) : (
-        <FlatList
+        <Animated.FlatList
           data={data}
           keyExtractor={(p) => p.id}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
           ListHeaderComponent={header}
           contentContainerStyle={padding}
           renderItem={({ item: p }) => <PostCard post={p} hideContext />}
@@ -353,6 +371,10 @@ export default function DramaHub() {
 
 const styles = StyleSheet.create({
   heroScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(10,10,10,0.35)' },
+  wash: { position: 'absolute', top: 0, left: 0, right: 0 },
+  posterEdge: { borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
+  editorialTitle: { letterSpacing: -0.8 },
+  headlineTitle: { letterSpacing: -0.4 },
   headRow: { flexDirection: 'row', gap: space.x4, paddingHorizontal: space.margin, alignItems: 'flex-end' },
   actions: { flexDirection: 'row', gap: space.x2, paddingHorizontal: space.margin, marginTop: space.x4, alignItems: 'center' },
   airing: { flexDirection: 'row', alignItems: 'center', gap: space.x2, marginHorizontal: space.margin, marginTop: space.x3, paddingHorizontal: space.x3, height: 44, borderRadius: radius.md, backgroundColor: colors.surface1 },

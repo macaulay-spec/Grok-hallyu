@@ -2,6 +2,7 @@ import { Tabs } from 'expo-router';
 import React from 'react';
 import { View } from 'react-native';
 import { TabBar } from '../../components/navigation/TabBar';
+import { TabBarMotionProvider } from '../../components/navigation/TabBarMotion';
 import { colors } from '../../constants/theme';
 import { useLayout } from '../../lib/hooks';
 
@@ -9,6 +10,7 @@ export default function TabsLayout() {
   const { wc } = useLayout();
   const rail = wc !== 'compact';
   return (
+    <TabBarMotionProvider>
     <View style={{ flex: 1, backgroundColor: colors.canvas, paddingLeft: rail ? 80 : 0 }}>
       <Tabs
         tabBar={(props) => <TabBar {...props} />}
@@ -23,5 +25,6 @@ export default function TabsLayout() {
         <Tabs.Screen name="you" options={{ title: 'You' }} />
       </Tabs>
     </View>
+    </TabBarMotionProvider>
   );
 }

@@ -10,14 +10,14 @@ interface SkeletonProps {
   circle?: boolean;
 }
 
-/** Shimmer-free skeleton: a slow opacity pulse (1.2s) — calmer on OLED and reduced-motion friendly. */
+/** Shimmer-free skeleton: a slow opacity breath (1.6s) — calmer on OLED and reduced-motion friendly. */
 export function Skeleton({ width = '100%', height = 16, radius = R.sm, style, circle }: SkeletonProps) {
   const a = useRef(new Animated.Value(0.55)).current;
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(a, { toValue: 1, duration: 600, useNativeDriver: true }),
-        Animated.timing(a, { toValue: 0.55, duration: 600, useNativeDriver: true }),
+        Animated.timing(a, { toValue: 1, duration: 800, useNativeDriver: true }),
+        Animated.timing(a, { toValue: 0.55, duration: 800, useNativeDriver: true }),
       ]),
     );
     loop.start();

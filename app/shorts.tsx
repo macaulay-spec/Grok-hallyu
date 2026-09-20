@@ -108,14 +108,43 @@ function ShortItem({ post, height, width, active, muted, paused, onTogglePause, 
   const heart = useRef(new Animated.Value(0)).current;
   const lastTap = useRef(0);
   const playing = active && !paused && !veiled;
+  const reduce = useReduceMotion(state.prefs.reduceMotion);
+
+  // Chrome (rail + caption) fades after 2.5s of watching; any touch brings it back. Caption rises in on arrival.
+  const chrome = useRef(new Animated.Value(1)).current;
+  const caption = useRef(new Animated.Value(0)).current;
+  const [chromeVisible, setChromeVisible] = useState(true);
+  const idle = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wake = useCallback(() => {
+    if (idle.current) clearTimeout(idle.current);
+    setChromeVisible(true);
+    Animated.timing(chrome, { toValue: 1, duration: 160, useNativeDriver: true }).start();
+    idle.current = setTimeout(() => {
+      if (reduce) return;
+      Animated.timing(chrome, { toValue: 0, duration: 400, useNativeDriver: true }).start(({ finished }) => finished && setChromeVisible(false));
+    }, 2500);
+  }, [chrome, reduce]);
 
   useEffect(() => {
     if (!active) {
       videoRef.current?.setPositionAsync(0).catch(() => {});
+      caption.setValue(0);
+      return;
     }
-  }, [active]);
+    Animated.timing(caption, { toValue: 1, duration: reduce ? 0 : 400, delay: reduce ? 0 : 160, useNativeDriver: true }).start();
+    if (!veiled && !paused) wake();
+    else {
+      if (idle.current) clearTimeout(idle.current);
+      setChromeVisible(true);
+      chrome.setValue(1);
+    }
+    return () => {
+      if (idle.current) clearTimeout(idle.current);
+    };
+  }, [active, veiled, paused, wake, caption, chrome, reduce]);
 
   const doubleTap = useCallback(() => {
+    wake();
     const t = Date.now();
     if (t - lastTap.current < 280) {
       require('react to shorts', () => {
@@ -126,7 +155,7 @@ function ShortItem({ post, height, width, active, muted, paused, onTogglePause, 
       });
     } else onTogglePause();
     lastTap.current = t;
-  }, [require, state.reactions, post.id, dispatch, heart, onTogglePause]);
+  }, [require, state.reactions, post.id, dispatch, heart, onTogglePause, wake]);
 
   const wl = drama ? watch(drama.id) : undefined;
   const bottomPad = insets.bottom + space.x4;
@@ -175,7 +204,7 @@ function ShortItem({ post, height, width, active, muted, paused, onTogglePause, 
         </View>
       ) : null}
 
-      <View style={[styles.rail, { bottom: bottomPad + 8 }]}>
+      <Animated.View style={[styles.rail, { bottom: bottomPad + 8, opacity: chrome }]} pointerEvents={chromeVisible ? 'auto' : 'none'}>
         <Pressable onPress={() => router.push(`/user/${author?.handle}`)} accessibilityRole="button" accessibilityLabel={`Open ${author?.displayName}`}>
           <Avatar uri={author?.avatarUrl} name={author?.displayName ?? '?'} size={44} ring />
         </Pressable>
@@ -197,9 +226,9 @@ function ShortItem({ post, height, width, active, muted, paused, onTogglePause, 
         <Pressable onPress={() => setMenu(true)} style={styles.railItem} accessibilityRole="button" accessibilityLabel="More">
           <Ionicons name="ellipsis-horizontal" size={26} color={colors.onMedia} />
         </Pressable>
-      </View>
+      </Animated.View>
 
-      <View style={[styles.meta, { bottom: bottomPad, width: width - 84 }]}>
+      <Animated.View style={[styles.meta, { bottom: bottomPad, width: width - 84, opacity: Animated.multiply(chrome, caption), transform: [{ translateY: caption.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }] }]} pointerEvents={chromeVisible ? 'auto' : 'none'}>
         <Pressable onPress={() => router.push(`/user/${author?.handle}`)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }} accessibilityRole="link">
           <Text variant="label" style={{ color: colors.onMedia }}>
             {author?.displayName}
@@ -225,7 +254,7 @@ function ShortItem({ post, height, width, active, muted, paused, onTogglePause, 
           {position}
           {post.video ? ` · ${post.video.duration}s` : ''}
         </Text>
-      </View>
+      </Animated.View>
 
       <View style={[styles.progress, { bottom: insets.bottom }]}>
         <View style={[styles.progressFill, { width: `${Math.round(progress * 100)}%` }]} />

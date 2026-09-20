@@ -1,12 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import React, { useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Animated, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radius, sizes, space } from '../../constants/theme';
 import { haptic, useApp, useLayout, useRequireMember } from '../../lib/hooks';
 import { Text } from '../ui/Text';
 import { CreateSheet } from '../create/CreateSheet';
+import { useTabBarMotion } from './TabBarMotion';
 
 type TabKey = 'index' | 'explore' | 'create' | 'activity' | 'you';
 
@@ -30,8 +31,12 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
   const [create, setCreate] = useState(false);
   const rail = wc !== 'compact';
   const currentKey = state.routes[state.index]?.name as TabKey;
+  const { hidden, reveal } = useTabBarMotion();
+  const barH = sizes.tabBar + insets.bottom;
+  const translateY = hidden.interpolate({ inputRange: [0, 1], outputRange: [0, barH + 8] });
 
   const go = (key: TabKey) => {
+    reveal();
     if (key === 'create') {
       haptic.light();
       require('create a post', () => setCreate(true));
@@ -79,9 +84,9 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
       {rail ? (
         <View style={[styles.rail, { paddingTop: insets.top + space.x4, paddingBottom: insets.bottom + space.x4 }]}>{items}</View>
       ) : (
-        <View style={[styles.bar, { paddingBottom: insets.bottom, height: sizes.tabBar + insets.bottom }]} accessibilityRole="tablist">
+        <Animated.View style={[styles.bar, { paddingBottom: insets.bottom, height: barH, transform: [{ translateY }] }]} accessibilityRole="tablist">
           {items}
-        </View>
+        </Animated.View>
       )}
       <CreateSheet visible={create} onClose={() => setCreate(false)} />
     </>
@@ -89,11 +94,11 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
 }
 
 const styles = StyleSheet.create({
-  bar: { flexDirection: 'row', backgroundColor: colors.canvas, borderTopWidth: 1, borderTopColor: colors.borderSubtle },
+  bar: { position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', backgroundColor: colors.canvas },
   rail: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 80, backgroundColor: colors.canvas, borderRightWidth: 1, borderRightColor: colors.borderSubtle, alignItems: 'center', gap: space.x4 },
   item: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 3, paddingTop: 8 },
   railItem: { flex: 0, width: 64, height: 64, borderRadius: radius.md, paddingTop: 0 },
-  create: { width: sizes.createButton, height: sizes.createButton, borderRadius: radius.md, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
+  create: { width: sizes.createButton, height: sizes.createButton, borderRadius: radius.full, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
   signal: { position: 'absolute', top: 2, width: 4, height: 4, borderRadius: 2, backgroundColor: colors.accent },
   unread: { position: 'absolute', top: -1, right: -2, width: 9, height: 9, borderRadius: 5, backgroundColor: colors.accent, borderWidth: 2, borderColor: colors.canvas },
 });

@@ -7,7 +7,9 @@ import { useApp } from '../../lib/hooks';
 import { Drama, Episode } from '../../lib/model';
 import { postsForEpisode } from '../../lib/selectors';
 import { hasWatched } from '../../lib/spoiler';
+import { withAlpha } from '../../lib/motion';
 import { episodeState } from '../drama/EpisodeCard';
+import { LivePulse } from '../feed/LiveReactions';
 import { Poster } from '../ui/Poster';
 import { SectionHeader } from '../ui/Section';
 import { Tap } from '../ui/Tap';
@@ -33,12 +35,12 @@ export function TonightRail({ items, title = 'Tonight', eyebrow = 'On air', onSe
           const count = postsForEpisode(state, drama.id, episode.season, episode.number).length;
           const when = st === 'upcoming' ? `${dayLabel(episode.airDate!)} · ${timeOfDay(episode.airDate!)} · ${countdown(episode.airDate!)}` : st === 'live' ? 'Just aired · room is live' : `Aired ${dayLabel(episode.airDate!).toLowerCase()}`;
           return (
-            <Tap onPress={() => router.push(`/episode/${drama.id}/${episode.season}/${episode.number}`)} accessibilityRole="button" accessibilityLabel={`${drama.title} episode ${episode.number}, ${when}`} style={styles.card}>
+            <Tap onPress={() => router.push(`/episode/${drama.id}/${episode.season}/${episode.number}`)} accessibilityRole="button" accessibilityLabel={`${drama.title} episode ${episode.number}, ${when}`} style={[styles.card, { backgroundColor: withAlpha(drama.tone, 0.75) }, st === 'live' ? styles.liveCard : null]}>
               <Poster drama={drama} width={64} />
               <View style={{ flex: 1, justifyContent: 'space-between' }}>
                 <View>
                   <View style={styles.top}>
-                    {st === 'live' ? <View style={styles.live} /> : null}
+                    {st === 'live' ? <LivePulse size={6} style={{ marginLeft: -6, marginRight: -4 }} /> : null}
                     <Text variant="overline" tone={st === 'live' ? 'accent' : 'secondary'}>
                       {st === 'live' ? 'Live now' : st === 'upcoming' ? 'Coming up' : 'Aired'}
                     </Text>
@@ -65,7 +67,7 @@ export function TonightRail({ items, title = 'Tonight', eyebrow = 'On air', onSe
 }
 
 const styles = StyleSheet.create({
-  card: { width: 280, flexDirection: 'row', gap: space.x3, padding: space.x3, backgroundColor: colors.surface1, borderRadius: radius.lg },
+  card: { width: 280, flexDirection: 'row', gap: space.x3, padding: space.x3, backgroundColor: colors.surface1, borderRadius: radius.lg, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
+  liveCard: { borderColor: colors.accent },
   top: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 },
-  live: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.live },
 });
