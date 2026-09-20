@@ -1,0 +1,434 @@
+import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
+import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { CREATE_TYPES } from '../../components/create/CreateSheet';
+import { ActorPickerSheet, DramaPickerSheet, EpisodePickerSheet, SpoilerSheet } from '../../components/create/pickers';
+import { ActorPortrait } from '../../components/drama/ActorCard';
+import { KIND_LABEL } from '../../components/feed/PostCard';
+import { ReactionGlyph } from '../../components/feed/Reactions';
+import { SpoilerTag } from '../../components/feed/SpoilerBlock';
+import { Avatar } from '../../components/ui/Avatar';
+import { Button } from '../../components/ui/Button';
+import { Chip, ChipRow } from '../../components/ui/Chip';
+import { Dialog } from '../../components/ui/Dialog';
+import { Poster } from '../../components/ui/Poster';
+import { Screen } from '../../components/ui/Screen';
+import { InlineNotice } from '../../components/ui/States';
+import { Text } from '../../components/ui/Text';
+import { useToast } from '../../components/ui/Toast';
+import { TopBar } from '../../components/ui/TopBar';
+import { colors, fonts, radius, space } from '../../constants/theme';
+import { useAuth } from '../../lib/auth';
+import { extractHashtags, extractMentions, uid } from '../../lib/format';
+import { haptic, useApp } from '../../lib/hooks';
+import { DiscussionKind, Draft, LIMITS, PostType, REACTIONS, ReactionKind, SpoilerLevel } from '../../lib/model';
+import { USERS } from '../../lib/seed';
+import { allActors, newPost } from '../../lib/store';
+import { SPOILER_LABEL } from '../../lib/spoiler';
+
+const KINDS: DiscussionKind[] = ['general', 'theory', 'ending', 'character', 'scene', 'question'];
+
+/**
+ * The adaptive composer. One screen, six shapes. Context (drama / episode / actor) arrives via params
+ * or gets attached here; spoiler level is explicit; drafts save on exit.
+ */
+export default function Composer() {
+  const router = useRouter();
+  const navigation = useNavigation();
+  const toast = useToast();
+  const auth = useAuth();
+  const insets = useSafeAreaInsets();
+  const params = useLocalSearchParams<{ type: PostType; dramaId?: string; season?: string; episode?: string; actorId?: string; draftId?: string; tag?: string; editId?: string }>();
+  const { state, dispatch, me, getDrama, getPost, watch } = useApp();
+  const type: PostType = (CREATE_TYPES.some((t) => t.type === params.type) ? params.type : 'post') as PostType;
+  const meta = CREATE_TYPES.find((t) => t.type === type)!;
+  const draft = useMemo(() => state.drafts.find((d) => d.id === params.draftId), [state.drafts, params.draftId]);
+  const editing = useMemo(() => getPost(params.editId), [getPost, params.editId]);
+
+  const [body, setBody] = useState(draft?.body ?? editing?.body ?? (params.tag ? `#${params.tag} ` : ''));
+  const [title, setTitle] = useState(draft?.title ?? editing?.title ?? '');
+  const [kind, setKind] = useState<DiscussionKind>(draft?.kind ?? editing?.kind ?? 'general');
+  const [rating, setRating] = useState<number | undefined>(draft?.rating ?? editing?.rating);
+  const [verdict, setVerdict] = useState(draft?.verdict ?? editing?.verdict ?? '');
+  const [dramaId, setDramaId] = useState<string | undefined>(draft?.context.dramaId ?? editing?.context.dramaId ?? params.dramaId);
+  const [secondaryId, setSecondaryId] = useState<string | undefined>(draft?.context.secondaryDramaId ?? editing?.context.secondaryDramaId);
+  const [ep, setEp] = useState<{ season: number; episode?: number } | undefined>(draft?.context.season ? { season: draft.context.season, episode: draft.context.episode } : editing?.context.season ? { season: editing.context.season, episode: editing.context.episode } : params.season ? { season: Number(params.season), episode: params.episode ? Number(params.episode) : undefined } : undefined);
+  const [actorIds, setActorIds] = useState<string[]>(draft?.context.actorIds ?? editing?.context.actorIds ?? (params.actorId ? [params.actorId] : []));
+  const [spoiler, setSpoiler] = useState<SpoilerLevel>(draft?.spoiler ?? editing?.spoiler ?? (params.episode ? 'episode' : 'none'));
+  const [images, setImages] = useState<string[]>(draft?.images ?? (editing?.images?.filter((i): i is string => typeof i === 'string') ?? []));
+  const [video, setVideo] = useState<{ uri: string; duration: number } | null>(editing?.video ? { uri: editing.video.url, duration: editing.video.duration } : null);
+  const [reactionKind, setReactionKind] = useState<ReactionKind>('loved');
+  const [sheet, setSheet] = useState<null | 'drama' | 'secondary' | 'episode' | 'actors' | 'spoiler'>(null);
+  const [leaveDialog, setLeaveDialog] = useState(false);
+  const [guidelines, setGuidelines] = useState(!state.prefs.guidelinesAccepted);
+  const [posting, setPosting] = useState(false);
+  const bodyRef = useRef<TextInput>(null);
+  const draftId = useRef(draft?.id ?? uid('d'));
+
+  const drama = getDrama(dramaId);
+  const secondary = getDrama(secondaryId);
+  const wl = dramaId ? watch(dramaId) : undefined;
+  const bodyLimit = type === 'post' ? LIMITS.post : type === 'reaction' ? LIMITS.reaction : type === 'discussion' ? LIMITS.discussionBody : type === 'review' ? LIMITS.reviewBody : type === 'recommendation' ? LIMITS.recommendation : LIMITS.shortCaption;
+  const needsDrama = type !== 'post' && type !== 'short';
+  const dirty = !!(body.trim() || title.trim() || images.length || video || verdict.trim() || rating);
+
+  const mentionQuery = (() => {
+    const m = /(?:^|\s)@(\w*)$/.exec(body);
+    return m ? m[1]!.toLowerCase() : null;
+  })();
+  const mentionMatches = mentionQuery !== null ? USERS.filter((u) => u.id !== me.id && (u.handle.toLowerCase().startsWith(mentionQuery) || u.displayName.toLowerCase().includes(mentionQuery))).slice(0, 4) : [];
+
+  const problems: string[] = [];
+  if (needsDrama && !drama) problems.push(`${meta.label}s need a drama.`);
+  if (type === 'discussion' && title.trim().length < 3) problems.push('Give the discussion a title.');
+  if (type === 'review' && !rating) problems.push('Pick a rating.');
+  if (type === 'review' && !verdict.trim()) problems.push('Write a one-line verdict.');
+  if (type === 'recommendation' && !secondary) problems.push('Add the drama you’re comparing it to.');
+  if (type === 'short' && !video) problems.push('Add a video.');
+  if (type !== 'review' && type !== 'short' && !body.trim()) problems.push('Write something.');
+  if (body.length > bodyLimit) problems.push(`Body is ${body.length - bodyLimit} over the limit.`);
+  if (spoiler !== 'none' && !drama) problems.push('Spoiler levels need a drama attached.');
+  const canPost = problems.length === 0 && !posting;
+
+  const saveDraft = useCallback(() => {
+    const d: Draft = { id: draftId.current, type, updatedAt: new Date().toISOString(), title: title || undefined, body, rating, verdict: verdict || undefined, kind: type === 'discussion' ? kind : undefined, spoiler, context: { dramaId, season: ep?.season, episode: ep?.episode, actorIds, secondaryDramaId: secondaryId }, images };
+    dispatch({ type: 'draft', draft: d });
+  }, [type, title, body, rating, verdict, kind, spoiler, dramaId, ep, actorIds, secondaryId, images, dispatch]);
+
+  // Intercept back/close while dirty.
+  useEffect(() => {
+    const sub = navigation.addListener('beforeRemove', (e) => {
+      if (!dirty || posting || editing) return;
+      e.preventDefault();
+      setLeaveDialog(true);
+    });
+    return sub;
+  }, [navigation, dirty, posting, editing]);
+
+  const leave = (save: boolean) => {
+    if (save) {
+      saveDraft();
+      toast.show({ message: 'Draft saved', actionLabel: 'Drafts', onAction: () => router.push('/drafts') });
+    } else if (draft) dispatch({ type: 'deleteDraft', id: draft.id });
+    setLeaveDialog(false);
+    setPosting(true); // disarm the guard
+    setTimeout(() => router.back(), 30);
+  };
+
+  const pickImages = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) return toast.show({ message: 'Allow photo access in Settings to attach images.', tone: 'danger' });
+    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsMultipleSelection: true, selectionLimit: LIMITS.images - images.length, quality: 0.85 });
+    if (!res.canceled) setImages((prev) => [...prev, ...res.assets.map((a) => a.uri)].slice(0, LIMITS.images));
+  };
+  const pickVideo = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) return toast.show({ message: 'Allow photo access in Settings to attach a video.', tone: 'danger' });
+    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Videos, allowsEditing: true, videoMaxDuration: 60 });
+    if (res.canceled) return;
+    const a = res.assets[0]!;
+    const secs = Math.round((a.duration ?? 0) / 1000);
+    if (secs && (secs < 3 || secs > 60)) return toast.show({ message: 'Shorts are 3 to 60 seconds. Trim it and try again.', tone: 'danger' });
+    setVideo({ uri: a.uri, duration: secs || 15 });
+  };
+
+  const publish = () => {
+    if (!canPost) return;
+    if (auth.status !== 'signedIn') return router.push({ pathname: '/(auth)/gate', params: { reason: 'post' } });
+    setPosting(true);
+    const hashtags = extractHashtags(`${title} ${body} ${verdict}`);
+    const mentions = extractMentions(body).map((h) => USERS.find((u) => u.handle.toLowerCase() === h.toLowerCase())?.id).filter(Boolean) as string[];
+    const context = { dramaId, season: ep?.season, episode: ep?.episode, actorIds: actorIds.length ? actorIds : undefined, secondaryDramaId: secondaryId };
+    const common = { body: body.trim(), title: type === 'discussion' ? title.trim() : undefined, kind: type === 'discussion' ? kind : undefined, rating: type === 'review' ? rating : undefined, verdict: type === 'review' ? verdict.trim() : undefined, spoiler, context, hashtags, mentions, images: images.length ? images : undefined, video: video ? { url: video.uri, duration: video.duration } : undefined };
+    if (editing) {
+      dispatch({ type: 'editPost', id: editing.id, patch: { ...common, editedAt: new Date().toISOString() } });
+      haptic.success();
+      toast.show({ message: 'Post updated', icon: 'checkmark-circle', tone: 'success' });
+      router.back();
+      return;
+    }
+    const post = newPost(me.id, { type, ...common });
+    if (type === 'reaction') post.reactions = { ...post.reactions, [reactionKind]: 1 };
+    dispatch({ type: 'addPost', post });
+    if (draft) dispatch({ type: 'deleteDraft', id: draft.id });
+    haptic.success();
+    toast.show({ message: type === 'review' ? 'Review published' : type === 'short' ? 'Short posted' : 'Posted', icon: 'checkmark-circle', tone: 'success', actionLabel: 'View', onAction: () => router.push(`/post/${post.id}`) });
+    router.back();
+  };
+
+  const attachRow = (
+    <View style={styles.attachRow}>
+      <Pressable onPress={() => setSheet('drama')} style={[styles.attach, drama ? styles.attachOn : null]} accessibilityRole="button" accessibilityLabel={drama ? `Drama: ${drama.title}` : 'Attach a drama'}>
+        {drama ? <Poster drama={drama} width={20} rounded={3} /> : <Ionicons name="film-outline" size={16} color={colors.textSecondary} />}
+        <Text variant="label" numberOfLines={1} style={{ maxWidth: 160 }}>
+          {drama ? drama.title : needsDrama ? 'Drama (required)' : 'Drama'}
+        </Text>
+        {drama && !needsDrama ? (
+          <Pressable onPress={() => { setDramaId(undefined); setEp(undefined); if (spoiler !== 'none') setSpoiler('none'); }} hitSlop={8} accessibilityLabel="Remove drama">
+            <Ionicons name="close" size={14} color={colors.textSecondary} />
+          </Pressable>
+        ) : null}
+      </Pressable>
+      {drama ? (
+        <Pressable onPress={() => setSheet('episode')} style={[styles.attach, ep ? styles.attachOn : null]} accessibilityRole="button" accessibilityLabel={ep?.episode ? `Episode ${ep.episode}` : 'Attach an episode'}>
+          <Ionicons name="play-circle-outline" size={16} color={colors.textSecondary} />
+          <Text variant="label">{ep?.episode ? `${drama.seasons.length > 1 ? `S${ep.season} ` : ''}Ep ${ep.episode}` : ep ? `Season ${ep.season}` : 'Episode'}</Text>
+        </Pressable>
+      ) : null}
+      {type !== 'reaction' ? (
+        <Pressable onPress={() => setSheet('actors')} style={[styles.attach, actorIds.length ? styles.attachOn : null]} accessibilityRole="button" accessibilityLabel={`Tag actors, ${actorIds.length} selected`}>
+          <Ionicons name="person-outline" size={16} color={colors.textSecondary} />
+          <Text variant="label">{actorIds.length ? `${actorIds.length} actor${actorIds.length > 1 ? 's' : ''}` : 'Actors'}</Text>
+        </Pressable>
+      ) : null}
+      <Pressable onPress={() => setSheet('spoiler')} style={[styles.attach, spoiler !== 'none' ? styles.attachWarn : null]} accessibilityRole="button" accessibilityLabel={`Spoiler level: ${SPOILER_LABEL[spoiler]}`}>
+        {spoiler === 'none' ? <Ionicons name="eye-outline" size={16} color={colors.textSecondary} /> : <SpoilerTag level={spoiler} compact />}
+        <Text variant="label">{spoiler === 'none' ? 'No spoilers' : spoiler === 'episode' && ep?.episode ? `Ep ${ep.episode} spoiler` : SPOILER_LABEL[spoiler]}</Text>
+      </Pressable>
+    </View>
+  );
+
+  return (
+    <Screen header={<TopBar mode="modal" title={editing ? `Edit ${meta.label.toLowerCase()}` : meta.label} subtitle={drama ? (ep?.episode ? `${drama.title} · Ep ${ep.episode}` : drama.title) : undefined} onBack={() => (dirty && !editing ? setLeaveDialog(true) : router.back())} right={<Button label={editing ? 'Save' : type === 'review' ? 'Publish' : 'Post'} size="sm" onPress={publish} disabled={!canPost} loading={posting} />} />}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: space.x8 }}>
+          {guidelines && auth.status === 'signedIn' ? (
+            <View style={styles.guidelines}>
+              <Text variant="titleSmall">Before your first post</Text>
+              <Text variant="bodySmall" tone="secondary" style={{ marginTop: 4 }}>
+                Be kind, keep spoilers tagged, no harassment, no hate, no explicit content, no piracy links. Posts can be reported and removed, and repeat offenders lose posting. By posting you accept the Community Guidelines and Terms.
+              </Text>
+              <View style={{ flexDirection: 'row', gap: space.x2, marginTop: space.x3 }}>
+                <Button label="I agree" size="sm" onPress={() => { dispatch({ type: 'prefs', patch: { guidelinesAccepted: true } }); setGuidelines(false); }} />
+                <Button label="Read guidelines" size="sm" variant="ghost" onPress={() => router.push('/settings/guidelines')} />
+              </View>
+            </View>
+          ) : null}
+
+          <View style={styles.authorRow}>
+            <Avatar uri={me.avatarUrl} name={me.displayName} size="md" />
+            <View>
+              <Text variant="label">{me.displayName}</Text>
+              <Text variant="caption" tone="secondary">
+                Public · anyone on Hallyu
+              </Text>
+            </View>
+          </View>
+
+          {type === 'reaction' ? (
+            <View style={{ paddingHorizontal: space.margin, marginBottom: space.x3 }}>
+              <Text variant="overline" style={{ marginBottom: space.x2 }}>
+                How did it hit?
+              </Text>
+              <View style={styles.reactions}>
+                {REACTIONS.map((r) => {
+                  const on = reactionKind === r.kind;
+                  return (
+                    <Pressable key={r.kind} onPress={() => { haptic.select(); setReactionKind(r.kind); }} style={[styles.reaction, on ? { backgroundColor: colors.accentSoft, borderColor: colors.accent } : null]} accessibilityRole="radio" accessibilityState={{ checked: on }} accessibilityLabel={r.label}>
+                      <ReactionGlyph kind={r.kind} size={22} active={on} />
+                      <Text variant="caption" tone={on ? 'accent' : 'secondary'}>
+                        {r.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          ) : null}
+
+          {type === 'discussion' ? (
+            <View style={{ paddingHorizontal: space.margin }}>
+              <ChipRow style={{ marginBottom: space.x3 }}>
+                {KINDS.map((k) => (
+                  <Chip key={k} label={KIND_LABEL[k]} size="sm" selected={kind === k} onPress={() => setKind(k)} />
+                ))}
+              </ChipRow>
+              <TextInput value={title} onChangeText={(t) => setTitle(t.slice(0, LIMITS.discussionTitle))} placeholder={kind === 'question' ? 'Ask the fandom…' : kind === 'theory' ? 'Your theory in one line' : 'Title'} placeholderTextColor={colors.textTertiary} style={styles.title} selectionColor={colors.accent} cursorColor={colors.accent} keyboardAppearance="dark" returnKeyType="next" onSubmitEditing={() => bodyRef.current?.focus()} accessibilityLabel="Discussion title" maxLength={LIMITS.discussionTitle} />
+              <Text variant="caption" tone={title.length > LIMITS.discussionTitle - 10 ? 'warm' : 'tertiary'} align="right" numeric>
+                {title.length}/{LIMITS.discussionTitle}
+              </Text>
+            </View>
+          ) : null}
+
+          {type === 'review' ? (
+            <View style={{ paddingHorizontal: space.margin, gap: space.x3, marginBottom: space.x2 }}>
+              {drama && wl?.status !== 'completed' ? <InlineNotice tone="info" icon="information-circle-outline" text={wl?.status === 'watching' ? `You’re on episode ${wl.currentEpisode}. Reviews read best after the finale — mid-run reviews get a “still watching” label.` : 'Reviews from people who finished the drama carry a “completed” badge.'} /> : null}
+              <View>
+                <Text variant="overline" style={{ marginBottom: space.x2 }}>
+                  Rating
+                </Text>
+                <View style={styles.ratingRow}>
+                  {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => {
+                    const on = rating !== undefined && n <= rating;
+                    return (
+                      <Pressable key={n} onPress={() => { haptic.select(); setRating(n); }} style={styles.ratingCell} accessibilityRole="radio" accessibilityState={{ checked: rating === n }} accessibilityLabel={`${n} out of 10`}>
+                        <Ionicons name={on ? 'star' : 'star-outline'} size={24} color={on ? colors.warm : colors.textTertiary} />
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                <Text variant="caption" tone="secondary" style={{ marginTop: 4 }}>
+                  {rating ? `${rating}/10 · ${rating >= 9 ? 'Masterpiece' : rating >= 8 ? 'Great' : rating >= 7 ? 'Good' : rating >= 5 ? 'Mixed' : 'Not for me'}` : 'Tap a star'}
+                </Text>
+              </View>
+              <View>
+                <TextInput value={verdict} onChangeText={(t) => setVerdict(t.slice(0, LIMITS.reviewVerdict))} placeholder="One-line verdict (shows on the card)" placeholderTextColor={colors.textTertiary} style={styles.title} selectionColor={colors.accent} cursorColor={colors.accent} keyboardAppearance="dark" accessibilityLabel="Verdict" maxLength={LIMITS.reviewVerdict} />
+                <Text variant="caption" tone="tertiary" align="right" numeric>
+                  {verdict.length}/{LIMITS.reviewVerdict}
+                </Text>
+              </View>
+            </View>
+          ) : null}
+
+          {type === 'recommendation' ? (
+            <View style={{ paddingHorizontal: space.margin, marginBottom: space.x3 }}>
+              <Text variant="overline" style={{ marginBottom: space.x2 }}>
+                If you liked…
+              </Text>
+              <Pressable onPress={() => setSheet('secondary')} style={styles.secondary} accessibilityRole="button" accessibilityLabel={secondary ? `Compared to ${secondary.title}` : 'Pick the drama you’re comparing to'}>
+                {secondary ? <Poster drama={secondary} width={36} rounded={4} /> : <Ionicons name="add-circle-outline" size={22} color={colors.textSecondary} />}
+                <View style={{ flex: 1 }}>
+                  <Text variant="label">{secondary ? secondary.title : 'Choose a drama they already love'}</Text>
+                  <Text variant="caption" tone="secondary">
+                    {drama && secondary ? `Then they’ll like ${drama.title}` : 'Recommendations pair two dramas.'}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
+              </Pressable>
+            </View>
+          ) : null}
+
+          {type === 'short' ? (
+            <View style={{ paddingHorizontal: space.margin, marginBottom: space.x3 }}>
+              <Pressable onPress={pickVideo} style={styles.videoBox} accessibilityRole="button" accessibilityLabel={video ? 'Replace video' : 'Add a video'}>
+                {video ? (
+                  <>
+                    <Ionicons name="videocam" size={28} color={colors.textPrimary} />
+                    <Text variant="label">{video.duration}s · vertical</Text>
+                    <Text variant="caption" tone="secondary">
+                      Tap to replace
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    <Ionicons name="videocam-outline" size={28} color={colors.textSecondary} />
+                    <Text variant="label">Add a video</Text>
+                    <Text variant="caption" tone="secondary">
+                      3–60 seconds · 9:16 works best
+                    </Text>
+                  </>
+                )}
+              </Pressable>
+            </View>
+          ) : null}
+
+          <View style={{ paddingHorizontal: space.margin }}>
+            <TextInput ref={bodyRef} value={body} onChangeText={(t) => setBody(t)} multiline autoFocus={type !== 'discussion' && type !== 'short' && !params.tag} placeholder={type === 'reaction' ? (drama ? `One line on ${drama.title}${ep?.episode ? ` Ep ${ep.episode}` : ''}…` : 'One line. Pick a drama first.') : type === 'discussion' ? 'Lay it out. Quote the scene, timestamp it, ask the question.' : type === 'review' ? 'The longer take — what worked, what didn’t, who to watch it with. Optional.' : type === 'recommendation' ? 'Why does this pairing work?' : type === 'short' ? 'Caption' : 'What’s on your mind? #hashtags and @mentions work.'} placeholderTextColor={colors.textTertiary} style={[styles.body, { minHeight: type === 'reaction' ? 80 : type === 'discussion' || type === 'review' ? 200 : 140 }]} selectionColor={colors.accent} cursorColor={colors.accent} keyboardAppearance="dark" textAlignVertical="top" accessibilityLabel="Body" />
+            <Text variant="caption" tone={body.length > bodyLimit ? 'danger' : body.length > bodyLimit * 0.9 ? 'warm' : 'tertiary'} align="right" numeric>
+              {body.length}/{bodyLimit}
+            </Text>
+            {mentionMatches.length ? (
+              <View style={styles.mentions}>
+                {mentionMatches.map((u) => (
+                  <Pressable key={u.id} onPress={() => setBody((t) => t.replace(/@(\w*)$/, `@${u.handle} `))} style={styles.mentionRow} accessibilityRole="button" accessibilityLabel={`Mention ${u.displayName}`}>
+                    <Avatar uri={u.avatarUrl} name={u.displayName} size="xs" />
+                    <Text variant="label">{u.displayName}</Text>
+                    <Text variant="caption" tone="secondary">
+                      @{u.handle}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
+          </View>
+
+          {images.length ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: space.margin, gap: space.x2, marginTop: space.x2 }}>
+              {images.map((uri) => (
+                <View key={uri} style={styles.thumbWrap}>
+                  <Image source={{ uri }} style={styles.thumb} contentFit="cover" accessibilityLabel="Attached image" />
+                  <Pressable onPress={() => setImages((p) => p.filter((x) => x !== uri))} style={styles.thumbRemove} accessibilityRole="button" accessibilityLabel="Remove image">
+                    <Ionicons name="close" size={14} color={colors.onMedia} />
+                  </Pressable>
+                </View>
+              ))}
+            </ScrollView>
+          ) : null}
+
+          {actorIds.length ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: space.margin, gap: space.x2, marginTop: space.x3 }}>
+              {actorIds.map((id) => {
+                const a = allActors(state).find((x) => x.id === id);
+                return a ? (
+                  <View key={id} style={styles.actorChip}>
+                    <ActorPortrait actor={a} size={22} />
+                    <Text variant="caption">{a.name}</Text>
+                    <Pressable onPress={() => setActorIds((p) => p.filter((x) => x !== id))} hitSlop={8} accessibilityLabel={`Remove ${a.name}`}>
+                      <Ionicons name="close" size={12} color={colors.textSecondary} />
+                    </Pressable>
+                  </View>
+                ) : null;
+              })}
+            </ScrollView>
+          ) : null}
+
+          {problems.length && dirty ? (
+            <Text variant="caption" tone="tertiary" style={{ paddingHorizontal: space.margin, marginTop: space.x3 }}>
+              {problems[0]}
+            </Text>
+          ) : null}
+        </ScrollView>
+
+        <View style={[styles.toolbar, { paddingBottom: Math.max(insets.bottom, space.x2) }]}>
+          {attachRow}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.x1 }}>
+            {type !== 'short' && type !== 'reaction' ? <Pressable onPress={pickImages} disabled={images.length >= LIMITS.images} style={styles.tool} accessibilityRole="button" accessibilityLabel={`Add images, ${images.length} of ${LIMITS.images}`}><Ionicons name="image-outline" size={22} color={images.length >= LIMITS.images ? colors.textDisabled : colors.textPrimary} /></Pressable> : null}
+            <Pressable onPress={() => setBody((b) => `${b}${b.endsWith(' ') || !b ? '' : ' '}#`)} style={styles.tool} accessibilityRole="button" accessibilityLabel="Add hashtag"><Text variant="titleSmall">#</Text></Pressable>
+            <Pressable onPress={() => setBody((b) => `${b}${b.endsWith(' ') || !b ? '' : ' '}@`)} style={styles.tool} accessibilityRole="button" accessibilityLabel="Mention someone"><Text variant="titleSmall">@</Text></Pressable>
+            <View style={{ flex: 1 }} />
+            {!editing ? <Button label="Save draft" variant="ghost" size="sm" disabled={!dirty} onPress={() => { saveDraft(); toast.show({ message: 'Draft saved' }); }} /> : null}
+            <Pressable onPress={Keyboard.dismiss} style={styles.tool} accessibilityRole="button" accessibilityLabel="Hide keyboard"><Ionicons name="chevron-down" size={22} color={colors.textSecondary} /></Pressable>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+
+      <DramaPickerSheet visible={sheet === 'drama'} onClose={() => setSheet(null)} onPick={(d) => { setDramaId(d.id); if (d.id !== dramaId) setEp(undefined); }} />
+      <DramaPickerSheet visible={sheet === 'secondary'} onClose={() => setSheet(null)} onPick={(d) => setSecondaryId(d.id)} title="If they liked…" exclude={dramaId} />
+      {drama ? <EpisodePickerSheet visible={sheet === 'episode'} onClose={() => setSheet(null)} drama={drama} value={ep} onPick={(v) => { setEp(v); if (v?.episode && spoiler === 'none' && type !== 'review') setSpoiler('episode'); }} /> : null}
+      <ActorPickerSheet visible={sheet === 'actors'} onClose={() => setSheet(null)} selected={actorIds} onChange={setActorIds} dramaId={dramaId} />
+      <SpoilerSheet visible={sheet === 'spoiler'} onClose={() => setSheet(null)} value={spoiler} onChange={setSpoiler} drama={drama} episode={ep?.episode} />
+      <Dialog visible={leaveDialog} title="Keep this as a draft?" body="Drafts stay on this device until you post or delete them." confirmLabel="Save draft" cancelLabel="Keep editing" onConfirm={() => leave(true)} onCancel={() => setLeaveDialog(false)}>
+        <Button label="Discard" variant="ghost" onPress={() => leave(false)} />
+      </Dialog>
+    </Screen>
+  );
+}
+
+const styles = StyleSheet.create({
+  guidelines: { margin: space.margin, marginBottom: 0, padding: space.x4, backgroundColor: colors.surface1, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderSubtle },
+  authorRow: { flexDirection: 'row', alignItems: 'center', gap: space.x3, paddingHorizontal: space.margin, paddingVertical: space.x4 },
+  reactions: { flexDirection: 'row', flexWrap: 'wrap', gap: space.x2 },
+  reaction: { width: '31%', flexGrow: 1, alignItems: 'center', gap: 4, paddingVertical: space.x3, borderRadius: radius.md, backgroundColor: colors.surface1, borderWidth: 1, borderColor: 'transparent' },
+  title: { color: colors.textPrimary, fontFamily: fonts.bold, fontSize: 22, lineHeight: 28, paddingVertical: space.x2 },
+  body: { color: colors.textPrimary, fontFamily: fonts.regular, fontSize: 17, lineHeight: 26, paddingVertical: space.x2 },
+  ratingRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  ratingCell: { width: 30, height: 40, alignItems: 'center', justifyContent: 'center' },
+  secondary: { flexDirection: 'row', alignItems: 'center', gap: space.x3, padding: space.x3, backgroundColor: colors.surface1, borderRadius: radius.md },
+  videoBox: { height: 160, borderRadius: radius.lg, backgroundColor: colors.surface1, borderWidth: 1, borderColor: colors.borderSubtle, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', gap: 4 },
+  thumbWrap: { width: 96, height: 120, borderRadius: radius.sm, overflow: 'hidden' },
+  thumb: { width: '100%', height: '100%' },
+  thumbRemove: { position: 'absolute', top: 4, right: 4, width: 22, height: 22, borderRadius: 11, backgroundColor: 'rgba(10,10,10,0.7)', alignItems: 'center', justifyContent: 'center' },
+  actorChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 4, paddingRight: 10, height: 32, borderRadius: 16, backgroundColor: colors.surface2 },
+  mentions: { backgroundColor: colors.surface2, borderRadius: radius.md, overflow: 'hidden', marginTop: space.x2 },
+  mentionRow: { flexDirection: 'row', alignItems: 'center', gap: space.x2, paddingHorizontal: space.x3, height: 40 },
+  toolbar: { borderTopWidth: 1, borderTopColor: colors.borderSubtle, backgroundColor: colors.canvas, paddingHorizontal: space.x2, paddingTop: space.x2, gap: space.x2 },
+  attachRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.x2, paddingHorizontal: space.x2 },
+  attach: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 32, paddingHorizontal: 10, borderRadius: 16, backgroundColor: colors.surface1, borderWidth: 1, borderColor: colors.borderSubtle },
+  attachOn: { borderColor: colors.borderStrong, backgroundColor: colors.surface2 },
+  attachWarn: { borderColor: colors.warm, backgroundColor: colors.surface2 },
+  tool: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+});

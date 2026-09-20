@@ -1,1 +1,68 @@
-import React,{useState}from'react';import{View,Text,StyleSheet,ScrollView,Pressable}from'react-native';import{useRouter}from'expo-router';import{colors,typography}from'../../constants/theme';import{dramas}from'../../lib/data';import{DramaCard}from'../../components/drama/DramaCard';import{Button}from'../../components/ui/Button';export default function Dramas(){const r=useRouter();const[selected,setSelected]=useState<string[]>([]);return <View style={s.root}><Text style={s.step}>01 / 02</Text><Text style={s.title}>Pick your{`\n`}comfort dramas.</Text><Text style={s.sub}>Follow a few favorites to shape your first feed.</Text><ScrollView contentContainerStyle={s.grid}>{dramas.map(d=><Pressable key={d.id} onPress={()=>setSelected(v=>v.includes(d.id)?v.filter(x=>x!==d.id):[...v,d.id])} style={[s.item,selected.includes(d.id)&&s.selected]}><DramaCard drama={d} large/><View style={s.check}><Text style={s.checkText}>{selected.includes(d.id)?'✓':'+'}</Text></View></Pressable>)}</ScrollView><Button title='Continue' onPress={()=>r.push('/(onboarding)/profile')}/></View>}const s=StyleSheet.create({root:{flex:1,backgroundColor:colors.background,padding:20,paddingTop:64},step:{...typography.caption,color:colors.accent,fontWeight:'800',letterSpacing:1},title:{...typography.h1,color:colors.text,marginTop:10},sub:{...typography.body,color:colors.secondary,marginTop:10,marginBottom:20},grid:{flexDirection:'row',flexWrap:'wrap',justifyContent:'space-between',paddingBottom:20},item:{width:'47%',marginBottom:18,padding:6,borderRadius:16,borderWidth:1,borderColor:'transparent'},selected:{borderColor:colors.accent,backgroundColor:'#17090E'},check:{position:'absolute',right:12,top:12,width:30,height:30,borderRadius:15,backgroundColor:colors.accent,alignItems:'center',justifyContent:'center'},checkText:{color:colors.text,fontWeight:'800',fontSize:17}});
+import { useRouter } from 'expo-router';
+import React, { useMemo, useState } from 'react';
+import { FlatList, View } from 'react-native';
+import { DramaCard } from '../../components/drama/DramaCard';
+import { OnboardingFrame } from '../../components/onboarding/OnboardingFrame';
+import { Chip, ChipRow } from '../../components/ui/Chip';
+import { SearchField } from '../../components/search/SearchField';
+import { Text } from '../../components/ui/Text';
+import { sizes, space } from '../../constants/theme';
+import { haptic, useLayout } from '../../lib/hooks';
+import { WatchStatus } from '../../lib/model';
+import { DRAMAS } from '../../lib/seed';
+import { useStore } from '../../lib/store';
+
+/** Step 3 — the dramas you know. Each pick asks a one-tap status so the spoiler system works from minute one. */
+export default function DramasStep() {
+  const router = useRouter();
+  const { state, dispatch } = useStore();
+  const { width, margin } = useLayout();
+  const [q, setQ] = useState('');
+  const [picked, setPicked] = useState<Record<string, WatchStatus>>(Object.fromEntries(Object.values(state.watchlist).map((w) => [w.dramaId, w.status])));
+  const [pending, setPending] = useState<string | null>(null);
+  const genres = new Set(state.onboarding.genres);
+  const list = useMemo(() => {
+    const base = [...DRAMAS].sort((a, b) => Number(b.genres.some((g) => genres.has(g))) - Number(a.genres.some((g) => genres.has(g))) || b.followerCount - a.followerCount);
+    return q ? base.filter((d) => d.title.toLowerCase().includes(q.toLowerCase()) || d.originalTitle?.includes(q)) : base;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, state.onboarding.genres]);
+  const cols = Math.max(3, Math.floor((width - margin * 2 + space.gutter) / (sizes.poster.m + space.gutter)));
+  const count = Object.keys(picked).length;
+
+  const choose = (id: string, status: WatchStatus) => {
+    haptic.select();
+    setPicked((p) => ({ ...p, [id]: status }));
+    dispatch({ type: 'watch', dramaId: id, status });
+    setPending(null);
+  };
+
+  return (
+    <OnboardingFrame step={3} title="Which of these have you watched?" subtitle="Tap a poster, then say where you are. That’s how we keep spoilers away from you." skippable={false} helper={count ? `${count} added to your watchlist` : 'Pick a few — or none, that’s fine'} onContinue={() => { dispatch({ type: 'onboarding', patch: { step: 3 } }); router.push('/(onboarding)/people'); }} scroll={false}>
+      <SearchField value={q} onChangeText={setQ} placeholder="Search a title" style={{ marginBottom: space.x3 }} />
+      {pending ? (
+        <View style={{ marginBottom: space.x3 }}>
+          <Text variant="label" style={{ marginBottom: space.x2 }}>
+            {DRAMAS.find((d) => d.id === pending)?.title} — where are you?
+          </Text>
+          <ChipRow>
+            <Chip label="Want to watch" onPress={() => choose(pending, 'want')} />
+            <Chip label="Watching" onPress={() => choose(pending, 'watching')} />
+            <Chip label="Completed" onPress={() => choose(pending, 'completed')} />
+            <Chip label="Dropped" onPress={() => choose(pending, 'dropped')} />
+            <Chip label="Cancel" onPress={() => setPending(null)} />
+          </ChipRow>
+        </View>
+      ) : null}
+      <FlatList
+        data={list}
+        key={cols}
+        numColumns={cols}
+        keyExtractor={(d) => d.id}
+        columnWrapperStyle={{ gap: space.gutter }}
+        contentContainerStyle={{ gap: space.x4, paddingBottom: space.x6 }}
+        showsVerticalScrollIndicator={false}
+        renderItem={({ item }) => <DramaCard drama={item} size="m" selected={!!picked[item.id]} meta={picked[item.id] ? { want: 'Want to watch', watching: 'Watching', completed: 'Completed', dropped: 'Dropped' }[picked[item.id]!] : undefined} showProgress={false} onPress={() => (picked[item.id] ? (setPicked((p) => { const n = { ...p }; delete n[item.id]; return n; }), dispatch({ type: 'watch', dramaId: item.id, status: null })) : setPending(item.id))} />}
+      />
+    </OnboardingFrame>
+  );
+}

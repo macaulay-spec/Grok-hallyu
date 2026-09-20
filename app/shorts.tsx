@@ -1,0 +1,256 @@
+import { Ionicons } from '@expo/vector-icons';
+import { ResizeMode, Video } from 'expo-av';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, FlatList, Pressable, Share, StatusBar, StyleSheet, useWindowDimensions, View, ViewToken } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ReactionButton } from '../components/feed/Reactions';
+import { RichText } from '../components/feed/RichText';
+import { Avatar } from '../components/ui/Avatar';
+import { Button } from '../components/ui/Button';
+import { IconButton } from '../components/ui/IconButton';
+import { Poster } from '../components/ui/Poster';
+import { Sheet, SheetRow } from '../components/ui/Sheet';
+import { EmptyState } from '../components/ui/States';
+import { Text } from '../components/ui/Text';
+import { useToast } from '../components/ui/Toast';
+import { colors, radius, space } from '../constants/theme';
+import { compact } from '../lib/format';
+import { haptic, useApp, useReduceMotion, useRequireMember } from '../lib/hooks';
+import { Post } from '../lib/model';
+import { shorts as selectShorts } from '../lib/selectors';
+import { veilCopy } from '../lib/spoiler';
+
+/**
+ * Shorts — vertical, full-bleed, one at a time. Spoiler-veiled shorts stay covered until you choose.
+ * Autoplay follows your setting; reduced motion means tap-to-play.
+ */
+export default function Shorts() {
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { height, width } = useWindowDimensions();
+  const params = useLocalSearchParams<{ id?: string; dramaId?: string }>();
+  const { state } = useApp();
+  const reduce = useReduceMotion(state.prefs.reduceMotion);
+  const all = useMemo(() => selectShorts(state), [state]);
+  const list = useMemo(() => {
+    const scoped = params.dramaId ? all.filter((p) => p.context.dramaId === params.dramaId) : all;
+    if (!params.id) return scoped;
+    const i = scoped.findIndex((p) => p.id === params.id);
+    return i > 0 ? [...scoped.slice(i), ...scoped.slice(0, i)] : scoped;
+  }, [all, params.id, params.dramaId]);
+  const [active, setActive] = useState(0);
+  const [muted, setMuted] = useState(false);
+  const [paused, setPaused] = useState(reduce || state.prefs.autoplay === 'never');
+  const itemH = height;
+
+  const onViewable = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
+    const first = viewableItems.find((v) => v.isViewable);
+    if (first && typeof first.index === 'number') setActive(first.index);
+  }).current;
+
+  useEffect(() => {
+    StatusBar.setBarStyle('light-content');
+  }, []);
+
+  if (!list.length) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.canvas, paddingTop: insets.top }}>
+        <IconButton icon="close" label="Close" onPress={() => router.back()} style={{ margin: space.x2 }} />
+        <EmptyState icon="videocam-outline" title="No shorts here yet" body={params.dramaId ? 'Nobody has cut a short for this drama. Yours could be the first.' : 'Shorts from people and dramas you follow will show up here.'} actionLabel="Make a short" onAction={() => router.replace({ pathname: '/create/[type]', params: { type: 'short', ...(params.dramaId ? { dramaId: params.dramaId } : {}) } })} />
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ flex: 1, backgroundColor: '#000' }}>
+      <FlatList
+        data={list}
+        keyExtractor={(p) => p.id}
+        pagingEnabled
+        snapToInterval={itemH}
+        decelerationRate="fast"
+        showsVerticalScrollIndicator={false}
+        getItemLayout={(_, i) => ({ length: itemH, offset: itemH * i, index: i })}
+        onViewableItemsChanged={onViewable}
+        viewabilityConfig={{ itemVisiblePercentThreshold: 70 }}
+        windowSize={3}
+        initialNumToRender={1}
+        maxToRenderPerBatch={2}
+        removeClippedSubviews
+        renderItem={({ item, index }) => <ShortItem post={item} height={itemH} width={width} active={index === active} muted={muted} paused={paused} onTogglePause={() => setPaused((p) => !p)} onToggleMute={() => setMuted((m) => !m)} position={`${index + 1}/${list.length}`} />}
+      />
+      <View style={[styles.top, { top: insets.top }]}>
+        <IconButton icon="close" label="Close shorts" onPress={() => router.back()} tone="onMedia" />
+        <Text variant="label" style={{ color: colors.onMedia }}>
+          Shorts
+        </Text>
+        <IconButton icon={muted ? 'volume-mute' : 'volume-high'} label={muted ? 'Unmute' : 'Mute'} onPress={() => setMuted((m) => !m)} tone="onMedia" />
+      </View>
+    </View>
+  );
+}
+
+function ShortItem({ post, height, width, active, muted, paused, onTogglePause, onToggleMute, position }: { post: Post; height: number; width: number; active: boolean; muted: boolean; paused: boolean; onTogglePause: () => void; onToggleMute: () => void; position: string }) {
+  const router = useRouter();
+  const toast = useToast();
+  const insets = useSafeAreaInsets();
+  const { getUser, getDrama, isPostVeiled, dispatch, isSaved, state, watch } = useApp();
+  const require = useRequireMember();
+  const author = getUser(post.authorId);
+  const drama = getDrama(post.context.dramaId);
+  const veiled = isPostVeiled(post);
+  const [menu, setMenu] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [expanded, setExpanded] = useState(false);
+  const videoRef = useRef<Video>(null);
+  const heart = useRef(new Animated.Value(0)).current;
+  const lastTap = useRef(0);
+  const playing = active && !paused && !veiled;
+
+  useEffect(() => {
+    if (!active) {
+      videoRef.current?.setPositionAsync(0).catch(() => {});
+    }
+  }, [active]);
+
+  const doubleTap = useCallback(() => {
+    const t = Date.now();
+    if (t - lastTap.current < 280) {
+      require('react to shorts', () => {
+        if (!state.reactions[post.id]) dispatch({ type: 'react', targetId: post.id, kind: 'loved' });
+        haptic.light();
+        heart.setValue(0);
+        Animated.sequence([Animated.spring(heart, { toValue: 1, useNativeDriver: true, damping: 8 }), Animated.timing(heart, { toValue: 0, duration: 400, delay: 300, useNativeDriver: true })]).start();
+      });
+    } else onTogglePause();
+    lastTap.current = t;
+  }, [require, state.reactions, post.id, dispatch, heart, onTogglePause]);
+
+  const wl = drama ? watch(drama.id) : undefined;
+  const bottomPad = insets.bottom + space.x4;
+
+  return (
+    <View style={{ height, width, backgroundColor: drama?.tone ?? '#000' }}>
+      {!veiled && post.video && !failed ? (
+        <Video ref={videoRef} source={{ uri: post.video.url }} style={StyleSheet.absoluteFill} resizeMode={ResizeMode.COVER} shouldPlay={playing} isLooping isMuted={muted} onError={() => setFailed(true)} onPlaybackStatusUpdate={(s) => { if (s.isLoaded && s.durationMillis) setProgress(s.positionMillis / s.durationMillis); }} progressUpdateIntervalMillis={250} accessibilityLabel={`Video: ${post.body}`} />
+      ) : drama ? (
+        <Poster drama={drama} width={width} rounded={0} style={{ height, opacity: veiled ? 0.2 : 0.7 }} />
+      ) : null}
+      <Pressable style={StyleSheet.absoluteFill} onPress={doubleTap} accessibilityRole="button" accessibilityLabel={paused ? 'Play' : 'Pause'} accessibilityHint="Double tap to react" />
+      <View pointerEvents="none" style={styles.scrimBottom} />
+
+      {paused && !veiled ? (
+        <View pointerEvents="none" style={styles.center}>
+          <View style={styles.playBadge}>
+            <Ionicons name="play" size={30} color={colors.onMedia} />
+          </View>
+        </View>
+      ) : null}
+      {failed && !veiled ? (
+        <View pointerEvents="none" style={styles.center}>
+          <Text variant="caption" style={{ color: colors.onMedia }}>
+            Video unavailable right now
+          </Text>
+        </View>
+      ) : null}
+      <Animated.View pointerEvents="none" style={[styles.center, { transform: [{ scale: heart }], opacity: heart }]}>
+        <Ionicons name="heart" size={96} color={colors.accent} />
+      </Animated.View>
+
+      {veiled ? (
+        <View style={styles.veil}>
+          <Ionicons name="eye-off-outline" size={32} color={colors.textPrimary} />
+          <Text variant="titleSmall" align="center" style={{ marginTop: space.x3 }}>
+            {veilCopy(post.spoiler, drama?.title, post.context.season, post.context.episode, (drama?.seasons.length ?? 1) > 1)}
+          </Text>
+          <Text variant="bodySmall" tone="secondary" align="center" style={{ marginTop: 4 }}>
+            {wl?.status === 'watching' ? `You’re on episode ${wl.currentEpisode}.` : 'Covered because of your spoiler protection.'}
+          </Text>
+          <View style={{ flexDirection: 'row', gap: space.x2, marginTop: space.x4 }}>
+            <Button label="Reveal" size="sm" variant="secondary" onPress={() => dispatch({ type: 'reveal', id: post.id })} />
+            {drama && post.context.episode ? <Button label={`Watched Ep ${post.context.episode}`} size="sm" onPress={() => require('mark episodes watched', () => dispatch({ type: 'progress', dramaId: drama.id, season: post.context.season ?? 1, episode: post.context.episode!, total: drama.seasons.find((s) => s.number === (post.context.season ?? 1))?.episodeCount ?? drama.episodeCount }))} /> : null}
+          </View>
+        </View>
+      ) : null}
+
+      <View style={[styles.rail, { bottom: bottomPad + 8 }]}>
+        <Pressable onPress={() => router.push(`/user/${author?.handle}`)} accessibilityRole="button" accessibilityLabel={`Open ${author?.displayName}`}>
+          <Avatar uri={author?.avatarUrl} name={author?.displayName ?? '?'} size={44} ring />
+        </Pressable>
+        <View style={styles.railItem}>
+          <ReactionButton targetId={post.id} counts={post.reactions} />
+        </View>
+        <Pressable onPress={() => router.push({ pathname: '/post/[id]', params: { id: post.id, focus: 'comment' } })} style={styles.railItem} accessibilityRole="button" accessibilityLabel={`${post.commentCount} comments`}>
+          <Ionicons name="chatbubble-outline" size={26} color={colors.onMedia} />
+          <Text variant="caption" style={{ color: colors.onMedia }} numeric>
+            {compact(post.commentCount)}
+          </Text>
+        </Pressable>
+        <Pressable onPress={() => require('save posts', () => { dispatch({ type: 'save', postId: post.id }); toast.show({ message: isSaved(post.id) ? 'Removed from saved' : 'Saved', aboveTabBar: false }); })} style={styles.railItem} accessibilityRole="button" accessibilityLabel={isSaved(post.id) ? 'Unsave' : 'Save'}>
+          <Ionicons name={isSaved(post.id) ? 'bookmark' : 'bookmark-outline'} size={26} color={colors.onMedia} />
+        </Pressable>
+        <Pressable onPress={() => Share.share({ message: `${post.body} — https://hallyu.app/s/${post.id}` })} style={styles.railItem} accessibilityRole="button" accessibilityLabel="Share">
+          <Ionicons name="arrow-redo-outline" size={26} color={colors.onMedia} />
+        </Pressable>
+        <Pressable onPress={() => setMenu(true)} style={styles.railItem} accessibilityRole="button" accessibilityLabel="More">
+          <Ionicons name="ellipsis-horizontal" size={26} color={colors.onMedia} />
+        </Pressable>
+      </View>
+
+      <View style={[styles.meta, { bottom: bottomPad, width: width - 84 }]}>
+        <Pressable onPress={() => router.push(`/user/${author?.handle}`)} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }} accessibilityRole="link">
+          <Text variant="label" style={{ color: colors.onMedia }}>
+            {author?.displayName}
+          </Text>
+          <Text variant="caption" style={{ color: colors.textSecondary }}>
+            @{author?.handle}
+          </Text>
+        </Pressable>
+        <Pressable onPress={() => setExpanded((e) => !e)} accessibilityRole="button">
+          <RichText text={post.body} variant="bodySmall" tone="onMedia" numberOfLines={expanded ? undefined : 2} />
+        </Pressable>
+        {drama ? (
+          <Pressable onPress={() => router.push(`/drama/${drama.id}`)} style={styles.dramaChip} accessibilityRole="link" accessibilityLabel={`Open ${drama.title}`}>
+            <Poster drama={drama} width={16} rounded={2} />
+            <Text variant="caption" style={{ color: colors.onMedia }} numberOfLines={1}>
+              {drama.title}
+              {post.context.episode ? ` · Ep ${post.context.episode}` : ''}
+            </Text>
+            <Ionicons name="chevron-forward" size={12} color={colors.onMedia} />
+          </Pressable>
+        ) : null}
+        <Text variant="caption" style={{ color: colors.textTertiary }}>
+          {position}
+          {post.video ? ` · ${post.video.duration}s` : ''}
+        </Text>
+      </View>
+
+      <View style={[styles.progress, { bottom: insets.bottom }]}>
+        <View style={[styles.progressFill, { width: `${Math.round(progress * 100)}%` }]} />
+      </View>
+
+      <Sheet visible={menu} onClose={() => setMenu(false)} title="This short">
+        <SheetRow icon="open-outline" label="Open as post" onPress={() => { setMenu(false); router.push(`/post/${post.id}`); }} />
+        <SheetRow icon={muted ? 'volume-high-outline' : 'volume-mute-outline'} label={muted ? 'Unmute' : 'Mute'} onPress={() => { setMenu(false); onToggleMute(); }} />
+        {author ? <SheetRow icon="person-remove-outline" label={`Mute @${author.handle}`} onPress={() => { setMenu(false); dispatch({ type: 'muteUser', userId: author.id, on: true }); toast.show({ message: `Muted @${author.handle}`, aboveTabBar: false }); }} /> : null}
+        <SheetRow icon="flag-outline" label="Report" tone="danger" onPress={() => { setMenu(false); router.push({ pathname: '/report', params: { targetId: post.id, kind: 'post' } }); }} />
+      </Sheet>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  top: { position: 'absolute', left: 0, right: 0, height: 56, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: space.x2 },
+  scrimBottom: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 260, backgroundColor: 'rgba(0,0,0,0.45)' },
+  center: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
+  playBadge: { width: 72, height: 72, borderRadius: 36, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', paddingLeft: 4 },
+  veil: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.x8, backgroundColor: 'rgba(10,10,10,0.7)' },
+  rail: { position: 'absolute', right: space.x2, alignItems: 'center', gap: space.x4 },
+  railItem: { alignItems: 'center', gap: 2, minWidth: 48 },
+  meta: { position: 'absolute', left: space.margin, gap: space.x2 },
+  dramaChip: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingHorizontal: 8, height: 28, borderRadius: radius.full, backgroundColor: 'rgba(255,255,255,0.14)' },
+  progress: { position: 'absolute', left: 0, right: 0, height: 2, backgroundColor: 'rgba(255,255,255,0.2)' },
+  progressFill: { height: 2, backgroundColor: colors.accent },
+});

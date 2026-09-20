@@ -1,0 +1,57 @@
+import { Image } from 'expo-image';
+import * as Application from 'expo-application';
+import React from 'react';
+import { Linking, StyleSheet, View } from 'react-native';
+import { SettingsGroup, SettingsRow } from '../../components/settings/Rows';
+import { ScrollScreen, Screen } from '../../components/ui/Screen';
+import { Text } from '../../components/ui/Text';
+import { Wordmark } from '../../components/ui/TopBar';
+import { TopBar } from '../../components/ui/TopBar';
+import { colors, radius, space } from '../../constants/theme';
+import { ATTRIBUTION } from '../../lib/catalog';
+
+/** About & credits — includes the TMDB attribution required by its API terms. */
+export default function About() {
+  const version = Application.nativeApplicationVersion ?? '1.0.0';
+  const build = Application.nativeBuildVersion ?? '1';
+  return (
+    <Screen header={<TopBar mode="stack" title="About & credits" />}>
+      <ScrollScreen>
+        <View style={styles.hero}>
+          <Wordmark size={36} />
+          <Text variant="caption" tone="secondary" style={{ marginTop: space.x2 }}>
+            Your dramas. Your people. Your world.
+          </Text>
+          <Text variant="caption" tone="tertiary" numeric>
+            Version {version} ({build})
+          </Text>
+        </View>
+        <SettingsGroup title="Catalog data">
+          <View style={styles.tmdb}>
+            <Image source={require('../../assets/branding/tmdb.png')} style={{ width: 96, height: 12 }} contentFit="contain" accessibilityLabel="The Movie Database" />
+            <Text variant="bodySmall" tone="secondary" style={{ flex: 1 }}>
+              {ATTRIBUTION}
+            </Text>
+          </View>
+          <SettingsRow icon="open-outline" label="themoviedb.org" onPress={() => Linking.openURL('https://www.themoviedb.org/').catch(() => {})} />
+        </SettingsGroup>
+        <SettingsGroup title="Type & icons">
+          <SettingsRow icon="text-outline" label="Pretendard" detail="© Kil Hyung-jin · SIL Open Font License 1.1" onPress={() => Linking.openURL('https://github.com/orioncactus/pretendard').catch(() => {})} />
+          <SettingsRow icon="shapes-outline" label="Ionicons" detail="© Ionic · MIT License" onPress={() => Linking.openURL('https://ionic.io/ionicons').catch(() => {})} />
+        </SettingsGroup>
+        <SettingsGroup title="Open source">
+          <SettingsRow icon="logo-react" label="React Native & Expo" detail="MIT License" onPress={() => Linking.openURL('https://expo.dev').catch(() => {})} />
+          <SettingsRow icon="server-outline" label="Supabase" detail="Apache 2.0" onPress={() => Linking.openURL('https://supabase.com').catch(() => {})} />
+        </SettingsGroup>
+        <Text variant="caption" tone="disabled" align="center" style={{ marginBottom: space.x8, paddingHorizontal: space.margin }}>
+          Hallyu is an independent fan project and is not affiliated with any broadcaster, streaming service or agency. Drama titles, posters and stills belong to their respective owners.
+        </Text>
+      </ScrollScreen>
+    </Screen>
+  );
+}
+
+const styles = StyleSheet.create({
+  hero: { alignItems: 'center', paddingVertical: space.x8, gap: 2 },
+  tmdb: { flexDirection: 'row', alignItems: 'center', gap: space.x3, padding: space.x4, borderBottomWidth: 1, borderBottomColor: colors.borderSubtle, borderRadius: radius.lg },
+});
