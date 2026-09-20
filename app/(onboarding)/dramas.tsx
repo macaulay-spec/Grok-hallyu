@@ -33,11 +33,13 @@ export default function DramasStep() {
     haptic.select();
     setPicked((p) => ({ ...p, [id]: status }));
     dispatch({ type: 'watch', dramaId: id, status });
+    // Watching a drama means you want its room: follow it so Following and Activity have a pulse from day one.
+    if (status === 'watching') dispatch({ type: 'follow', kind: 'dramas', id, on: true });
     setPending(null);
   };
 
   return (
-    <OnboardingFrame step={3} title="Which of these have you watched?" subtitle="Tap a poster, then say where you are. That’s how we keep spoilers away from you." skippable={false} helper={count ? `${count} added to your watchlist` : 'Pick a few — or none, that’s fine'} onContinue={() => { dispatch({ type: 'onboarding', patch: { step: 3 } }); router.push('/(onboarding)/people'); }} scroll={false}>
+    <OnboardingFrame step={2} title="Which of these have you watched?" subtitle="Tap a poster, then say where you are. That’s how we keep spoilers away from you." skippable={false} helper={count ? `${count} added to your watchlist · anything you’re watching is followed too` : 'Pick a few — or none, that’s fine'} onContinue={() => { dispatch({ type: 'onboarding', patch: { step: 2 } }); router.push('/(onboarding)/people'); }} scroll={false}>
       <SearchField value={q} onChangeText={setQ} placeholder="Search a title" style={{ marginBottom: space.x3 }} />
       {pending ? (
         <View style={{ marginBottom: space.x3 }}>

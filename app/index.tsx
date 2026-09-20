@@ -25,7 +25,7 @@ export default function Index() {
 
   if (ready) {
     if (auth.status === 'signedOut') return <Redirect href="/(auth)/welcome" />;
-    if (auth.status === 'signedIn' && !state.onboarding.done) return <Redirect href="/(onboarding)/intent" />;
+    if (auth.status === 'signedIn' && !state.onboarding.done) return <Redirect href="/(onboarding)/genres" />;
     return <Redirect href="/(tabs)" />;
   }
 

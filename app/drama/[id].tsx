@@ -32,26 +32,31 @@ import { catalog } from '../../lib/catalog';
 import { compact, countdown, dayLabel, timeOfDay } from '../../lib/format';
 import { useApp, useLayout, useLoad, useRequireMember } from '../../lib/hooks';
 import { heroInterpolations, useArrive, useScrollY, withAlpha } from '../../lib/motion';
-import { emptyReactions, Post, PostType } from '../../lib/model';
+import { CastCredit, emptyReactions, Episode, Post, PostType } from '../../lib/model';
 import { collectionsContaining, postsForDrama, relatedDramas } from '../../lib/selectors';
 
-type Tab = 'overview' | 'community' | 'episodes' | 'cast' | 'media' | 'activity';
+type Tab = 'overview' | 'episodes' | 'community' | 'cast';
+/** Old deep links used six tabs; Media now lives in Overview and Activity is Community sorted by Latest. */
+const LEGACY_TAB: Record<string, Tab> = {
+  media: 'overview',
+  activity: 'community',
+};
 type Filter = 'all' | PostType;
 
-/** Drama Hub — the home of a fandom. Six tabs, one header, spoiler-aware everywhere. */
+/** Drama Hub — the home of a fandom. Four tabs under a sticky bar, one header, spoiler-aware everywhere. */
 export default function DramaHub() {
   const router = useRouter();
   const toast = useToast();
-  const params = useLocalSearchParams<{ id: string; tab?: Tab }>();
+  const params = useLocalSearchParams<{ id: string; tab?: string }>();
   const { state, dispatch, getDrama, getActor, watch, isFollowing } = useApp();
   const require = useRequireMember();
   const { width } = useLayout();
   const padding = useListPadding(false);
   const refresh = useRefresh('drama');
   const drama = getDrama(params.id);
-  const [tab, setTab] = useState<Tab>(params.tab ?? 'overview');
+  const [tab, setTab] = useState<Tab>(() => (params.tab && params.tab in LEGACY_TAB ? LEGACY_TAB[params.tab]! : ((params.tab as Tab | undefined) ?? 'overview')));
   const [filter, setFilter] = useState<Filter>('all');
-  const [sort, setSort] = useState<'top' | 'latest'>('top');
+  const [sort, setSort] = useState<'top' | 'latest'>(params.tab === 'activity' ? 'latest' : 'top');
   const [season, setSeason] = useState<number>(watch(params.id)?.season ?? 1);
   const [menu, setMenu] = useState(false);
   const [collect, setCollect] = useState(false);
@@ -72,7 +77,14 @@ export default function DramaHub() {
   const posts = useMemo(() => (drama ? postsForDrama(state, drama.id, sort) : []), [state, drama, sort]);
   const filtered = useMemo(() => (filter === 'all' ? posts.filter((p) => p.type !== 'short') : posts.filter((p) => p.type === filter)), [posts, filter]);
   const shorts = useMemo(() => posts.filter((p) => p.type === 'short'), [posts]);
-  const meter = useMemo(() => posts.reduce((acc, p) => { for (const k of Object.keys(acc) as (keyof typeof acc)[]) acc[k] += p.reactions[k]; return acc; }, emptyReactions()), [posts]);
+  const meter = useMemo(
+    () =>
+      posts.reduce((acc, p) => {
+        for (const k of Object.keys(acc) as (keyof typeof acc)[]) acc[k] += p.reactions[k];
+        return acc;
+      }, emptyReactions()),
+    [posts],
+  );
   const related = useMemo(() => (drama ? relatedDramas(state, drama, 8) : []), [state, drama]);
   const inCollections = useMemo(() => (drama ? collectionsContaining(state, drama.id) : []), [state, drama]);
   const publicCols = useMemo(() => (drama ? state.collections.filter((c) => c.visibility === 'public' && c.items.some((i) => i.dramaId === drama.id)).slice(0, 6) : []), [state.collections, drama]);
@@ -93,9 +105,45 @@ export default function DramaHub() {
   const next = drama.episodes.filter((e) => episodeState(e) !== 'aired').sort((a, b) => (a.airDate ?? '').localeCompare(b.airDate ?? ''))[0];
   const liveEp = drama.episodes.find((e) => episodeState(e) === 'live');
   const talking = posts.filter((p) => new Date(p.createdAt) > new Date(Date.now() - 7 * 86_400_000)).length;
-  const heroH = Math.min(420, Math.round(width * 9 / 16));
+  const stillH = 96;
+  const stills: {
+    uri: string;
+    title: string;
+    kind: 'backdrop' | 'poster' | 'still';
+  }[] = [
+    ...(drama.backdropUrl
+      ? [
+          {
+            uri: drama.backdropUrl,
+            title: drama.title,
+            kind: 'backdrop' as const,
+          },
+        ]
+      : []),
+    ...(drama.posterUrl
+      ? [
+          {
+            uri: drama.posterUrl,
+            title: `${drama.title} poster`,
+            kind: 'poster' as const,
+          },
+        ]
+      : []),
+    ...drama.episodes
+      .filter((e) => e.stillUrl)
+      .slice(0, 12)
+      .map((e) => ({
+        uri: e.stillUrl!,
+        title: `Episode ${e.number}`,
+        kind: 'still' as const,
+      })),
+  ];
+  const heroH = Math.min(420, Math.round((width * 9) / 16));
   const total = drama.seasons.find((s) => s.number === (item?.season ?? 1))?.episodeCount ?? drama.episodeCount;
-  const share = () => Share.share({ message: `${drama.title} on Hallyu — https://hallyu.app/d/${drama.id}` });
+  const share = () =>
+    Share.share({
+      message: `${drama.title} on Hallyu — https://hallyu.app/d/${drama.id}`,
+    });
   const hero = heroInterpolations(scrollY, heroH, heroH + 8);
   const editorial = drama.title.length <= 22;
 
@@ -103,8 +151,25 @@ export default function DramaHub() {
     <View>
       {/* Poster-lit surface: the drama's own tone washes the hero block and the title area beneath it. */}
       <View pointerEvents="none" style={[styles.wash, { height: heroH + 220, backgroundColor: withAlpha(drama.tone, 0.55) }]} />
-      <View pointerEvents="none" style={[styles.wash, { top: heroH + 220, height: 100, backgroundColor: withAlpha(drama.tone, 0.22) }]} />
-      <Animated.View style={{ height: heroH, overflow: 'hidden', opacity: hero.heroFade, transform: [{ translateY: hero.parallax }, { scale: hero.stretch }] }}>
+      <View
+        pointerEvents="none"
+        style={[
+          styles.wash,
+          {
+            top: heroH + 220,
+            height: 100,
+            backgroundColor: withAlpha(drama.tone, 0.22),
+          },
+        ]}
+      />
+      <Animated.View
+        style={{
+          height: heroH,
+          overflow: 'hidden',
+          opacity: hero.heroFade,
+          transform: [{ translateY: hero.parallax }, { scale: hero.stretch }],
+        }}
+      >
         <Backdrop uri={drama.backdropUrl ?? drama.posterUrl ?? drama.posterLocal} fallbackColor={drama.tone} width="100%" height={heroH} label={`${drama.title} backdrop`}>
           <View style={styles.heroScrim} />
         </Backdrop>
@@ -129,7 +194,8 @@ export default function DramaHub() {
             {drama.status === 'airing' ? ' · Airing' : drama.status === 'upcoming' ? ' · Upcoming' : ''}
           </Text>
           <Text variant="caption" tone="secondary">
-            {drama.title} fandom · {compact(drama.followerCount + (following ? 1 : 0))} fans{talking ? ` · ${compact(talking)} talking this week` : ''}
+            {drama.title} fandom · {compact(drama.followerCount + (following ? 1 : 0))} fans
+            {talking ? ` · ${compact(talking)} talking this week` : ''}
             {drama.rating ? ` · ★ ${drama.rating.toFixed(1)}` : ''}
           </Text>
         </Animated.View>
@@ -143,112 +209,242 @@ export default function DramaHub() {
         <FollowButton kind="dramas" id={drama.id} name={drama.title} style={{ flex: 1 }} />
         <WatchStatusButton drama={drama} style={{ flex: 1.4 }} />
         <IconButton icon="albums-outline" label="Add to collection" filled onPress={() => require('save to a collection', () => setCollect(true))} />
-        {following ? <IconButton icon={notify ? 'notifications' : 'notifications-off-outline'} label={notify ? 'Episode alerts on' : 'Episode alerts off'} filled onPress={() => { dispatch({ type: 'dramaNotify', id: drama.id, on: !notify }); toast.show({ message: notify ? 'Episode alerts off for this drama' : 'You’ll hear when an episode airs' }); }} /> : null}
+        {following ? (
+          <IconButton
+            icon={notify ? 'notifications' : 'notifications-off-outline'}
+            label={notify ? 'Episode alerts on' : 'Episode alerts off'}
+            filled
+            onPress={() => {
+              dispatch({ type: 'dramaNotify', id: drama.id, on: !notify });
+              toast.show({
+                message: notify ? 'Episode alerts off for this drama' : 'You’ll hear when an episode airs',
+              });
+            }}
+          />
+        ) : null}
       </View>
 
       {liveEp || (next && drama.status !== 'completed') ? (
-        <Pressable onPress={() => router.push(`/episode/${drama.id}/${(liveEp ?? next)!.season}/${(liveEp ?? next)!.number}`)} style={[styles.airing, liveEp ? { backgroundColor: colors.accentSoft } : null]} accessibilityRole="button">
+        <Pressable
+          onPress={() => router.push(`/episode/${drama.id}/${(liveEp ?? next)!.season}/${(liveEp ?? next)!.number}`)}
+          style={[styles.airing, liveEp ? { backgroundColor: colors.accentSoft } : null]}
+          accessibilityRole="button"
+        >
           <View style={[styles.dot, { backgroundColor: liveEp ? colors.live : colors.textTertiary }]} />
           <Text variant="label" style={{ flex: 1 }}>
-            {liveEp ? `Episode ${liveEp.number} just aired — the room is live` : `Next: Episode ${next!.number}${next!.airDate ? ` · ${dayLabel(next!.airDate)} ${timeOfDay(next!.airDate)} · ${countdown(next!.airDate)}` : ''}`}
+            {liveEp
+              ? `Episode ${liveEp.number} just aired — the room is live`
+              : `Next: Episode ${next!.number}${next!.airDate ? ` · ${dayLabel(next!.airDate)} ${timeOfDay(next!.airDate)} · ${countdown(next!.airDate)}` : ''}`}
           </Text>
           <Ionicons name="chevron-forward" size={16} color={colors.textTertiary} />
         </Pressable>
       ) : null}
+    </View>
+  );
 
-      <Segmented scrollable items={[{ key: 'overview', label: 'Overview' }, { key: 'community', label: 'Community', count: posts.length || undefined }, { key: 'episodes', label: 'Episodes' }, { key: 'cast', label: 'Cast' }, { key: 'media', label: 'Media' }, { key: 'activity', label: 'Activity' }]} value={tab} onChange={setTab} style={{ marginTop: space.x4 }} />
+  const tabsBar = (
+    <View style={styles.tabsBar}>
+      <Segmented
+        scrollable
+        items={[
+          { key: 'overview', label: 'Overview' },
+          {
+            key: 'episodes',
+            label: 'Episodes',
+            count: drama.episodes.length || undefined,
+          },
+          {
+            key: 'community',
+            label: 'Community',
+            count: posts.length || undefined,
+          },
+          { key: 'cast', label: 'Cast' },
+        ]}
+        value={tab}
+        onChange={(t) => {
+          setTab(t);
+          if (t === 'community' && params.tab === 'activity') setSort('latest');
+        }}
+      />
+    </View>
+  );
 
-      {tab === 'overview' ? (
-        <View>
-          <View style={styles.section}>
-            <Pressable onPress={() => setSynopsisOpen((v) => !v)} accessibilityRole="button" accessibilityLabel={synopsisOpen ? 'Collapse synopsis' : 'Expand synopsis'}>
-              <Text variant="body" numberOfLines={synopsisOpen ? undefined : 4}>
-                {drama.synopsis}
-              </Text>
-              {drama.synopsis.length > 180 ? (
-                <Text variant="label" tone="accent" style={{ marginTop: 6 }}>
-                  {synopsisOpen ? 'Less' : 'More'}
-                </Text>
-              ) : null}
-            </Pressable>
-          </View>
-          {item?.status === 'watching' ? (
-            <Pressable onPress={() => setTab('episodes')} style={styles.progressCard} accessibilityRole="button">
-              <View style={{ flex: 1 }}>
-                <Text variant="titleSmall">Your progress</Text>
-                <Text variant="caption" tone="secondary">
-                  Episode {item.currentEpisode} of {total}
-                  {multi ? ` · Season ${item.season}` : ''}
-                  {item.currentEpisode < total ? ` · ${total - item.currentEpisode} to go` : ' · All caught up'}
-                </Text>
-                <ProgressBar value={item.currentEpisode} max={total} style={{ marginTop: space.x2 }} />
-              </View>
-              {item.currentEpisode < total ? <Button label={`Mark Ep ${item.currentEpisode + 1}`} size="sm" variant="secondary" onPress={() => { dispatch({ type: 'progress', dramaId: drama.id, season: item.season, episode: item.currentEpisode + 1, total }); toast.show({ message: `Episode ${item.currentEpisode + 1} marked watched` }); }} /> : null}
-            </Pressable>
-          ) : null}
-          {item?.note ? (
-            <View style={[styles.section, { paddingTop: 0 }]}>
-              <Text variant="overline" style={{ marginBottom: 4 }}>
-                Your private note
-              </Text>
-              <Text variant="bodySmall" tone="secondary">
-                {item.note}
-              </Text>
-            </View>
-          ) : null}
-          <View style={styles.section}>
-            <SectionHeader eyebrow="Reaction meter" title="How the fandom feels" style={{ paddingHorizontal: 0 }} />
-            <ReactionMeter counts={meter} />
-          </View>
-          <View style={styles.section}>
-            {drama.streamingOn?.length ? <KeyValue label="Watch on" value={drama.streamingOn.join(', ')} /> : null}
-            {drama.airsOn ? <KeyValue label="Airs" value={drama.airsOn} /> : null}
-            {drama.creators?.length ? <KeyValue label="Written / directed" value={drama.creators.join(', ')} /> : null}
-            {drama.tags?.length ? <KeyValue label="Tags" value={drama.tags.join(' · ')} /> : null}
-          </View>
-          {drama.cast.length ? (
-            <View style={{ paddingVertical: space.x4 }}>
-              <SectionHeader eyebrow="Cast" title="Who’s in it" onAction={() => setTab('cast')} />
-              <ActorRail actors={drama.cast.map((c) => getActor(c.actorId)).filter(Boolean) as NonNullable<ReturnType<typeof getActor>>[]} roles={Object.fromEntries(drama.cast.map((c) => [c.actorId, c.role]))} />
-            </View>
-          ) : null}
-          {posts.length ? (
-            <View style={{ paddingVertical: space.x4 }}>
-              <SectionHeader eyebrow="Community" title="Top conversations" onAction={() => setTab('community')} />
-              {posts.filter((p) => p.type === 'discussion' || p.type === 'review').slice(0, 2).map((p) => (
-                <PostCard key={p.id} post={p} hideContext />
-              ))}
-            </View>
-          ) : null}
-          {shorts.length ? (
-            <View style={{ paddingVertical: space.x4 }}>
-              <SectionHeader eyebrow="Shorts" title={`${drama.title} in sixty seconds`} onAction={() => router.push({ pathname: '/shorts', params: { id: shorts[0]!.id, dramaId: drama.id } })} />
-              <ShortsRail posts={shorts} />
-            </View>
-          ) : null}
-          {related.length ? (
-            <View style={{ paddingVertical: space.x4 }}>
-              <SectionHeader eyebrow="If you liked this" title="Related dramas" />
-              <DramaRail dramas={related} size="m" />
-            </View>
-          ) : null}
-          {publicCols.length ? (
-            <View style={{ paddingVertical: space.x4 }}>
-              <SectionHeader eyebrow="Collections" title="Shelves it’s on" />
-              <FlatList horizontal data={publicCols} keyExtractor={(c) => c.id} showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: space.margin, gap: space.gutter }} renderItem={({ item: c }) => <CollectionCard collection={c} />} />
-            </View>
-          ) : null}
-          {inCollections.length ? (
-            <Text variant="caption" tone="secondary" style={{ paddingHorizontal: space.margin, paddingBottom: space.x4 }}>
-              In your collections: {inCollections.map((c) => c.title).join(', ')}
+  const overview = (
+    <View>
+      <View style={styles.section}>
+        <Pressable onPress={() => setSynopsisOpen((v) => !v)} accessibilityRole="button" accessibilityLabel={synopsisOpen ? 'Collapse synopsis' : 'Expand synopsis'}>
+          <Text variant="body" numberOfLines={synopsisOpen ? undefined : 4}>
+            {drama.synopsis}
+          </Text>
+          {drama.synopsis.length > 180 ? (
+            <Text variant="label" tone="accent" style={{ marginTop: 6 }}>
+              {synopsisOpen ? 'Less' : 'More'}
             </Text>
           ) : null}
+        </Pressable>
+      </View>
+      {item?.status === 'watching' ? (
+        <Pressable onPress={() => setTab('episodes')} style={styles.progressCard} accessibilityRole="button">
+          <View style={{ flex: 1 }}>
+            <Text variant="titleSmall">Your progress</Text>
+            <Text variant="caption" tone="secondary">
+              Episode {item.currentEpisode} of {total}
+              {multi ? ` · Season ${item.season}` : ''}
+              {item.currentEpisode < total ? ` · ${total - item.currentEpisode} to go` : ' · All caught up'}
+            </Text>
+            <ProgressBar value={item.currentEpisode} max={total} style={{ marginTop: space.x2 }} />
+          </View>
+          {item.currentEpisode < total ? (
+            <Button
+              label={`Mark Ep ${item.currentEpisode + 1}`}
+              size="sm"
+              variant="secondary"
+              onPress={() => {
+                dispatch({
+                  type: 'progress',
+                  dramaId: drama.id,
+                  season: item.season,
+                  episode: item.currentEpisode + 1,
+                  total,
+                });
+                toast.show({
+                  message: `Episode ${item.currentEpisode + 1} marked watched`,
+                });
+              }}
+            />
+          ) : null}
+        </Pressable>
+      ) : null}
+      {item?.note ? (
+        <View style={[styles.section, { paddingTop: 0 }]}>
+          <Text variant="overline" style={{ marginBottom: 4 }}>
+            Your private note
+          </Text>
+          <Text variant="bodySmall" tone="secondary">
+            {item.note}
+          </Text>
         </View>
       ) : null}
+      <View style={styles.section}>
+        <SectionHeader eyebrow="Reaction meter" title="How the fandom feels" style={{ paddingHorizontal: 0 }} />
+        <ReactionMeter counts={meter} />
+      </View>
+      <View style={styles.section}>
+        {drama.streamingOn?.length ? <KeyValue label="Watch on" value={drama.streamingOn.join(', ')} /> : null}
+        {drama.airsOn ? <KeyValue label="Airs" value={drama.airsOn} /> : null}
+        {drama.creators?.length ? <KeyValue label="Written / directed" value={drama.creators.join(', ')} /> : null}
+        {drama.tags?.length ? <KeyValue label="Tags" value={drama.tags.join(' · ')} /> : null}
+      </View>
+      {drama.cast.length ? (
+        <View style={{ paddingVertical: space.x4 }}>
+          <SectionHeader eyebrow="Cast" title="Who’s in it" onAction={() => setTab('cast')} />
+          <ActorRail
+            actors={drama.cast.map((c) => getActor(c.actorId)).filter(Boolean) as NonNullable<ReturnType<typeof getActor>>[]}
+            roles={Object.fromEntries(drama.cast.map((c) => [c.actorId, c.role]))}
+          />
+        </View>
+      ) : null}
+      {stills.length ? (
+        <View style={styles.moduleRail}>
+          <SectionHeader eyebrow="Media" title="Stills & art" />
+          <FlatList
+            horizontal
+            data={stills}
+            keyExtractor={(m) => m.uri}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{
+              paddingHorizontal: space.margin,
+              gap: space.gutter,
+            }}
+            renderItem={({ item: m }) => (
+              <Pressable
+                onPress={() =>
+                  router.push({
+                    pathname: '/media',
+                    params: { uri: m.uri, title: m.title },
+                  })
+                }
+                accessibilityRole="imagebutton"
+                accessibilityLabel={m.title}
+              >
+                <Backdrop
+                  uri={m.uri}
+                  fallbackColor={drama.tone}
+                  width={m.kind === 'poster' ? Math.round((stillH * 2) / 3) : Math.round((stillH * 16) / 9)}
+                  height={stillH}
+                  style={{ borderRadius: radius.sm, overflow: 'hidden' }}
+                />
+              </Pressable>
+            )}
+          />
+        </View>
+      ) : null}
+      {posts.length ? (
+        <View style={{ paddingVertical: space.x4 }}>
+          <SectionHeader eyebrow="Community" title="Top conversations" onAction={() => setTab('community')} />
+          {posts
+            .filter((p) => p.type === 'discussion' || p.type === 'review')
+            .slice(0, 2)
+            .map((p) => (
+              <PostCard key={p.id} post={p} hideContext />
+            ))}
+        </View>
+      ) : null}
+      {shorts.length ? (
+        <View style={{ paddingVertical: space.x4 }}>
+          <SectionHeader
+            eyebrow="Shorts"
+            title={`${drama.title} in sixty seconds`}
+            onAction={() =>
+              router.push({
+                pathname: '/shorts',
+                params: { id: shorts[0]!.id, dramaId: drama.id },
+              })
+            }
+          />
+          <ShortsRail posts={shorts} />
+        </View>
+      ) : null}
+      {related.length ? (
+        <View style={{ paddingVertical: space.x4 }}>
+          <SectionHeader eyebrow="If you liked this" title="Related dramas" />
+          <DramaRail dramas={related} size="m" />
+        </View>
+      ) : null}
+      {publicCols.length ? (
+        <View style={{ paddingVertical: space.x4 }}>
+          <SectionHeader eyebrow="Collections" title="Shelves it’s on" />
+          <FlatList
+            horizontal
+            data={publicCols}
+            keyExtractor={(c) => c.id}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{
+              paddingHorizontal: space.margin,
+              gap: space.gutter,
+            }}
+            renderItem={({ item: c }) => <CollectionCard collection={c} />}
+          />
+        </View>
+      ) : null}
+      {inCollections.length ? (
+        <Text variant="caption" tone="secondary" style={{ paddingHorizontal: space.margin, paddingBottom: space.x4 }}>
+          In your collections: {inCollections.map((c) => c.title).join(', ')}
+        </Text>
+      ) : null}
+    </View>
+  );
 
+  const sub = (
+    <View>
       {tab === 'community' ? (
         <View>
-          <ChipRow style={{ paddingHorizontal: space.margin, paddingVertical: space.x3 }}>
+          <ChipRow
+            style={{
+              paddingHorizontal: space.margin,
+              paddingVertical: space.x3,
+            }}
+          >
             {(['all', 'discussion', 'review', 'reaction', 'recommendation', 'post'] as Filter[]).map((f) => (
               <Chip key={f} label={f === 'all' ? 'All' : f === 'post' ? 'Posts' : f[0]!.toUpperCase() + f.slice(1) + 's'} size="sm" selected={filter === f} onPress={() => setFilter(f)} />
             ))}
@@ -271,9 +467,20 @@ export default function DramaHub() {
       {tab === 'episodes' ? (
         <View>
           {multi ? (
-            <ChipRow style={{ paddingHorizontal: space.margin, paddingVertical: space.x3 }}>
+            <ChipRow
+              style={{
+                paddingHorizontal: space.margin,
+                paddingVertical: space.x3,
+              }}
+            >
               {drama.seasons.map((s) => (
-                <EpisodeChip key={s.number} label={`Season ${s.number}`} selected={season === s.number} onPress={() => setSeason(s.number)} live={drama.episodes.some((e) => e.season === s.number && episodeState(e) === 'live')} />
+                <EpisodeChip
+                  key={s.number}
+                  label={`Season ${s.number}`}
+                  selected={season === s.number}
+                  onPress={() => setSeason(s.number)}
+                  live={drama.episodes.some((e) => e.season === s.number && episodeState(e) === 'live')}
+                />
               ))}
             </ChipRow>
           ) : null}
@@ -281,45 +488,94 @@ export default function DramaHub() {
             <Text variant="caption" tone="secondary">
               {eps.length ? `${eps.length} episodes${item ? ` · ${item.season === season ? item.currentEpisode : 0} watched` : ''}` : 'Episode list not available yet'}
             </Text>
-            {item && eps.length ? <Button label="Mark all watched" variant="ghost" size="sm" onPress={() => { dispatch({ type: 'progress', dramaId: drama.id, season, episode: eps.length, total: eps.length }); toast.show({ message: `All ${eps.length} episodes marked watched` }); }} /> : null}
+            {item && eps.length ? (
+              <Button
+                label="Mark all watched"
+                variant="ghost"
+                size="sm"
+                onPress={() => {
+                  dispatch({
+                    type: 'progress',
+                    dramaId: drama.id,
+                    season,
+                    episode: eps.length,
+                    total: eps.length,
+                  });
+                  toast.show({
+                    message: `All ${eps.length} episodes marked watched`,
+                  });
+                }}
+              />
+            ) : null}
           </View>
-        </View>
-      ) : null}
-
-      {tab === 'media' ? (
-        <View style={{ padding: space.margin, gap: space.x3 }}>
-          <Pressable onPress={() => router.push({ pathname: '/media', params: { uri: drama.backdropUrl ?? drama.posterUrl ?? '', title: drama.title } })} accessibilityRole="imagebutton" accessibilityLabel="Open backdrop">
-            <Backdrop uri={drama.backdropUrl ?? drama.posterUrl ?? drama.posterLocal} fallbackColor={drama.tone} width="100%" height={Math.round((width - space.margin * 2) * 9 / 16)} style={{ borderRadius: radius.md, overflow: 'hidden' }} />
-          </Pressable>
-          <View style={{ flexDirection: 'row', gap: space.gutter, flexWrap: 'wrap' }}>
-            <Pressable onPress={() => router.push({ pathname: '/media', params: { uri: drama.posterUrl ?? '', title: drama.title } })} accessibilityRole="imagebutton" accessibilityLabel="Open poster">
-              <Poster drama={drama} width={sizes.poster.l} />
-            </Pressable>
-            {drama.episodes.filter((e) => e.stillUrl).slice(0, 8).map((e) => (
-              <Pressable key={e.id} onPress={() => router.push({ pathname: '/media', params: { uri: e.stillUrl!, title: `Episode ${e.number}` } })} accessibilityRole="imagebutton" accessibilityLabel={`Episode ${e.number} still`}>
-                <Backdrop uri={e.stillUrl} fallbackColor={drama.tone} width={sizes.poster.l * 1.5} height={sizes.poster.l * 1.5 * 9 / 16} style={{ borderRadius: radius.sm, overflow: 'hidden' }} />
-              </Pressable>
-            ))}
-          </View>
-          {!drama.episodes.some((e) => e.stillUrl) ? (
-            <Text variant="caption" tone="tertiary">
-              Episode stills appear as episodes air. Community shorts live under Overview.
-            </Text>
-          ) : null}
-        </View>
-      ) : null}
-
-      {tab === 'activity' ? (
-        <View style={styles.sortRow}>
-          <Text variant="caption" tone="secondary">
-            Latest from the fandom
-          </Text>
         </View>
       ) : null}
     </View>
   );
 
-  const data: Post[] = tab === 'community' ? filtered : tab === 'activity' ? [...posts].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 30) : [];
+  type Row =
+    | { key: string; k: 'tabs' }
+    | { key: string; k: 'sub' }
+    | { key: string; k: 'overview' }
+    | { key: string; k: 'ep'; e: Episode }
+    | { key: string; k: 'cast'; c: CastCredit }
+    | { key: string; k: 'post'; p: Post }
+    | { key: string; k: 'empty' }
+    | { key: string; k: 'footer' };
+  const rows: Row[] = [{ key: 'tabs', k: 'tabs' }];
+  if (tab === 'overview') rows.push({ key: 'overview', k: 'overview' });
+  else {
+    rows.push({ key: 'sub', k: 'sub' });
+    if (tab === 'episodes') eps.forEach((e) => rows.push({ key: e.id, k: 'ep', e }));
+    if (tab === 'cast') drama.cast.forEach((c) => rows.push({ key: c.actorId, k: 'cast', c }));
+    if (tab === 'community') filtered.forEach((p) => rows.push({ key: p.id, k: 'post', p }));
+    if (rows.length === 2) rows.push({ key: 'empty', k: 'empty' });
+    else if (tab === 'community') rows.push({ key: 'footer', k: 'footer' });
+  }
+  const renderRow = ({ item: row }: { item: Row }) => {
+    switch (row.k) {
+      case 'tabs':
+        return tabsBar;
+      case 'sub':
+        return sub;
+      case 'overview':
+        return overview;
+      case 'ep':
+        return <EpisodeCard drama={drama} episode={row.e} postCount={posts.filter((p) => p.context.season === row.e.season && p.context.episode === row.e.number).length} />;
+      case 'cast': {
+        const a = getActor(row.c.actorId);
+        return a ? <ActorCard actor={a} role={row.c.role} layout="row" right={<FollowButton kind="actors" id={a.id} name={a.name} />} /> : null;
+      }
+      case 'post':
+        return <PostCard post={row.p} hideContext />;
+      case 'empty':
+        return tab === 'episodes' ? (
+          <EmptyState
+            compact
+            icon="film-outline"
+            title="No episodes listed"
+            body={drama.status === 'upcoming' ? 'The schedule lands closer to the premiere.' : 'We don’t have the episode list for this title yet.'}
+          />
+        ) : tab === 'cast' ? (
+          <EmptyState compact icon="people-outline" title="Cast not available" body="We’re missing the credits for this title." />
+        ) : (
+          <EmptyState
+            compact
+            icon="chatbubbles-outline"
+            title={filter === 'all' ? 'Be the first voice' : `No ${filter}s yet`}
+            body={`Nobody’s posted ${filter === 'all' ? 'about' : `a ${filter} for`} ${drama.title} yet. Your take could start the room.`}
+            actionLabel="Post in this fandom"
+            onAction={() => require('post', () => setCreate(true))}
+          />
+        );
+      case 'footer':
+        return (
+          <View style={{ padding: space.margin }}>
+            <Button label={`Post in the ${drama.title} fandom`} variant="secondary" block icon="create-outline" onPress={() => require('post', () => setCreate(true))} />
+          </View>
+        );
+    }
+  };
 
   return (
     <Screen
@@ -340,49 +596,144 @@ export default function DramaHub() {
         />
       }
     >
-      {tab === 'episodes' ? (
-        <Animated.FlatList data={eps} keyExtractor={(e) => e.id} onScroll={onScroll} scrollEventThrottle={16} refreshControl={refresh.control} ListHeaderComponent={header} contentContainerStyle={padding} renderItem={({ item: e }) => <EpisodeCard drama={drama} episode={e} postCount={posts.filter((p) => p.context.season === e.season && p.context.episode === e.number).length} />} ListEmptyComponent={<EmptyState compact icon="film-outline" title="No episodes listed" body={drama.status === 'upcoming' ? 'The schedule lands closer to the premiere.' : 'We don’t have the episode list for this title yet.'} />} />
-      ) : tab === 'cast' ? (
-        <Animated.FlatList data={drama.cast} keyExtractor={(c) => c.actorId} onScroll={onScroll} scrollEventThrottle={16} refreshControl={refresh.control} ListHeaderComponent={header} contentContainerStyle={padding} renderItem={({ item: c }) => { const a = getActor(c.actorId); return a ? <ActorCard actor={a} role={c.role} layout="row" right={<FollowButton kind="actors" id={a.id} name={a.name} />} /> : null; }} ListEmptyComponent={<EmptyState compact icon="people-outline" title="Cast not available" body="We’re missing the credits for this title." />} />
-      ) : (
-        <Animated.FlatList
-          data={data}
-          keyExtractor={(p) => p.id}
-          onScroll={onScroll}
-          scrollEventThrottle={16}
-          refreshControl={refresh.control}
-          ListHeaderComponent={header}
-          contentContainerStyle={padding}
-          renderItem={({ item: p }) => <PostCard post={p} hideContext />}
-          ListEmptyComponent={tab === 'community' || tab === 'activity' ? <EmptyState compact icon="chatbubbles-outline" title={filter === 'all' ? 'Be the first voice' : `No ${filter}s yet`} body={`Nobody’s posted ${filter === 'all' ? 'about' : `a ${filter} for`} ${drama.title} yet. Your take could start the room.`} actionLabel="Post in this fandom" onAction={() => require('post', () => setCreate(true))} /> : null}
-          ListFooterComponent={tab === 'community' && data.length ? <View style={{ padding: space.margin }}><Button label={`Post in the ${drama.title} fandom`} variant="secondary" block icon="create-outline" onPress={() => require('post', () => setCreate(true))} /></View> : null}
-        />
-      )}
+      <Animated.FlatList
+        data={rows}
+        keyExtractor={(r) => r.key}
+        renderItem={renderRow}
+        onScroll={onScroll}
+        scrollEventThrottle={16}
+        refreshControl={refresh.control}
+        ListHeaderComponent={header}
+        stickyHeaderIndices={[1]}
+        contentContainerStyle={padding}
+        initialNumToRender={8}
+        windowSize={7}
+      />
 
       <Sheet visible={menu} onClose={() => setMenu(false)} title={drama.title}>
-        <SheetRow icon="share-social-outline" label="Share" onPress={() => { setMenu(false); share(); }} />
-        <SheetRow icon="albums-outline" label="Add to collection" onPress={() => { setMenu(false); require('save to a collection', () => setCollect(true)); }} />
-        <SheetRow icon="create-outline" label="Post about this drama" onPress={() => { setMenu(false); require('post', () => setCreate(true)); }} />
-        <SheetRow icon={state.mutedDramas.includes(drama.id) ? 'volume-high-outline' : 'volume-mute-outline'} label={state.mutedDramas.includes(drama.id) ? 'Unmute this drama' : 'Mute this drama in feeds'} onPress={() => { setMenu(false); dispatch({ type: 'muteDrama', dramaId: drama.id, on: !state.mutedDramas.includes(drama.id) }); toast.show({ message: state.mutedDramas.includes(drama.id) ? `${drama.title} unmuted` : `Muted. ${drama.title} won’t appear in your feeds.` }); }} />
-        <SheetRow icon="flag-outline" label="Report a problem with this page" tone="danger" onPress={() => { setMenu(false); router.push({ pathname: '/report', params: { targetId: drama.id, kind: 'drama' } }); }} />
+        <SheetRow
+          icon="share-social-outline"
+          label="Share"
+          onPress={() => {
+            setMenu(false);
+            share();
+          }}
+        />
+        <SheetRow
+          icon="albums-outline"
+          label="Add to collection"
+          onPress={() => {
+            setMenu(false);
+            require('save to a collection', () => setCollect(true));
+          }}
+        />
+        <SheetRow
+          icon="create-outline"
+          label="Post about this drama"
+          onPress={() => {
+            setMenu(false);
+            require('post', () => setCreate(true));
+          }}
+        />
+        <SheetRow
+          icon={state.mutedDramas.includes(drama.id) ? 'volume-high-outline' : 'volume-mute-outline'}
+          label={state.mutedDramas.includes(drama.id) ? 'Unmute this drama' : 'Mute this drama in feeds'}
+          onPress={() => {
+            setMenu(false);
+            dispatch({
+              type: 'muteDrama',
+              dramaId: drama.id,
+              on: !state.mutedDramas.includes(drama.id),
+            });
+            toast.show({
+              message: state.mutedDramas.includes(drama.id) ? `${drama.title} unmuted` : `Muted. ${drama.title} won’t appear in your feeds.`,
+            });
+          }}
+        />
+        <SheetRow
+          icon="flag-outline"
+          label="Report a problem with this page"
+          tone="danger"
+          onPress={() => {
+            setMenu(false);
+            router.push({
+              pathname: '/report',
+              params: { targetId: drama.id, kind: 'drama' },
+            });
+          }}
+        />
       </Sheet>
       <AddToCollectionSheet dramaId={drama.id} visible={collect} onClose={() => setCollect(false)} />
-      <CreateSheet visible={create} onClose={() => setCreate(false)} context={{ dramaId: drama.id, season: item?.season, episode: item?.currentEpisode || undefined }} />
+      <CreateSheet
+        visible={create}
+        onClose={() => setCreate(false)}
+        context={{
+          dramaId: drama.id,
+          season: item?.season,
+          episode: item?.currentEpisode || undefined,
+        }}
+      />
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  heroScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(10,10,10,0.35)' },
+  tabsBar: {
+    backgroundColor: colors.canvas,
+    paddingTop: space.x4,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.borderSubtle,
+  },
+  moduleRail: { paddingVertical: space.x4 },
+  heroScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(10,10,10,0.35)',
+  },
   wash: { position: 'absolute', top: 0, left: 0, right: 0 },
   posterEdge: { borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
   editorialTitle: { letterSpacing: -0.8 },
   headlineTitle: { letterSpacing: -0.4 },
-  headRow: { flexDirection: 'row', gap: space.x4, paddingHorizontal: space.margin, alignItems: 'flex-end' },
-  actions: { flexDirection: 'row', gap: space.x2, paddingHorizontal: space.margin, marginTop: space.x4, alignItems: 'center' },
-  airing: { flexDirection: 'row', alignItems: 'center', gap: space.x2, marginHorizontal: space.margin, marginTop: space.x3, paddingHorizontal: space.x3, height: 44, borderRadius: radius.md, backgroundColor: colors.surface1 },
+  headRow: {
+    flexDirection: 'row',
+    gap: space.x4,
+    paddingHorizontal: space.margin,
+    alignItems: 'flex-end',
+  },
+  actions: {
+    flexDirection: 'row',
+    gap: space.x2,
+    paddingHorizontal: space.margin,
+    marginTop: space.x4,
+    alignItems: 'center',
+  },
+  airing: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.x2,
+    marginHorizontal: space.margin,
+    marginTop: space.x3,
+    paddingHorizontal: space.x3,
+    height: 44,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface1,
+  },
   dot: { width: 8, height: 8, borderRadius: 4 },
   section: { paddingHorizontal: space.margin, paddingVertical: space.x4 },
-  progressCard: { flexDirection: 'row', alignItems: 'center', gap: space.x3, marginHorizontal: space.margin, padding: space.x4, backgroundColor: colors.surface1, borderRadius: radius.lg },
-  sortRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: space.margin, paddingVertical: space.x2, minHeight: 40 },
+  progressCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.x3,
+    marginHorizontal: space.margin,
+    padding: space.x4,
+    backgroundColor: colors.surface1,
+    borderRadius: radius.lg,
+  },
+  sortRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: space.margin,
+    paddingVertical: space.x2,
+    minHeight: 40,
+  },
 });

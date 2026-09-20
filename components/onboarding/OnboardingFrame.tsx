@@ -11,7 +11,7 @@ import { Text } from '../ui/Text';
 import { TopBar } from '../ui/TopBar';
 
 interface FrameProps {
-  step: 1 | 2 | 3 | 4 | 5;
+  step: 1 | 2 | 3 | 4;
   title: string;
   subtitle?: string;
   eyebrow?: string;
@@ -25,9 +25,9 @@ interface FrameProps {
   scroll?: boolean;
 }
 
-const TOTAL = 5;
+const TOTAL = 4;
 
-/** Shared onboarding chassis: back, skip, 5 progress dots, display title, sticky Continue. Each step persists as you go. */
+/** Shared onboarding chassis: back, skip, 4 progress dots, display title, sticky Continue. Each step persists as you go. */
 export function OnboardingFrame({ step, title, subtitle, eyebrow, children, onContinue, continueLabel = 'Continue', continueDisabled, skippable = true, onSkip, helper, scroll = true }: FrameProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();

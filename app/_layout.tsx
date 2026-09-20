@@ -1,45 +1,36 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useFonts } from "expo-font";
-import { Stack, useRouter, useSegments } from "expo-router";
-import * as SplashScreen from "expo-splash-screen";
-import { StatusBar } from "expo-status-bar";
-import React, { useEffect, useRef } from "react";
-import { View } from "react-native";
-import { SafeAreaProvider } from "react-native-safe-area-context";
-import { ErrorBoundary } from "../components/ui/ErrorBoundary";
-import { ToastProvider } from "../components/ui/Toast";
-import { colors } from "../constants/theme";
-import { AuthProvider, useAuth } from "../lib/auth";
-import { catalog } from "../lib/catalog";
-import { syncSeedCatalog } from "../lib/catalogSync";
-import { SyncProvider } from "../lib/data/sync";
-import { useNetwork } from "../lib/hooks";
-import {
-  demoState,
-  freshMemberState,
-  GUEST_ID,
-  guestState,
-  StoreProvider,
-  useSlice,
-  useStore,
-} from "../lib/store";
-import { ME } from "../lib/selectors";
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFonts } from 'expo-font';
+import { Stack, useRouter, useSegments } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
+import { StatusBar } from 'expo-status-bar';
+import React, { useEffect, useRef } from 'react';
+import { View } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { ErrorBoundary } from '../components/ui/ErrorBoundary';
+import { ToastProvider } from '../components/ui/Toast';
+import { colors } from '../constants/theme';
+import { AuthProvider, useAuth } from '../lib/auth';
+import { catalog } from '../lib/catalog';
+import { syncSeedCatalog } from '../lib/catalogSync';
+import { SyncProvider } from '../lib/data/sync';
+import { useNetwork } from '../lib/hooks';
+import { demoState, freshMemberState, GUEST_ID, guestState, StoreProvider, useSlice, useStore } from '../lib/store';
+import { ME } from '../lib/selectors';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
-export const unstable_settings = { initialRouteName: "index" };
+export const unstable_settings = { initialRouteName: 'index' };
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
-    "Pretendard-Regular": require("../assets/fonts/Pretendard-Regular.otf"),
-    "Pretendard-Medium": require("../assets/fonts/Pretendard-Medium.otf"),
-    "Pretendard-SemiBold": require("../assets/fonts/Pretendard-SemiBold.otf"),
-    "Pretendard-Bold": require("../assets/fonts/Pretendard-Bold.otf"),
-    "Pretendard-ExtraBold": require("../assets/fonts/Pretendard-ExtraBold.otf"),
+    'Pretendard-Regular': require('../assets/fonts/Pretendard-Regular.otf'),
+    'Pretendard-Medium': require('../assets/fonts/Pretendard-Medium.otf'),
+    'Pretendard-SemiBold': require('../assets/fonts/Pretendard-SemiBold.otf'),
+    'Pretendard-Bold': require('../assets/fonts/Pretendard-Bold.otf'),
+    'Pretendard-ExtraBold': require('../assets/fonts/Pretendard-ExtraBold.otf'),
   });
 
-  if (!fontsLoaded && !fontError)
-    return <View style={{ flex: 1, backgroundColor: colors.canvas }} />;
+  if (!fontsLoaded && !fontError) return <View style={{ flex: 1, backgroundColor: colors.canvas }} />;
 
   return (
     <SafeAreaProvider>
@@ -55,57 +46,54 @@ export default function RootLayout() {
                 screenOptions={{
                   headerShown: false,
                   contentStyle: { backgroundColor: colors.canvas },
-                  animation: "slide_from_right",
+                  animation: 'slide_from_right',
                   animationDuration: 260,
                 }}
               >
-                <Stack.Screen name="index" options={{ animation: "fade" }} />
-                <Stack.Screen name="(auth)" options={{ animation: "fade" }} />
-                <Stack.Screen
-                  name="(onboarding)"
-                  options={{ animation: "fade" }}
-                />
-                <Stack.Screen name="(tabs)" options={{ animation: "fade" }} />
+                <Stack.Screen name="index" options={{ animation: 'fade' }} />
+                <Stack.Screen name="(auth)" options={{ animation: 'fade' }} />
+                <Stack.Screen name="(onboarding)" options={{ animation: 'fade' }} />
+                <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
                 <Stack.Screen
                   name="create/[type]"
                   options={{
-                    presentation: "modal",
-                    animation: "slide_from_bottom",
+                    presentation: 'modal',
+                    animation: 'slide_from_bottom',
                   }}
                 />
                 <Stack.Screen
                   name="shorts"
                   options={{
-                    presentation: "fullScreenModal",
-                    animation: "fade",
+                    presentation: 'fullScreenModal',
+                    animation: 'fade',
                   }}
                 />
                 <Stack.Screen
                   name="media"
                   options={{
-                    presentation: "transparentModal",
-                    animation: "fade",
+                    presentation: 'transparentModal',
+                    animation: 'fade',
                   }}
                 />
                 <Stack.Screen
                   name="report"
                   options={{
-                    presentation: "modal",
-                    animation: "slide_from_bottom",
+                    presentation: 'modal',
+                    animation: 'slide_from_bottom',
                   }}
                 />
                 <Stack.Screen
                   name="collection/new"
                   options={{
-                    presentation: "modal",
-                    animation: "slide_from_bottom",
+                    presentation: 'modal',
+                    animation: 'slide_from_bottom',
                   }}
                 />
                 <Stack.Screen
                   name="edit-profile"
                   options={{
-                    presentation: "modal",
-                    animation: "slide_from_bottom",
+                    presentation: 'modal',
+                    animation: 'slide_from_bottom',
                   }}
                 />
               </Stack>
@@ -133,35 +121,20 @@ function AccountSync() {
   // Guests and signed-out visitors see the public world without the demo member's personal layer.
   useEffect(() => {
     if (!state.hydrated) return;
-    if (
-      (auth.status === "guest" || auth.status === "signedOut") &&
-      state.profile.id !== GUEST_ID
-    )
-      reset(guestState());
-    if (
-      auth.status === "signedIn" &&
-      auth.user?.provider === "demo" &&
-      state.profile.id !== ME
-    )
-      reset(demoState());
-  }, [
-    auth.status,
-    auth.user?.provider,
-    state.hydrated,
-    state.profile.id,
-    reset,
-  ]);
+    if ((auth.status === 'guest' || auth.status === 'signedOut') && state.profile.id !== GUEST_ID) reset(guestState());
+    if (auth.status === 'signedIn' && auth.user?.provider === 'demo' && state.profile.id !== ME) reset(demoState());
+  }, [auth.status, auth.user?.provider, state.hydrated, state.profile.id, reset]);
 
   useEffect(() => {
-    if (!state.hydrated || auth.status !== "signedIn" || !auth.user) return;
+    if (!state.hydrated || auth.status !== 'signedIn' || !auth.user) return;
     const u = auth.user;
     if (applied.current === u.id) return;
     applied.current = u.id;
-    if (u.provider === "demo") return;
+    if (u.provider === 'demo') return;
     const key = `hallyu.account.${u.id}`;
     AsyncStorage.getItem(key).then((seen) => {
       if (!seen) {
-        AsyncStorage.setItem(key, "1").catch(() => {});
+        AsyncStorage.setItem(key, '1').catch(() => {});
         reset(
           freshMemberState({
             id: u.id,
@@ -177,7 +150,7 @@ function AccountSync() {
         );
       } else if (state.profile.id !== u.id) {
         dispatch({
-          type: "profile",
+          type: 'profile',
           patch: {
             id: u.id,
             handle: u.handle,
@@ -187,18 +160,10 @@ function AccountSync() {
         });
       }
     });
-  }, [
-    auth.status,
-    auth.user,
-    state.hydrated,
-    state.profile.id,
-    reset,
-    dispatch,
-  ]);
+  }, [auth.status, auth.user, state.hydrated, state.profile.id, reset, dispatch]);
 
   useEffect(() => {
-    if (auth.recoveryPending && segments[1] !== "reset-password")
-      router.push("/(auth)/reset-password");
+    if (auth.recoveryPending && segments[1] !== 'reset-password') router.push('/(auth)/reset-password');
   }, [auth.recoveryPending, segments, router]);
 
   return null;

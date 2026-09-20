@@ -18,7 +18,7 @@ export default function PeopleStep() {
   const dramas = [...trendingDramas(state, 4), ...recommendedDramas(state, 4).map((r) => r.drama)].filter((d, i, a) => a.findIndex((x) => x.id === d.id) === i).slice(0, 6);
   const followed = state.follows.users.length + state.follows.dramas.length;
   return (
-    <OnboardingFrame step={4} title="Your people. Your fandoms." subtitle="Follow a few members and dramas so Following has a pulse from day one." helper={followed ? `Following ${followed}` : 'Follow at least one to fill your Following feed'} onContinue={() => { dispatch({ type: 'onboarding', patch: { step: 4 } }); router.push('/(onboarding)/notifications'); }}>
+    <OnboardingFrame step={3} title="Your people. Your fandoms." subtitle="Follow a few members and dramas so Following has a pulse from day one." helper={followed ? `Following ${followed}` : 'Follow at least one to fill your Following feed'} onContinue={() => { dispatch({ type: 'onboarding', patch: { step: 3 } }); router.push('/(onboarding)/notifications'); }}>
       <Text variant="overline" style={{ marginBottom: space.x2 }}>
         Members with your taste
       </Text>

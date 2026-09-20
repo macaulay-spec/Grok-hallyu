@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, StyleSheet, View } from 'react-native';
+import { Animated, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '../../components/ui/Button';
 import { Poster } from '../../components/ui/Poster';
@@ -13,8 +13,11 @@ import { useAuth } from '../../lib/auth';
 import { useLayout } from '../../lib/hooks';
 import { DRAMAS } from '../../lib/seed';
 
+/** Demo-data door: shown in demo builds (EXPO_PUBLIC_SHOW_DEMO=1); otherwise a long-press on the wordmark reveals it. */
+const SHOW_DEMO = process.env.EXPO_PUBLIC_SHOW_DEMO === '1';
+
 /**
- * Welcome: the promise, three doors (Google / Email / Guest), legal line.
+ * Welcome: the promise, two doors (Google / email), a quiet sign-in link and "Look around first".
  * Background is a quiet poster mosaic under a scrim — cinematic, not a gradient.
  */
 export default function Welcome() {
@@ -24,6 +27,11 @@ export default function Welcome() {
   const insets = useSafeAreaInsets();
   const { width } = useLayout();
   const [busy, setBusy] = useState<'google' | 'demo' | null>(null);
+  const [demoVisible, setDemoVisible] = useState(SHOW_DEMO);
+  const demo = () => {
+    setBusy('demo');
+    auth.signInDemo().then(() => router.replace('/')).finally(() => setBusy(null));
+  };
   const rise = useRef(new Animated.Value(24)).current;
   const fade = useRef(new Animated.Value(0)).current;
 
@@ -61,7 +69,9 @@ export default function Welcome() {
       </View>
 
       <Animated.View style={[styles.content, { paddingBottom: insets.bottom + space.x6, opacity: fade, transform: [{ translateY: rise }] }]}>
-        <Wordmark size={40} />
+        <Pressable onLongPress={() => { setDemoVisible(true); toast.show({ message: 'Demo data unlocked', icon: 'sparkles-outline' }); }} delayLongPress={900} accessibilityLabel="Hallyu" style={{ alignSelf: 'flex-start' }}>
+          <Wordmark size={40} />
+        </Pressable>
         <Text variant="displayLarge" style={{ marginTop: space.x6 }}>
           Your dramas.{'\n'}Your people.{'\n'}Your world.
         </Text>
@@ -77,7 +87,7 @@ export default function Welcome() {
 
         <View style={styles.guestRow}>
           <Button
-            label="Explore as a guest"
+            label="Look around first"
             variant="ghost"
             size="sm"
             iconRight="arrow-forward"
@@ -86,16 +96,7 @@ export default function Welcome() {
               router.replace('/(tabs)');
             }}
           />
-          <Button
-            label="Preview with demo data"
-            variant="ghost"
-            size="sm"
-            onPress={() => {
-              setBusy('demo');
-              auth.signInDemo().then(() => router.replace('/')).finally(() => setBusy(null));
-            }}
-            loading={busy === 'demo'}
-          />
+          {demoVisible ? <Button label="Preview with demo data" variant="ghost" size="sm" icon="sparkles-outline" onPress={demo} loading={busy === 'demo'} /> : null}
         </View>
 
         <Text variant="caption" tone="tertiary" align="center" style={{ marginTop: space.x4 }}>
