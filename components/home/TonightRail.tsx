@@ -9,6 +9,7 @@ import { postsForEpisode } from '../../lib/selectors';
 import { hasWatched } from '../../lib/spoiler';
 import { withAlpha } from '../../lib/motion';
 import { episodeState } from '../drama/EpisodeCard';
+import { useReminder } from '../drama/Reminder';
 import { LivePulse } from '../feed/LiveReactions';
 import { Backdrop, Poster } from '../ui/Poster';
 import { SectionHeader } from '../ui/Section';
@@ -35,6 +36,7 @@ function TonightHero({ drama, episode }: { drama: Drama; episode: Episode }) {
   const { state, watch } = useApp();
   const { width } = useLayout();
   useMinuteTick();
+  const reminder = useReminder(drama);
   const st = episodeState(episode);
   const watched = hasWatched(watch(drama.id), episode.season, episode.number);
   const count = postsForEpisode(state, drama.id, episode.season, episode.number).length;
@@ -49,7 +51,7 @@ function TonightHero({ drama, episode }: { drama: Drama; episode: Episode }) {
       : st === 'upcoming'
         ? `${airs}${count ? ` · ${count} waiting` : ''}`
         : `${airs}${count ? ` · ${count} talking` : ''}`;
-  const cta = st === 'live' ? 'Join the room' : st === 'upcoming' ? 'Set a reminder' : watched ? 'Open the room' : 'Catch up';
+  const cta = st === 'live' ? 'Join the room' : st === 'upcoming' ? (reminder.on ? 'Reminder on' : 'Remind me') : watched ? 'Open the room' : 'Catch up';
   const open = () => router.push(`/episode/${drama.id}/${episode.season}/${episode.number}`);
   return (
     <Pressable
@@ -83,7 +85,13 @@ function TonightHero({ drama, episode }: { drama: Drama; episode: Episode }) {
             <Text variant="caption" tone="onMedia" numberOfLines={1} style={{ flex: 1, opacity: 0.85 }}>
               {sub}
             </Text>
-            <Button label={cta} size="sm" variant={st === 'live' ? 'primary' : 'secondary'} onPress={open} />
+            <Button
+              label={cta}
+              size="sm"
+              variant={st === 'live' ? 'primary' : 'secondary'}
+              icon={st === 'upcoming' ? (reminder.on ? 'checkmark' : 'notifications-outline') : undefined}
+              onPress={st === 'upcoming' ? () => reminder.toggle(episode) : open}
+            />
           </View>
         </View>
       </Backdrop>

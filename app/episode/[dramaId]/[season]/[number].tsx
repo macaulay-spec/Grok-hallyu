@@ -4,6 +4,7 @@ import React, { useMemo, useState } from 'react';
 import { Animated, Pressable, Share, StyleSheet, View } from 'react-native';
 import { CreateSheet } from '../../../../components/create/CreateSheet';
 import { episodeState } from '../../../../components/drama/EpisodeCard';
+import { ReminderCard } from '../../../../components/drama/Reminder';
 import { LivePulse, LiveReactions } from '../../../../components/feed/LiveReactions';
 import { PostCard } from '../../../../components/feed/PostCard';
 import { ReactionMeter } from '../../../../components/feed/Reactions';
@@ -13,7 +14,7 @@ import { IconButton } from '../../../../components/ui/IconButton';
 import { Backdrop, Poster } from '../../../../components/ui/Poster';
 import { Screen, useListPadding } from '../../../../components/ui/Screen';
 import { SectionHeader } from '../../../../components/ui/Section';
-import { EmptyState, ErrorState, InlineNotice } from '../../../../components/ui/States';
+import { EmptyState, ErrorState } from '../../../../components/ui/States';
 import { Text } from '../../../../components/ui/Text';
 import { useToast } from '../../../../components/ui/Toast';
 import { TopBar } from '../../../../components/ui/TopBar';
@@ -50,12 +51,24 @@ export default function EpisodeRoom() {
   const episode = drama ? getEpisode(drama, season, number) : undefined;
   const posts = useMemo(() => (drama ? postsForEpisode(state, drama.id, season, number) : []), [state, drama, season, number]);
   const filtered = useMemo(() => (filter === 'all' ? posts : posts.filter((p) => p.type === filter)), [posts, filter]);
-  const meter = useMemo(() => posts.reduce((acc, p) => { for (const k of Object.keys(acc) as (keyof typeof acc)[]) acc[k] += p.reactions[k]; return acc; }, emptyReactions()), [posts]);
+  const meter = useMemo(
+    () =>
+      posts.reduce((acc, p) => {
+        for (const k of Object.keys(acc) as (keyof typeof acc)[]) acc[k] += p.reactions[k];
+        return acc;
+      }, emptyReactions()),
+    [posts],
+  );
 
   if (!drama || !episode) {
     return (
       <Screen header={<TopBar mode="stack" title="Episode" />}>
-        <ErrorState kind="notFound" title="Episode not found" body="This episode isn’t in the schedule yet, or the link is wrong." onRetry={() => (drama ? router.replace(`/drama/${drama.id}`) : router.back())} />
+        <ErrorState
+          kind="notFound"
+          title="Episode not found"
+          body="This episode isn’t in the schedule yet, or the link is wrong."
+          onRetry={() => (drama ? router.replace(`/drama/${drama.id}`) : router.back())}
+        />
       </Screen>
     );
   }
@@ -77,7 +90,7 @@ export default function EpisodeRoom() {
       toast.show({ message: number >= total ? `${drama.title} completed 🎉` : `Episode ${number} marked watched`, tone: 'success', icon: 'checkmark-circle' });
     });
 
-  const heroH = Math.min(300, Math.round(width * 9 / 16));
+  const heroH = Math.min(300, Math.round((width * 9) / 16));
   const hero = heroInterpolations(scrollY, heroH, heroH - 20);
   const here = st === 'live' ? posts.length * 9 + 3 : 0;
 
@@ -85,50 +98,66 @@ export default function EpisodeRoom() {
     <View>
       <View pointerEvents="none" style={[styles.wash, { height: heroH + 180, backgroundColor: withAlpha(drama.tone, 0.5) }]} />
       <Animated.View style={{ height: heroH, overflow: 'hidden', opacity: hero.heroFade, transform: [{ translateY: hero.parallax }, { scale: hero.stretch }] }}>
-      <Backdrop uri={episode.stillUrl ?? drama.backdropUrl ?? drama.posterUrl ?? drama.posterLocal} fallbackColor={drama.tone} width="100%" height={heroH} label={`Episode ${number} still`}>
-        <View style={styles.scrim} />
-        <View pointerEvents="none" style={StyleSheet.absoluteFill} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-          <Text style={styles.numeral}>{String(number).padStart(2, '0')}</Text>
-        </View>
-        <LiveReactions counts={meter} active={st === 'live'} style={{ right: 0, bottom: 0 }} />
-        <View style={styles.heroText}>
-          <Pressable onPress={() => router.push(`/drama/${drama.id}`)} accessibilityRole="link" style={{ flexDirection: 'row', alignItems: 'center', gap: space.x2 }}>
-            <Poster drama={drama} width={28} rounded={4} />
-            <Text variant="label" style={{ color: colors.onMedia }} numberOfLines={1}>
-              {drama.title}
-            </Text>
-            <Ionicons name="chevron-forward" size={12} color={colors.onMedia} />
-          </Pressable>
-          <Text variant="headline" style={{ color: colors.onMedia }}>
-            {multi ? `S${season} · ` : ''}Episode {number}
-            {episode.title ? ` — ${episode.title}` : ''}
-          </Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            {st === 'live' ? <LivePulse size={6} style={{ marginLeft: -6 }} /> : null}
-            <Text variant="caption" style={{ color: st === 'live' ? colors.onMedia : colors.textSecondary }}>
-              {st === 'live' ? `Live · ${here} in the room` : st === 'upcoming' && episode.airDate ? `Airs ${dayLabel(episode.airDate)} · ${timeOfDay(episode.airDate)} · ${countdown(episode.airDate)}` : [episode.airDate ? shortDate(episode.airDate) : 'TBA', runtimeLabel(episode.runtime)].filter(Boolean).join(' · ')}
-              {' · '}
-              {posts.length} {posts.length === 1 ? 'post' : 'posts'}
-            </Text>
+        <Backdrop uri={episode.stillUrl ?? drama.backdropUrl ?? drama.posterUrl ?? drama.posterLocal} fallbackColor={drama.tone} width="100%" height={heroH} label={`Episode ${number} still`}>
+          <View style={styles.scrim} />
+          <View pointerEvents="none" style={StyleSheet.absoluteFill} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+            <Text style={styles.numeral}>{String(number).padStart(2, '0')}</Text>
           </View>
-        </View>
-      </Backdrop>
+          <LiveReactions counts={meter} active={st === 'live'} style={{ right: 0, bottom: 0 }} />
+          <View style={styles.heroText}>
+            <Pressable onPress={() => router.push(`/drama/${drama.id}`)} accessibilityRole="link" style={{ flexDirection: 'row', alignItems: 'center', gap: space.x2 }}>
+              <Poster drama={drama} width={28} rounded={4} />
+              <Text variant="label" style={{ color: colors.onMedia }} numberOfLines={1}>
+                {drama.title}
+              </Text>
+              <Ionicons name="chevron-forward" size={12} color={colors.onMedia} />
+            </Pressable>
+            <Text variant="headline" style={{ color: colors.onMedia }}>
+              {multi ? `S${season} · ` : ''}Episode {number}
+              {episode.title ? ` — ${episode.title}` : ''}
+            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              {st === 'live' ? <LivePulse size={6} style={{ marginLeft: -6 }} /> : null}
+              <Text variant="caption" style={{ color: st === 'live' ? colors.onMedia : colors.textSecondary }}>
+                {st === 'live'
+                  ? `Live · ${here} in the room`
+                  : st === 'upcoming' && episode.airDate
+                    ? `Airs ${dayLabel(episode.airDate)} · ${timeOfDay(episode.airDate)} · ${countdown(episode.airDate)}`
+                    : [episode.airDate ? shortDate(episode.airDate) : 'TBA', runtimeLabel(episode.runtime)].filter(Boolean).join(' · ')}
+                {' · '}
+                {posts.length} {posts.length === 1 ? 'post' : 'posts'}
+              </Text>
+            </View>
+          </View>
+        </Backdrop>
       </Animated.View>
 
       <View style={styles.nav}>
-        <Button label={prev ? `Ep ${prev.number}` : 'First'} icon="chevron-back" variant="ghost" size="sm" disabled={!prev} onPress={() => prev && router.replace(`/episode/${drama.id}/${season}/${prev.number}`)} />
+        <Button
+          label={prev ? `Ep ${prev.number}` : 'First'}
+          icon="chevron-back"
+          variant="ghost"
+          size="sm"
+          disabled={!prev}
+          onPress={() => prev && router.replace(`/episode/${drama.id}/${season}/${prev.number}`)}
+        />
         <Pressable onPress={() => router.push({ pathname: '/drama/[id]', params: { id: drama.id, tab: 'episodes' } })} accessibilityRole="button" accessibilityLabel="All episodes">
           <Text variant="label" tone="secondary">
             {number} / {total}
           </Text>
         </Pressable>
-        <Button label={next ? `Ep ${next.number}` : 'Last'} iconRight="chevron-forward" variant="ghost" size="sm" disabled={!next} onPress={() => next && router.replace(`/episode/${drama.id}/${season}/${next.number}`)} />
+        <Button
+          label={next ? `Ep ${next.number}` : 'Last'}
+          iconRight="chevron-forward"
+          variant="ghost"
+          size="sm"
+          disabled={!next}
+          onPress={() => next && router.replace(`/episode/${drama.id}/${season}/${next.number}`)}
+        />
       </View>
 
       {st === 'upcoming' ? (
-        <View style={{ paddingHorizontal: space.margin }}>
-          <InlineNotice tone="info" icon="time-outline" text={`Not aired yet. Predictions and hype are welcome — spoilers from previews still need a spoiler level.`} />
-        </View>
+        <ReminderCard drama={drama} episode={episode} />
       ) : showGate ? (
         <View style={styles.gate}>
           <Ionicons name="eye-off-outline" size={22} color={colors.textPrimary} />
@@ -144,7 +173,20 @@ export default function EpisodeRoom() {
           </View>
         </View>
       ) : (
-        <Pressable onPress={watched ? () => require('change progress', () => { dispatch({ type: 'progress', dramaId: drama.id, season, episode: number - 1, total }); toast.show({ message: `Episode ${number} marked unwatched` }); }) : markWatched} style={[styles.watchedRow, watched ? styles.watchedOn : null]} accessibilityRole="checkbox" accessibilityState={{ checked: watched }}>
+        <Pressable
+          onPress={
+            watched
+              ? () =>
+                  require('change progress', () => {
+                    dispatch({ type: 'progress', dramaId: drama.id, season, episode: number - 1, total });
+                    toast.show({ message: `Episode ${number} marked unwatched` });
+                  })
+              : markWatched
+          }
+          style={[styles.watchedRow, watched ? styles.watchedOn : null]}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: watched }}
+        >
           <Ionicons name={watched ? 'checkmark-circle' : 'ellipse-outline'} size={20} color={watched ? colors.success : colors.textSecondary} />
           <Text variant="label" style={{ flex: 1 }}>
             {watched ? 'Watched' : 'Mark as watched'}
@@ -174,14 +216,39 @@ export default function EpisodeRoom() {
 
       <ChipRow style={{ paddingHorizontal: space.margin, paddingTop: space.x5, paddingBottom: space.x2 }}>
         {(['all', 'discussion', 'reaction', 'post', 'short'] as Filter[]).map((f) => (
-          <Chip key={f} label={f === 'all' ? `All · ${posts.length}` : f === 'post' ? 'Posts' : f[0]!.toUpperCase() + f.slice(1) + 's'} size="sm" selected={filter === f} onPress={() => setFilter(f)} />
+          <Chip
+            key={f}
+            label={f === 'all' ? `All · ${posts.length}` : f === 'post' ? 'Posts' : f[0]!.toUpperCase() + f.slice(1) + 's'}
+            size="sm"
+            selected={filter === f}
+            onPress={() => setFilter(f)}
+          />
         ))}
       </ChipRow>
     </View>
   );
 
   return (
-    <Screen header={<TopBar mode="stack" transparent title={`Ep ${number}`} subtitle={drama.title} backgroundOpacity={hero.barOpacity} titleOpacity={hero.titleOpacity} titleRise={hero.titleRise} right={<IconButton icon="share-social-outline" label="Share" onPress={() => Share.share({ message: `${drama.title} Ep ${number} on Hallyu — https://hallyu.app/d/${drama.id}/e/${season}/${number}` })} />} />}>
+    <Screen
+      header={
+        <TopBar
+          mode="stack"
+          transparent
+          title={`Ep ${number}`}
+          subtitle={drama.title}
+          backgroundOpacity={hero.barOpacity}
+          titleOpacity={hero.titleOpacity}
+          titleRise={hero.titleRise}
+          right={
+            <IconButton
+              icon="share-social-outline"
+              label="Share"
+              onPress={() => Share.share({ message: `${drama.title} Ep ${number} on Hallyu — https://hallyu.app/d/${drama.id}/e/${season}/${number}` })}
+            />
+          }
+        />
+      }
+    >
       <Animated.FlatList<Post>
         data={filtered}
         keyExtractor={(p) => p.id}
@@ -190,8 +257,23 @@ export default function EpisodeRoom() {
         ListHeaderComponent={header}
         contentContainerStyle={padding}
         renderItem={({ item: p }) => <PostCard post={p} hideContext />}
-        ListEmptyComponent={<EmptyState compact icon="chatbubbles-outline" title={st === 'upcoming' ? 'The room opens when it airs' : filter === 'all' ? 'Quiet room, so far' : `No ${filter}s for this episode`} body={st === 'upcoming' ? 'Follow the drama with alerts on and we’ll bring you back the moment it airs.' : 'Reactions, theories, that one scene — post first and set the tone.'} actionLabel={st === 'upcoming' ? undefined : 'Post about this episode'} onAction={() => require('post', () => setCreate(true))} />}
-        ListFooterComponent={filtered.length ? <View style={{ padding: space.margin }}><Button label={`Post about Episode ${number}`} variant="secondary" icon="create-outline" block onPress={() => require('post', () => setCreate(true))} /></View> : null}
+        ListEmptyComponent={
+          <EmptyState
+            compact
+            icon="chatbubbles-outline"
+            title={st === 'upcoming' ? 'The room opens when it airs' : filter === 'all' ? 'Quiet room, so far' : `No ${filter}s for this episode`}
+            body={st === 'upcoming' ? 'Follow the drama with alerts on and we’ll bring you back the moment it airs.' : 'Reactions, theories, that one scene — post first and set the tone.'}
+            actionLabel={st === 'upcoming' ? undefined : 'Post about this episode'}
+            onAction={() => require('post', () => setCreate(true))}
+          />
+        }
+        ListFooterComponent={
+          filtered.length ? (
+            <View style={{ padding: space.margin }}>
+              <Button label={`Post about Episode ${number}`} variant="secondary" icon="create-outline" block onPress={() => require('post', () => setCreate(true))} />
+            </View>
+          ) : null
+        }
       />
       <CreateSheet visible={create} onClose={() => setCreate(false)} context={{ dramaId: drama.id, season, episode: number }} />
     </Screen>
@@ -206,6 +288,15 @@ const styles = StyleSheet.create({
   live: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.live },
   nav: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: space.x2, paddingVertical: space.x2 },
   gate: { marginHorizontal: space.margin, padding: space.x5, alignItems: 'center', backgroundColor: colors.surface1, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderSubtle },
-  watchedRow: { flexDirection: 'row', alignItems: 'center', gap: space.x3, marginHorizontal: space.margin, paddingHorizontal: space.x4, height: 48, borderRadius: radius.md, backgroundColor: colors.surface1 },
+  watchedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.x3,
+    marginHorizontal: space.margin,
+    paddingHorizontal: space.x4,
+    height: 48,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface1,
+  },
   watchedOn: { borderWidth: 1, borderColor: colors.borderSubtle },
 });
