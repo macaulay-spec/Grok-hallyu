@@ -30,6 +30,13 @@
         {
           "microphonePermission": false
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/branding/notification-icon.png",
+          "color": "#E11D48"
+        }
       ]
     ],
     "android": {
@@ -70,6 +77,12 @@
       "output": "single",
       "favicon": "./assets/branding/icon.png",
       "backgroundColor": "#0A0A0A"
+    },
+    "notification": {
+      "icon": "./assets/branding/notification-icon.png",
+      "color": "#E11D48",
+      "androidMode": "default",
+      "androidCollapsedTitle": "Hallyu"
     }
   }
 }

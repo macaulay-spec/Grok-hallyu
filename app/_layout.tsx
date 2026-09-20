@@ -4,7 +4,8 @@ import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useRef } from 'react';
-import { View } from 'react-native';
+import { AppState as RNAppState, View } from 'react-native';
+import * as Notifications from 'expo-notifications';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 import { ToastProvider } from '../components/ui/Toast';
@@ -14,7 +15,8 @@ import { catalog } from '../lib/catalog';
 import { syncSeedCatalog } from '../lib/catalogSync';
 import { SyncProvider } from '../lib/data/sync';
 import { useNetwork } from '../lib/hooks';
-import { demoState, freshMemberState, GUEST_ID, guestState, StoreProvider, useSlice, useStore } from '../lib/store';
+import { installNotificationHandler, reminderUrl, remindersSupported, syncEpisodeReminders } from '../lib/reminders';
+import { demoState, freshMemberState, getState, GUEST_ID, guestState, StoreProvider, useHallyu, useSlice, useStore } from '../lib/store';
 import { ME } from '../lib/selectors';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -41,6 +43,7 @@ export default function RootLayout() {
             <AccountSync />
             <CatalogSync />
             <SyncProvider />
+            <ReminderSync />
             <ErrorBoundary scope="Hallyu">
               <Stack
                 screenOptions={{
@@ -170,6 +173,41 @@ function AccountSync() {
 }
 
 /** Once hydrated and online, attach real catalog art and ids to the seeded titles (no-op without a catalog key). */
+/**
+ * Keeps the OS notification queue in step with follows + per-drama alerts, and opens the episode
+ * room when a reminder is tapped (warm or cold start).
+ */
+function ReminderSync() {
+  const hydrated = useSlice((s) => s.hydrated);
+  const router = useRouter();
+  useEffect(() => {
+    if (!hydrated || !remindersSupported) return;
+    installNotificationHandler();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const schedule = (delay = 1500) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => void syncEpisodeReminders(getState()), delay);
+    };
+    schedule(2500);
+    const unsub = useHallyu.subscribe((s, prev) => {
+      if (s.follows.dramas !== prev.follows.dramas || s.dramaNotify !== prev.dramaNotify || s.prefs.notifications !== prev.prefs.notifications || s.importedDramas !== prev.importedDramas) schedule();
+    });
+    const fg = RNAppState.addEventListener('change', (st) => st === 'active' && schedule(800));
+    const open = (url: string | undefined) => url && setTimeout(() => router.push(url as never), 400);
+    const tapped = Notifications.addNotificationResponseReceivedListener((r) => open(reminderUrl(r)));
+    Notifications.getLastNotificationResponseAsync()
+      .then((r) => open(reminderUrl(r)))
+      .catch(() => {});
+    return () => {
+      clearTimeout(timer);
+      unsub();
+      fg.remove();
+      tapped.remove();
+    };
+  }, [hydrated, router]);
+  return null;
+}
+
 function CatalogSync() {
   const hydrated = useSlice((s) => s.hydrated);
   const online = useNetwork();

@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, View } from 'react-native';
 import { colors, radius, space } from '../../constants/theme';
 import { countdown, dayLabel, timeOfDay } from '../../lib/format';
 import { haptic, useApp, useRequireMember } from '../../lib/hooks';
+import { ensureNotificationPermission } from '../../lib/reminders';
 import { Drama, Episode } from '../../lib/model';
 import { Button } from '../ui/Button';
 import { Text } from '../ui/Text';
@@ -35,7 +36,19 @@ export function useReminder(drama: Drama | undefined) {
         dispatch({ type: 'dramaNotify', id: drama.id, on: true });
         if (!state.prefs.notifications.episodes) dispatch({ type: 'prefs', patch: { notifications: { ...state.prefs.notifications, episodes: true } } });
         const when = episode?.airDate ? ` ${dayLabel(episode.airDate)} at ${timeOfDay(episode.airDate)}` : '';
-        toast.show({ message: episode ? `We’ll nudge you when Episode ${episode.number} airs${when}` : `Episode alerts on for ${drama.title}`, tone: 'success', icon: 'notifications' });
+        // Ask for permission now — the one moment the request makes sense — and be honest if it's off.
+        void ensureNotificationPermission().then((perm) => {
+          if (perm === 'granted' || perm === 'unsupported')
+            toast.show({ message: episode ? `We’ll nudge you when Episode ${episode.number} airs${when}` : `Episode alerts on for ${drama.title}`, tone: 'success', icon: 'notifications' });
+          else
+            toast.show({
+              message: 'Reminder saved, but notifications are off for Hallyu on this device.',
+              icon: 'notifications-off-outline',
+              actionLabel: 'Open settings',
+              onAction: () => Linking.openSettings().catch(() => {}),
+              duration: 6000,
+            });
+        });
       });
     },
     [drama, on, following, require, dispatch, toast, state.prefs.notifications],

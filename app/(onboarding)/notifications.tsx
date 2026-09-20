@@ -8,13 +8,15 @@ import { Text } from '../../components/ui/Text';
 import { colors, radius, space } from '../../constants/theme';
 import { useStore } from '../../lib/store';
 import { track } from '../../lib/analytics';
+import { ensureNotificationPermission } from '../../lib/reminders';
 
 /** Step 4 — notifications, asked with a reason. Then Enter Hallyu. */
 export default function NotificationsStep() {
   const router = useRouter();
   const { state, dispatch } = useStore();
-  const finish = (enable: boolean) => {
+  const finish = async (enable: boolean) => {
     dispatch({ type: 'prefs', patch: { notifications: { ...state.prefs.notifications, episodes: enable, social: enable, highlights: enable } } });
+    if (enable) await ensureNotificationPermission(); // the system prompt, asked with the reason on screen
     dispatch({ type: 'onboarding', patch: { done: true, step: 4 } });
     track('onboarding.done');
     router.replace('/(tabs)');
@@ -25,7 +27,14 @@ export default function NotificationsStep() {
     { icon: 'sparkles-outline', title: 'Highlights', body: 'One digest at most per day. Quiet hours respected.' },
   ];
   return (
-    <OnboardingFrame step={4} title="Never miss an episode night." subtitle="You control every category later in Settings. Nothing is on by default that you didn’t choose here." skippable={false} continueLabel="Turn on and enter Hallyu" onContinue={() => finish(true)}>
+    <OnboardingFrame
+      step={4}
+      title="Never miss an episode night."
+      subtitle="You control every category later in Settings. Nothing is on by default that you didn’t choose here."
+      skippable={false}
+      continueLabel="Turn on and enter Hallyu"
+      onContinue={() => finish(true)}
+    >
       <View style={{ gap: space.x3 }}>
         {rows.map((r) => (
           <View key={r.title} style={styles.row}>
