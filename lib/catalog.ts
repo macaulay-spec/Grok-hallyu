@@ -7,6 +7,7 @@
  * Credentials: constants/keys.ts (v4 read token preferred, sent as a Bearer header; the v3 key is the
  * `?api_key=` fallback). Both are read-only, public-by-design client credentials baked into the app.
  */
+import { Platform } from 'react-native';
 import { TMDB_ACCESS_TOKEN, TMDB_API_KEY } from '../constants/keys';
 import { Actor, Drama, Episode } from './model';
 
@@ -105,15 +106,81 @@ export class CatalogError extends Error {
   }
 }
 
-async function tmdb<T>(path: string, params: Record<string, string>, signal?: AbortSignal): Promise<T> {
+// ---- Health: the last thing the catalog said, so screens can explain "why no art" precisely. ----
+export interface CatalogHealth {
+  state: 'idle' | 'ok' | 'error';
+  at?: number;
+  latencyMs?: number;
+  status?: number;
+  message?: string;
+}
+let health: CatalogHealth = { state: 'idle' };
+const healthListeners = new Set<(h: CatalogHealth) => void>();
+function setHealth(next: CatalogHealth) {
+  // Throttle "still fine" updates so a busy screen doesn't re-render on every request.
+  if (next.state === 'ok' && health.state === 'ok' && next.at && health.at && next.at - health.at < 15_000) return;
+  health = next;
+  healthListeners.forEach((l) => l(health));
+}
+export const getCatalogHealth = () => health;
+export function subscribeCatalogHealth(l: (h: CatalogHealth) => void) {
+  healthListeners.add(l);
+  return () => {
+    healthListeners.delete(l);
+  };
+}
+
+/**
+ * Which credential to present. Browsers start with the v3 key as a query param — a "simple" CORS
+ * request with no preflight and no custom headers to negotiate; native starts with the v4 read
+ * token as a Bearer header. If one is rejected (401) and the other exists, we flip once and retry,
+ * so a bad or rotated credential of either kind can't take the catalog down on its own.
+ */
+type AuthMode = 'key' | 'bearer';
+let authMode: AuthMode = Platform.OS === 'web' && TMDB_KEY ? 'key' : TMDB_TOKEN ? 'bearer' : 'key';
+const otherMode = (m: AuthMode): AuthMode | null => (m === 'key' ? (TMDB_TOKEN ? 'bearer' : null) : TMDB_KEY ? 'key' : null);
+
+async function tmdb<T>(path: string, params: Record<string, string>, signal?: AbortSignal, retried = false): Promise<T> {
   const url = new URL(`https://api.themoviedb.org/3${path}`);
-  if (!TMDB_TOKEN && TMDB_KEY) url.searchParams.set('api_key', TMDB_KEY);
+  const mode = authMode;
+  if (mode === 'key') url.searchParams.set('api_key', TMDB_KEY);
   url.searchParams.set('language', 'en-US');
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-  const headers: Record<string, string> = { Accept: 'application/json' };
-  if (TMDB_TOKEN) headers.Authorization = `Bearer ${TMDB_TOKEN}`;
-  const res = await fetch(url.toString(), { signal, headers });
-  if (!res.ok) throw new CatalogError(res.status === 401 ? 'Catalog credentials rejected' : res.status === 429 ? 'Catalog rate limit reached' : `Catalog error ${res.status}`, res.status);
+  const headers: Record<string, string> = {};
+  if (mode === 'bearer') {
+    headers.Accept = 'application/json';
+    headers.Authorization = `Bearer ${TMDB_TOKEN}`;
+  }
+  const started = Date.now();
+  let res: Response;
+  try {
+    res = await fetch(url.toString(), { signal, headers });
+  } catch (e) {
+    if ((e as Error)?.name !== 'AbortError')
+      setHealth({
+        state: 'error',
+        at: Date.now(),
+        message: Platform.OS === 'web' ? 'Network error — the browser could not reach api.themoviedb.org (offline, blocked, or CORS)' : 'Network error — api.themoviedb.org unreachable',
+      });
+    throw e;
+  }
+  if (!res.ok) {
+    if (res.status === 401 && !retried && otherMode(mode)) {
+      authMode = otherMode(mode)!;
+      return tmdb<T>(path, params, signal, true);
+    }
+    const message =
+      res.status === 401
+        ? 'Catalog credentials rejected (401) — check the TMDB key/token'
+        : res.status === 429
+          ? 'Catalog rate limit reached (429)'
+          : res.status === 404
+            ? 'Not found'
+            : `Catalog error ${res.status}`;
+    if (res.status !== 404) setHealth({ state: 'error', at: Date.now(), status: res.status, message });
+    throw new CatalogError(message, res.status);
+  }
+  setHealth({ state: 'ok', at: Date.now(), latencyMs: Date.now() - started, status: res.status });
   return (await res.json()) as T;
 }
 

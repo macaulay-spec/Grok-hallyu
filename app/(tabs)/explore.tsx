@@ -21,7 +21,7 @@ import { TopBar } from '../../components/ui/TopBar';
 import { colors, radius, space } from '../../constants/theme';
 import { catalog, invalidateCatalogLists } from '../../lib/catalog';
 import { adoptActors, adoptDramas } from '../../lib/catalogSync';
-import { Loadable, useApp, useLayout, useLoad, useNetwork } from '../../lib/hooks';
+import { Loadable, useApp, useCatalogHealth, useLayout, useLoad, useNetwork } from '../../lib/hooks';
 import { Actor, Drama, GENRES } from '../../lib/model';
 import { publicCollections, shorts, trendingDiscussions } from '../../lib/selectors';
 import { TRENDING_HASHTAGS } from '../../lib/seed';
@@ -44,6 +44,7 @@ export default function Explore() {
   const tabBar = useTabBarMotion();
   const refresh = useRefresh('explore');
   const online = useNetwork();
+  const health = useCatalogHealth();
   const { state } = useApp();
   const { width } = useLayout();
 
@@ -95,7 +96,9 @@ export default function Explore() {
             <InlineNotice
               tone="warning"
               icon={online ? 'cloud-offline-outline' : 'wifi-outline'}
-              text={online ? 'Couldn’t reach the catalog. Tap to try again.' : 'You’re offline. Live titles come back with your connection — tap to retry.'}
+              text={
+                online ? `Couldn’t load the live catalog — ${health.message ?? 'no answer from TMDB'}. Tap to try again.` : 'You’re offline. Live titles come back with your connection — tap to retry.'
+              }
             />
           </Pressable>
         ) : null}

@@ -8,12 +8,14 @@ import { Text } from '../../components/ui/Text';
 import { Wordmark } from '../../components/ui/TopBar';
 import { TopBar } from '../../components/ui/TopBar';
 import { colors, radius, space } from '../../constants/theme';
-import { ATTRIBUTION } from '../../lib/catalog';
+import { ATTRIBUTION, catalog } from '../../lib/catalog';
+import { useCatalogHealth } from '../../lib/hooks';
 
 /** About & credits — includes the TMDB attribution required by its API terms. */
 export default function About() {
   const version = Application.nativeApplicationVersion ?? '1.0.0';
   const build = Application.nativeBuildVersion ?? '1';
+  const health = useCatalogHealth();
   return (
     <Screen header={<TopBar mode="stack" title="About & credits" />}>
       <ScrollScreen>
@@ -33,10 +35,29 @@ export default function About() {
               {ATTRIBUTION}
             </Text>
           </View>
+          <SettingsRow
+            icon={health.state === 'ok' ? 'checkmark-circle-outline' : health.state === 'error' ? 'alert-circle-outline' : 'ellipse-outline'}
+            label="Live catalog"
+            detail={
+              health.state === 'ok'
+                ? `Connected · ${health.latencyMs ?? 0} ms · ${health.at ? new Date(health.at).toLocaleTimeString() : ''}`
+                : health.state === 'error'
+                  ? (health.message ?? 'Unreachable')
+                  : catalog.available
+                    ? 'No request yet this session — tap to test'
+                    : 'Not configured in this build'
+            }
+            onPress={() => catalog.trending().catch(() => {})}
+          />
           <SettingsRow icon="open-outline" label="themoviedb.org" onPress={() => Linking.openURL('https://www.themoviedb.org/').catch(() => {})} />
         </SettingsGroup>
         <SettingsGroup title="Type & icons">
-          <SettingsRow icon="text-outline" label="Pretendard" detail="© Kil Hyung-jin · SIL Open Font License 1.1" onPress={() => Linking.openURL('https://github.com/orioncactus/pretendard').catch(() => {})} />
+          <SettingsRow
+            icon="text-outline"
+            label="Pretendard"
+            detail="© Kil Hyung-jin · SIL Open Font License 1.1"
+            onPress={() => Linking.openURL('https://github.com/orioncactus/pretendard').catch(() => {})}
+          />
           <SettingsRow icon="shapes-outline" label="Ionicons" detail="© Ionic · MIT License" onPress={() => Linking.openURL('https://ionic.io/ionicons').catch(() => {})} />
         </SettingsGroup>
         <SettingsGroup title="Open source">

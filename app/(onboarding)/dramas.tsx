@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
-import { FlatList, View } from 'react-native';
+import { FlatList, Pressable, View } from 'react-native';
 import { DramaCard } from '../../components/drama/DramaCard';
 import { OnboardingFrame } from '../../components/onboarding/OnboardingFrame';
 import { SearchField } from '../../components/search/SearchField';
@@ -11,7 +11,7 @@ import { Text } from '../../components/ui/Text';
 import { sizes, space } from '../../constants/theme';
 import { catalog } from '../../lib/catalog';
 import { adoptDramas, syncSeedCatalog } from '../../lib/catalogSync';
-import { haptic, useDebounced, useLayout, useLoad } from '../../lib/hooks';
+import { haptic, useCatalogHealth, useDebounced, useLayout, useLoad } from '../../lib/hooks';
 import { Drama, WatchStatus } from '../../lib/model';
 import { allDramas, useStore } from '../../lib/store';
 
@@ -31,6 +31,7 @@ export default function DramasStep() {
   const [picked, setPicked] = useState<Record<string, WatchStatus>>(Object.fromEntries(Object.values(state.watchlist).map((w) => [w.dramaId, w.status])));
   const [pending, setPending] = useState<string | null>(null);
   const genres = useMemo(() => new Set(state.onboarding.genres), [state.onboarding.genres]);
+  const health = useCatalogHealth();
 
   useEffect(() => {
     syncSeedCatalog().catch(() => {});
@@ -115,12 +116,9 @@ export default function DramasStep() {
         </View>
       ) : null}
       {wall.error && !wall.data ? (
-        <InlineNotice
-          tone="warning"
-          icon="cloud-offline-outline"
-          text="Couldn’t reach the catalog — showing saved titles. Search still works once you’re back online."
-          style={{ marginBottom: space.x3 }}
-        />
+        <Pressable onPress={wall.reload} accessibilityRole="button" accessibilityLabel="Retry loading the catalog" style={{ marginBottom: space.x3 }}>
+          <InlineNotice tone="warning" icon="cloud-offline-outline" text={`Couldn’t load live titles — ${health.message ?? 'the catalog didn’t answer'}. Showing saved titles; tap to retry.`} />
+        </Pressable>
       ) : null}
       {showSkeleton ? (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.gutter }} accessibilityLabel="Loading dramas">
