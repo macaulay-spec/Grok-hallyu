@@ -25,7 +25,7 @@ interface CommentItemProps {
 }
 
 /** One level of threading: replies indent once; reply-to-reply uses an @mention. */
-export function CommentItem({ comment, post, isReply, onReply, highlighted, replyCount, onOpenThread }: CommentItemProps) {
+function CommentItemBase({ comment, post, isReply, onReply, highlighted, replyCount, onOpenThread }: CommentItemProps) {
   const router = useRouter();
   const { getUser, getDrama, isCommentVeiled, dispatch, me } = useApp();
   const require = useRequireMember();
@@ -127,3 +127,6 @@ const styles = StyleSheet.create({
   op: { backgroundColor: colors.accentSoft, paddingHorizontal: 5, height: 16, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
   actions: { flexDirection: 'row', alignItems: 'center', gap: space.x4, marginTop: 2 },
 });
+
+/** Memoised: with tracked store getters, a card re-renders only when its own data changes. */
+export const CommentItem = React.memo(CommentItemBase);

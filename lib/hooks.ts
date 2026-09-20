@@ -1,36 +1,77 @@
 import NetInfo from '@react-native-community/netinfo';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { AccessibilityInfo, Platform, useWindowDimensions } from 'react-native';
 import { marginFor, motion, windowClass, WindowClass } from '../constants/theme';
 import { useAuth } from './auth';
 import * as sel from './selectors';
-import { AppState, useStore } from './store';
+import { AppState, clearPersisted, dispatch, reset, useHallyu } from './store';
 
-/** Store + memoised selectors bound to the current state. */
-export function useApp() {
-  const { state, dispatch, reset, clearPersisted } = useStore();
-  const bound = useMemo(() => bind(state), [state]);
-  return { state, dispatch, reset, clearPersisted, ...bound };
+/**
+ * Tracked store access. Getters called during render register the exact values they read, and the
+ * component re-renders only when one of those values changes. Reading `state` subscribes to everything
+ * (screens that rank feeds need that); list items should stick to getters.
+ */
+function useTracked() {
+  const deps = useRef<{ sel: (s: AppState) => unknown; last: unknown }[]>([]);
+  const rendering = useRef(true);
+  const [, force] = useReducer((x: number) => x + 1, 0);
+  rendering.current = true;
+  deps.current = [];
+  useEffect(() => {
+    rendering.current = false;
+  });
+  useEffect(() => {
+    const check = (s: AppState) => {
+      for (const d of deps.current) {
+        if (!Object.is(d.sel(s), d.last)) {
+          force();
+          return;
+        }
+      }
+    };
+    const unsub = useHallyu.subscribe(check);
+    check(useHallyu.getState());
+    return unsub;
+  }, []);
+  const snapshot = useHallyu.getState();
+  return function track<T>(sel: (s: AppState) => T): T {
+    if (!rendering.current) return sel(useHallyu.getState());
+    const v = sel(snapshot);
+    deps.current.push({ sel, last: v });
+    return v;
+  };
 }
 
-function bind(s: AppState) {
+/** Store + selectors bound to the current state (tracked: see `useTracked`). */
+export function useApp() {
+  const track = useTracked();
   return {
-    me: s.profile,
-    getUser: (id: string) => sel.getUser(s, id),
-    getUserByHandle: (h: string) => sel.getUserByHandle(s, h),
-    getDrama: (id?: string) => sel.getDrama(s, id),
-    getActor: (id?: string) => sel.getActor(s, id),
-    getPost: (id?: string) => sel.getPost(s, id),
-    getCollection: (id?: string) => sel.getCollection(s, id),
-    isPostVeiled: (p: Parameters<typeof sel.isPostVeiled>[1]) => sel.isPostVeiled(s, p),
-    isCommentVeiled: (c: Parameters<typeof sel.isCommentVeiled>[1], p?: Parameters<typeof sel.isCommentVeiled>[2]) => sel.isCommentVeiled(s, c, p),
-    isFollowing: (kind: keyof AppState['follows'], id: string) => s.follows[kind].includes(id),
-    watch: (dramaId: string) => s.watchlist[dramaId],
-    myReaction: (id: string) => s.reactions[id],
-    isSaved: (id: string) => s.saves.includes(id),
-    unread: sel.unreadCount(s),
+    get state() {
+      return track((s) => s);
+    },
+    dispatch,
+    reset,
+    clearPersisted,
+    get me() {
+      return track((s) => s.profile);
+    },
+    getUser: (id: string) => track((s) => sel.getUser(s, id)),
+    getUserByHandle: (h: string) => track((s) => sel.getUserByHandle(s, h)),
+    getDrama: (id?: string) => track((s) => sel.getDrama(s, id)),
+    getActor: (id?: string) => track((s) => sel.getActor(s, id)),
+    getPost: (id?: string) => track((s) => sel.getPost(s, id)),
+    getCollection: (id?: string) => track((s) => sel.getCollection(s, id)),
+    isPostVeiled: (p: Parameters<typeof sel.isPostVeiled>[1]) => track((s) => sel.isPostVeiled(s, p)),
+    isCommentVeiled: (c: Parameters<typeof sel.isCommentVeiled>[1], p?: Parameters<typeof sel.isCommentVeiled>[2]) => track((s) => sel.isCommentVeiled(s, c, p)),
+    isFollowing: (kind: keyof AppState['follows'], id: string) => track((s) => s.follows[kind].includes(id)),
+    watch: (dramaId: string) => track((s) => s.watchlist[dramaId]),
+    myReaction: (id: string) => track((s) => s.reactions[id]),
+    isSaved: (id: string) => track((s) => s.saves.includes(id)),
+    get unread() {
+      return track(sel.unreadCount);
+    },
   };
 }
 

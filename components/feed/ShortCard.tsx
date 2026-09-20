@@ -19,7 +19,7 @@ interface ShortCardProps {
 }
 
 /** 9:16 tile: drama poster as the cover, duration, caption, author. Tap → Shorts viewer at this item. */
-export function ShortCard({ post, width = 132, style }: ShortCardProps) {
+function ShortCardBase({ post, width = 132, style }: ShortCardProps) {
   const router = useRouter();
   const { getUser, getDrama, isPostVeiled } = useApp();
   const author = getUser(post.authorId);
@@ -102,3 +102,6 @@ const styles = StyleSheet.create({
   bottom: { padding: space.x2, gap: 6 },
   authorRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
 });
+
+/** Memoised: with tracked store getters, a card re-renders only when its own data changes. */
+export const ShortCard = React.memo(ShortCardBase);

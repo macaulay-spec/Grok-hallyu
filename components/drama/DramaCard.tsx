@@ -30,7 +30,7 @@ interface DramaCardProps {
 }
 
 /** Poster card. Tap → Drama Hub. Long-press → quick actions sheet. */
-export function DramaCard({ drama, size = 'm', reason, meta, showProgress = true, style, onPress, selected, badge }: DramaCardProps) {
+function DramaCardBase({ drama, size = 'm', reason, meta, showProgress = true, style, onPress, selected, badge }: DramaCardProps) {
   const router = useRouter();
   const { watch } = useApp();
   const width = sizes.poster[size];
@@ -162,3 +162,6 @@ const styles = StyleSheet.create({
   check: { position: 'absolute', top: 6, right: 6, width: 22, height: 22, borderRadius: 11, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
   row: { flexDirection: 'row', alignItems: 'center', gap: space.x3, paddingVertical: space.x2 },
 });
+
+/** Memoised: with tracked store getters, a card re-renders only when its own data changes. */
+export const DramaCard = React.memo(DramaCardBase);

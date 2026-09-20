@@ -27,7 +27,7 @@ interface EpisodeCardProps {
 }
 
 /** Episode row: number · title · date/runtime · watched check · conversation count. Tap → Episode room. */
-export function EpisodeCard({ drama, episode, postCount, style, showDrama }: EpisodeCardProps) {
+function EpisodeCardBase({ drama, episode, postCount, style, showDrama }: EpisodeCardProps) {
   const router = useRouter();
   const { watch, dispatch } = useApp();
   const require = useRequireMember();
@@ -107,3 +107,6 @@ const styles = StyleSheet.create({
   chip: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 32, paddingHorizontal: 12, borderRadius: 16, backgroundColor: colors.surface2, borderWidth: 1, borderColor: 'transparent' },
   chipOn: { backgroundColor: colors.accentSoft, borderColor: colors.accent },
 });
+
+/** Memoised: with tracked store getters, a card re-renders only when its own data changes. */
+export const EpisodeCard = React.memo(EpisodeCardBase);

@@ -19,7 +19,7 @@ interface UserRowProps {
   right?: React.ReactNode;
 }
 
-export function UserRow({ user, reason, style, showFollow = true, right }: UserRowProps) {
+function UserRowBase({ user, reason, style, showFollow = true, right }: UserRowProps) {
   const router = useRouter();
   const { me } = useApp();
   return (
@@ -66,3 +66,6 @@ const styles = StyleSheet.create({
   name: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   card: { width: 156, backgroundColor: colors.surface1, borderRadius: 16, padding: space.x4, alignItems: 'stretch' },
 });
+
+/** Memoised: with tracked store getters, a card re-renders only when its own data changes. */
+export const UserRow = React.memo(UserRowBase);

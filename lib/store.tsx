@@ -1,5 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef } from 'react';
+import React, { useEffect } from 'react';
+import { create } from 'zustand';
+import { useStoreWithEqualityFn } from 'zustand/traditional';
 import { uid } from './format';
 import {
   Actor,
@@ -24,6 +26,21 @@ const SEED_VERSION = 3;
 
 export type Intent = 'discuss' | 'track' | 'discover' | 'reactions' | 'people' | 'actors';
 
+/** A change the member made locally that still has to reach the backend. */
+export interface Mutation {
+  id: string;
+  /** the action that was applied optimistically */
+  action: Action;
+  /** the action that reverts it if the backend rejects it for good (undefined = not revertible) */
+  undo?: Action;
+  createdAt: string;
+  attempts: number;
+  status: 'queued' | 'sending' | 'failed';
+  error?: string;
+  /** what the user sees if it fails, e.g. "Couldn't follow Goblin" */
+  label: string;
+}
+
 export interface Prefs {
   protection: SpoilerProtection;
   autoplay: 'always' | 'wifi' | 'never';
@@ -36,6 +53,10 @@ export interface Prefs {
   language: 'en' | 'ko';
   guidelinesAccepted: boolean;
   dataSaver: boolean;
+  /** Dev-only network simulation for the local backend: exercises async states before the real backend exists. */
+  devNetwork: 'fast' | 'slow' | 'flaky' | 'offline';
+  /** Version of the Terms/Guidelines the member accepted (Play UGC policy); 0 = not yet. */
+  termsVersion: number;
 }
 
 export interface AppState {
@@ -63,6 +84,8 @@ export interface AppState {
   importedDramas: Drama[];
   importedActors: Actor[];
   lastSeenActivity: string;
+  /** Mutations waiting to reach the backend (persisted). See lib/data. */
+  outbox: Mutation[];
 }
 
 const defaultPrefs: Prefs = {
@@ -77,6 +100,8 @@ const defaultPrefs: Prefs = {
   guidelinesAccepted: false,
   dataSaver: false,
   language: 'en',
+  devNetwork: 'fast',
+  termsVersion: 0,
 };
 
 function initialState(): AppState {
@@ -105,6 +130,7 @@ function initialState(): AppState {
     importedDramas: [],
     importedActors: [],
     lastSeenActivity: new Date(0).toISOString(),
+    outbox: [],
   };
 }
 
@@ -141,7 +167,7 @@ export function demoState(): AppState {
   return { ...initialState(), hydrated: true };
 }
 
-type Action =
+export type Action =
   | { type: 'hydrate'; state: Partial<AppState> }
   | { type: 'replace'; state: AppState }
   | { type: 'onboarding'; patch: Partial<AppState['onboarding']> }
@@ -172,7 +198,10 @@ type Action =
   | { type: 'report'; id: string }
   | { type: 'recentSearch'; q?: string; clear?: boolean }
   | { type: 'import'; dramas?: Drama[]; actors?: Actor[] }
-  | { type: 'seenActivity' };
+  | { type: 'seenActivity' }
+  | { type: 'outbox.add'; mutation: Mutation }
+  | { type: 'outbox.update'; id: string; patch: Partial<Mutation> }
+  | { type: 'outbox.remove'; id: string };
 
 function toggle(list: string[], id: string, on?: boolean): string[] {
   const has = list.includes(id);
@@ -190,6 +219,12 @@ function reducer(s: AppState, a: Action): AppState {
   switch (a.type) {
     case 'hydrate':
       return { ...s, ...a.state, hydrated: true };
+    case 'outbox.add':
+      return { ...s, outbox: [...s.outbox, a.mutation] };
+    case 'outbox.update':
+      return { ...s, outbox: s.outbox.map((m) => (m.id === a.id ? { ...m, ...a.patch } : m)) };
+    case 'outbox.remove':
+      return { ...s, outbox: s.outbox.filter((m) => m.id !== a.id) };
     case 'replace':
       return { ...a.state, hydrated: true };
     case 'onboarding':
@@ -347,22 +382,41 @@ function reducer(s: AppState, a: Action): AppState {
   }
 }
 
+/**
+ * Catalog view: imported records extend the seed, and an imported record with a seed id *overrides* it
+ * (that is how real art, TMDB ids and refreshed metadata get attached to seeded titles).
+ * Memoised per `importedDramas` array identity — getDrama() is called by every card on every render.
+ */
+const dramaCache = new WeakMap<Drama[], Drama[]>();
+const actorCache = new WeakMap<Actor[], Actor[]>();
 export function allDramas(s: Pick<AppState, 'importedDramas'>): Drama[] {
-  return s.importedDramas.length ? [...seed.DRAMAS, ...s.importedDramas] : seed.DRAMAS;
+  if (!s.importedDramas.length) return seed.DRAMAS;
+  let out = dramaCache.get(s.importedDramas);
+  if (!out) {
+    const byId = new Map(s.importedDramas.map((d) => [d.id, d]));
+    out = [...seed.DRAMAS.map((d) => byId.get(d.id) ?? d), ...s.importedDramas.filter((d) => !seed.DRAMAS.some((x) => x.id === d.id))];
+    dramaCache.set(s.importedDramas, out);
+  }
+  return out;
 }
 export function allActors(s: Pick<AppState, 'importedActors'>): Actor[] {
-  return s.importedActors.length ? [...seed.ACTORS, ...s.importedActors] : seed.ACTORS;
+  if (!s.importedActors.length) return seed.ACTORS;
+  let out = actorCache.get(s.importedActors);
+  if (!out) {
+    const byId = new Map(s.importedActors.map((a) => [a.id, a]));
+    out = [...seed.ACTORS.map((a) => byId.get(a.id) ?? a), ...s.importedActors.filter((a) => !seed.ACTORS.some((x) => x.id === a.id))];
+    actorCache.set(s.importedActors, out);
+  }
+  return out;
 }
 
-interface StoreValue {
+export interface StoreValue {
   state: AppState;
-  dispatch: React.Dispatch<Action>;
+  dispatch: (action: Action) => void;
   /** Replace the whole persisted state (used by auth on sign-up / sign-out) */
   reset: (next: AppState) => void;
   clearPersisted: () => Promise<void>;
 }
-
-const StoreContext = createContext<StoreValue | null>(null);
 
 const PERSISTED_KEYS: (keyof AppState)[] = [
   'seedVersion',
@@ -388,6 +442,7 @@ const PERSISTED_KEYS: (keyof AppState)[] = [
   'importedDramas',
   'importedActors',
   'lastSeenActivity',
+  'outbox',
 ];
 
 /** Posts with local `require()` images cannot be serialised; keep seed posts by reference and only persist user-made content. */
@@ -425,47 +480,64 @@ function deserialise(raw: string): Partial<AppState> | null {
   }
 }
 
-export function StoreProvider({ children }: { children: React.ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, undefined, initialState);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const skipPersist = useRef(true);
+/**
+ * The store lives outside React (zustand) so components can subscribe to exactly the slice they read.
+ * `dispatch` runs the reducer and replaces the whole state; persistence is a debounced subscriber.
+ */
+export const useHallyu = create<AppState>()(() => initialState());
 
+export function dispatch(action: Action): void {
+  useHallyu.setState(reducer(useHallyu.getState(), action), true);
+}
+
+export function getState(): AppState {
+  return useHallyu.getState();
+}
+
+export const reset = (next: AppState): void => dispatch({ type: 'replace', state: next });
+export const clearPersisted = (): Promise<void> => AsyncStorage.removeItem(STORAGE_KEY);
+
+/** Subscribe to a derived value; re-renders only when it changes (Object.is, or `shallow` for arrays/objects). */
+export function useSlice<T>(selector: (s: AppState) => T, equality?: (a: T, b: T) => boolean): T {
+  return useStoreWithEqualityFn(useHallyu, selector, equality);
+}
+
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+let hydrationStarted = false;
+
+function startPersistence() {
+  useHallyu.subscribe((s) => {
+    if (!s.hydrated) return;
+    if (persistTimer) clearTimeout(persistTimer);
+    persistTimer = setTimeout(() => {
+      AsyncStorage.setItem(STORAGE_KEY, serialise(useHallyu.getState())).catch(() => {});
+    }, 400);
+  });
+}
+
+/** Hydrates once from AsyncStorage and turns on persistence. Renders children immediately (screens gate on `hydrated`). */
+export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
-    let alive = true;
+    if (hydrationStarted) return;
+    hydrationStarted = true;
     AsyncStorage.getItem(STORAGE_KEY)
       .then((raw) => {
-        if (!alive) return;
         const parsed = raw ? deserialise(raw) : null;
         dispatch({ type: 'hydrate', state: parsed ?? {} });
       })
       .catch(() => dispatch({ type: 'hydrate', state: {} }))
-      .finally(() => {
-        skipPersist.current = false;
-      });
-    return () => {
-      alive = false;
-    };
+      .finally(startPersistence);
   }, []);
-
-  useEffect(() => {
-    if (!state.hydrated || skipPersist.current) return;
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => {
-      AsyncStorage.setItem(STORAGE_KEY, serialise(state)).catch(() => {});
-    }, 400);
-  }, [state]);
-
-  const reset = useCallback((next: AppState) => dispatch({ type: 'replace', state: next }), []);
-  const clearPersisted = useCallback(() => AsyncStorage.removeItem(STORAGE_KEY), []);
-
-  const value = useMemo(() => ({ state, dispatch, reset, clearPersisted }), [state, reset, clearPersisted]);
-  return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
+  return <>{children}</>;
 }
 
+/**
+ * Compatibility hook: `state` is the whole store (re-renders on any change) — prefer `useSlice`
+ * or the tracked getters in `useApp()` for list items.
+ */
 export function useStore(): StoreValue {
-  const v = useContext(StoreContext);
-  if (!v) throw new Error('useStore must be used inside StoreProvider');
-  return v;
+  const state = useHallyu();
+  return { state, dispatch, reset, clearPersisted };
 }
 
 /** Convenience: a fresh Post skeleton authored by me. */

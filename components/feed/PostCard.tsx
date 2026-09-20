@@ -34,7 +34,7 @@ interface PostCardProps {
  * the body slot adapts per type (reaction = large quote, discussion = title + kind, review = rating +
  * verdict, recommendation = "if you liked" pairing).
  */
-export function PostCard({ post, reason, detail, hideContext, style, onOpenComments }: PostCardProps) {
+function PostCardBase({ post, reason, detail, hideContext, style, onOpenComments }: PostCardProps) {
   const router = useRouter();
   const { getUser, getDrama, getActor, isPostVeiled, isSaved, dispatch, me } = useApp();
   const require = useRequireMember();
@@ -265,3 +265,6 @@ const styles = StyleSheet.create({
   actions: { flexDirection: 'row', alignItems: 'center', gap: space.x2, marginTop: -4 },
   action: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 36, paddingHorizontal: 6 },
 });
+
+/** Memoised: with tracked store getters, a card re-renders only when its own data changes. */
+export const PostCard = React.memo(PostCardBase);
