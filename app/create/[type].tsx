@@ -211,6 +211,14 @@ export default function Composer() {
             </View>
           ) : null}
 
+          {!editing ? (
+            <ChipRow style={styles.typeRow}>
+              {CREATE_TYPES.map((t) => (
+                <Chip key={t.type} label={t.label} icon={t.icon} size="sm" selected={t.type === type} onPress={() => { if (t.type !== type) { haptic.select(); router.setParams({ type: t.type }); } }} accessibilityLabel={`${t.label}: ${t.hint}`} />
+              ))}
+            </ChipRow>
+          ) : null}
+
           <View style={styles.authorRow}>
             <Avatar uri={me.avatarUrl} name={me.displayName} size="md" />
             <View>
@@ -412,6 +420,7 @@ export default function Composer() {
 
 const styles = StyleSheet.create({
   guidelines: { margin: space.margin, marginBottom: 0, padding: space.x4, backgroundColor: colors.surface1, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.borderSubtle },
+  typeRow: { paddingHorizontal: space.margin, paddingTop: space.x3 },
   authorRow: { flexDirection: 'row', alignItems: 'center', gap: space.x3, paddingHorizontal: space.margin, paddingVertical: space.x4 },
   reactions: { flexDirection: 'row', flexWrap: 'wrap', gap: space.x2 },
   reaction: { width: '31%', flexGrow: 1, alignItems: 'center', gap: 4, paddingVertical: space.x3, borderRadius: radius.md, backgroundColor: colors.surface1, borderWidth: 1, borderColor: 'transparent' },

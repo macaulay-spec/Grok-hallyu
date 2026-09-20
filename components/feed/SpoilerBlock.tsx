@@ -30,6 +30,8 @@ export function SpoilerBlock({ id, level, drama, season, episode, veiled, childr
   const { dispatch, watch } = useApp();
   const require = useRequireMember();
   const toast = useToast();
+  const item = watch(drama?.id ?? '');
+  const copy = veilCopy(level, drama?.title, season, episode, (drama?.seasons.length ?? 1) > 1, item);
   const [showing, setShowing] = useState(!veiled);
   const [dissolving, setDissolving] = useState(false);
   const fade = useRef(new Animated.Value(veiled ? 0 : 1)).current;
@@ -67,11 +69,11 @@ export function SpoilerBlock({ id, level, drama, season, episode, veiled, childr
   };
 
   const veilBox = (
-    <View style={[styles.veil, compact ? styles.veilCompact : null]} accessibilityRole="button" accessibilityLabel={`${veilCopy(level, drama?.title, season, episode, (drama?.seasons.length ?? 1) > 1)}. Double tap to reveal.`} accessibilityHint="Hidden spoiler">
+    <View style={[styles.veil, compact ? styles.veilCompact : null]} accessibilityRole="button" accessibilityLabel={`${copy}. Double tap to reveal.`} accessibilityHint="Hidden spoiler">
       <View style={styles.veilHeader}>
         <Ionicons name="eye-off-outline" size={compact ? 14 : 16} color={colors.textSecondary} />
         <Text variant={compact ? 'caption' : 'label'} tone="secondary" style={{ flex: 1 }} numberOfLines={2}>
-          {veilCopy(level, drama?.title, season, episode, (drama?.seasons.length ?? 1) > 1)}
+          {copy}
         </Text>
       </View>
       <View style={styles.veilActions} importantForAccessibility="no-hide-descendants">

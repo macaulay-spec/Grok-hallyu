@@ -20,14 +20,29 @@ export const SPOILER_HELP: Record<SpoilerLevel, string> = {
   ending: 'Reveals how it ends. Hidden from everyone who has not completed the drama.',
 };
 
-export function veilCopy(level: SpoilerLevel, dramaTitle?: string, season?: number, episode?: number, multiSeason = false): string {
+/**
+ * What the veil says. It names the spoiler precisely and, when we know where you are, why it is
+ * hidden from *you* — "Spoiler for Episode 8 — you’re on Episode 5" earns more trust than a generic
+ * warning, and tells you exactly how far to watch before tapping Reveal.
+ */
+export function veilCopy(level: SpoilerLevel, dramaTitle?: string, season?: number, episode?: number, multiSeason = false, progress?: Pick<WatchlistItem, 'status' | 'season' | 'currentEpisode'>): string {
   const ep = episode ? `${multiSeason && season ? `S${season} ` : ''}Episode ${episode}` : undefined;
+  const at = progress && progress.status === 'watching' ? (progress.currentEpisode ? `you’re on ${multiSeason ? `S${progress.season} ` : ''}Episode ${progress.currentEpisode}` : 'you haven’t started yet') : undefined;
+  const want = progress?.status === 'want';
   switch (level) {
     case 'episode':
+      if (ep && at && (!multiSeason || progress!.season === season)) return `Spoiler for ${ep} — ${at}`;
+      if (ep && want) return `Spoiler for ${ep} — ${dramaTitle ?? 'this drama'} is on your watchlist`;
       return ep ? `Spoiler for ${ep}${dramaTitle ? ` of ${dramaTitle}` : ''}` : `Episode spoiler${dramaTitle ? ` · ${dramaTitle}` : ''}`;
-    case 'season':
-      return `Season${season && multiSeason ? ` ${season}` : ''} spoiler${dramaTitle ? ` · ${dramaTitle}` : ''}`;
+    case 'season': {
+      const label = `Season${season && multiSeason ? ` ${season}` : ''} spoiler`;
+      if (at) return `${label} — ${at}`;
+      if (want) return `${label} — ${dramaTitle ?? 'this drama'} is on your watchlist`;
+      return `${label}${dramaTitle ? ` · ${dramaTitle}` : ''}`;
+    }
     case 'ending':
+      if (at) return `Ending spoiler — ${at}`;
+      if (want) return `Ending spoiler — finish ${dramaTitle ?? 'it'} first`;
       return `Ending spoiler${dramaTitle ? ` · ${dramaTitle}` : ''}`;
     default:
       return '';

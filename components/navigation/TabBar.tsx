@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
+import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { Animated, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,8 +21,9 @@ const TABS: { key: TabKey; label: string; icon: keyof typeof Ionicons.glyphMap; 
 ];
 
 /**
- * Bottom tab bar (compact) / left rail (medium+). Create is a 40dp rounded-square Rose button that
- * opens the Create sheet — it never navigates. The active tab shows a Signal dot; Activity shows unread.
+ * Bottom tab bar (compact) / left rail (medium+). Create is a 40dp rounded-square Rose button: a tap
+ * opens the composer straight away (type is switchable inside), a long-press opens the type sheet.
+ * The active tab shows a Signal dot; Activity shows unread.
  */
 export function TabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
@@ -29,6 +31,7 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
   const { wc } = useLayout();
   const require = useRequireMember();
   const [create, setCreate] = useState(false);
+  const router = useRouter();
   const rail = wc !== 'compact';
   const currentKey = state.routes[state.index]?.name as TabKey;
   const { hidden, reveal } = useTabBarMotion();
@@ -39,7 +42,7 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
     reveal();
     if (key === 'create') {
       haptic.light();
-      require('create a post', () => setCreate(true));
+      require('create a post', () => router.push('/create/post'));
       return;
     }
     const route = state.routes.find((r) => r.name === key);
@@ -53,7 +56,7 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
     const focused = currentKey === t.key;
     if (t.key === 'create') {
       return (
-        <Pressable key={t.key} onPress={() => go(t.key)} accessibilityRole="button" accessibilityLabel="Create" style={[styles.item, rail ? styles.railItem : null]}>
+        <Pressable key={t.key} onPress={() => go(t.key)} onLongPress={() => { haptic.medium(); require('create a post', () => setCreate(true)); }} delayLongPress={280} accessibilityRole="button" accessibilityLabel="Create" accessibilityHint="Opens the composer. Long press to choose a post type." style={[styles.item, rail ? styles.railItem : null]}>
           <View style={styles.create}>
             <Ionicons name="add" size={24} color={colors.onAccent} />
           </View>

@@ -1,72 +1,167 @@
 import { useRouter } from 'expo-router';
-import React from 'react';
-import { FlatList, StyleSheet, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { FlatList, Pressable, StyleSheet, View } from 'react-native';
 import { colors, radius, space } from '../../constants/theme';
 import { countdown, dayLabel, timeOfDay } from '../../lib/format';
-import { useApp } from '../../lib/hooks';
+import { useApp, useLayout } from '../../lib/hooks';
 import { Drama, Episode } from '../../lib/model';
 import { postsForEpisode } from '../../lib/selectors';
 import { hasWatched } from '../../lib/spoiler';
 import { withAlpha } from '../../lib/motion';
 import { episodeState } from '../drama/EpisodeCard';
 import { LivePulse } from '../feed/LiveReactions';
-import { Poster } from '../ui/Poster';
+import { Backdrop, Poster } from '../ui/Poster';
 import { SectionHeader } from '../ui/Section';
 import { Tap } from '../ui/Tap';
 import { Text } from '../ui/Text';
+import { Button } from '../ui/Button';
 
-/** "Tonight / This week": episodes airing around now for followed + airing dramas. Live ones lead. */
+/** Re-render once a minute so countdowns and "just aired" states stay honest without a global clock. */
+function useMinuteTick() {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTick((x) => x + 1), 60_000);
+    return () => clearInterval(t);
+  }, []);
+}
+
+/**
+ * The lead card: the one episode that matters most right now — live, or the next to air — as a
+ * cinematic still with the countdown and the room's pulse. "Join the room · 128 talking" is the
+ * whole promise of the app in one tap.
+ */
+function TonightHero({ drama, episode }: { drama: Drama; episode: Episode }) {
+  const router = useRouter();
+  const { state, watch } = useApp();
+  const { width } = useLayout();
+  useMinuteTick();
+  const st = episodeState(episode);
+  const watched = hasWatched(watch(drama.id), episode.season, episode.number);
+  const count = postsForEpisode(state, drama.id, episode.season, episode.number).length;
+  const h = Math.min(220, Math.round(((width - space.margin * 2) * 9) / 16));
+  const airs = episode.airDate ? `${dayLabel(episode.airDate)} · ${timeOfDay(episode.airDate)}` : '';
+  const status = st === 'live' ? 'Live now' : st === 'upcoming' ? `In ${countdown(episode.airDate!)}` : 'Aired';
+  const sub =
+    st === 'live'
+      ? count
+        ? `${count} talking right now`
+        : 'Be the first in the room'
+      : st === 'upcoming'
+        ? `${airs}${count ? ` · ${count} waiting` : ''}`
+        : `${airs}${count ? ` · ${count} talking` : ''}`;
+  const cta = st === 'live' ? 'Join the room' : st === 'upcoming' ? 'Set a reminder' : watched ? 'Open the room' : 'Catch up';
+  const open = () => router.push(`/episode/${drama.id}/${episode.season}/${episode.number}`);
+  return (
+    <Pressable
+      onPress={open}
+      accessibilityRole="button"
+      accessibilityLabel={`${drama.title}, episode ${episode.number}, ${status}. ${sub}`}
+      style={[styles.hero, st === 'live' ? styles.heroLive : null]}
+    >
+      <Backdrop uri={episode.stillUrl ?? drama.backdropUrl ?? drama.posterUrl ?? drama.posterLocal} fallbackColor={drama.tone} width="100%" height={h} label={`${drama.title} still`}>
+        <View style={styles.heroScrim} />
+        <View style={styles.heroBody}>
+          <View style={styles.top}>
+            {st === 'live' ? <LivePulse size={7} style={{ marginLeft: -4, marginRight: -2 }} /> : null}
+            <Text variant="overline" tone={st === 'live' ? 'accent' : 'onMedia'}>
+              {status}
+            </Text>
+            {watched ? (
+              <Text variant="overline" tone="success">
+                · Watched
+              </Text>
+            ) : null}
+          </View>
+          <Text variant="headline" tone="onMedia" numberOfLines={1}>
+            {drama.title}
+          </Text>
+          <Text variant="bodySmall" tone="onMedia" numberOfLines={1} style={{ opacity: 0.85 }}>
+            {drama.seasons.length > 1 ? `S${episode.season} · ` : ''}Episode {episode.number}
+            {episode.title ? ` · ${episode.title}` : ''}
+          </Text>
+          <View style={styles.heroFoot}>
+            <Text variant="caption" tone="onMedia" numberOfLines={1} style={{ flex: 1, opacity: 0.85 }}>
+              {sub}
+            </Text>
+            <Button label={cta} size="sm" variant={st === 'live' ? 'primary' : 'secondary'} onPress={open} />
+          </View>
+        </View>
+      </Backdrop>
+    </Pressable>
+  );
+}
+
+/** "Tonight / This week": the lead episode as a hero, the rest as a rail. Live ones lead. */
 export function TonightRail({ items, title = 'Tonight', eyebrow = 'On air', onSeeAll }: { items: { drama: Drama; episode: Episode }[]; title?: string; eyebrow?: string; onSeeAll?: () => void }) {
   const router = useRouter();
   const { state, watch } = useApp();
   if (!items.length) return null;
+  const [lead, ...rest] = items;
   return (
     <View style={{ marginBottom: space.section }}>
       <SectionHeader eyebrow={eyebrow} title={title} live onAction={onSeeAll} actionLabel="Schedule" />
-      <FlatList
-        horizontal
-        data={items}
-        keyExtractor={(i) => i.episode.id}
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: space.margin, gap: space.gutter }}
-        renderItem={({ item: { drama, episode } }) => {
-          const st = episodeState(episode);
-          const watched = hasWatched(watch(drama.id), episode.season, episode.number);
-          const count = postsForEpisode(state, drama.id, episode.season, episode.number).length;
-          const when = st === 'upcoming' ? `${dayLabel(episode.airDate!)} · ${timeOfDay(episode.airDate!)} · ${countdown(episode.airDate!)}` : st === 'live' ? 'Just aired · room is live' : `Aired ${dayLabel(episode.airDate!).toLowerCase()}`;
-          return (
-            <Tap onPress={() => router.push(`/episode/${drama.id}/${episode.season}/${episode.number}`)} accessibilityRole="button" accessibilityLabel={`${drama.title} episode ${episode.number}, ${when}`} style={[styles.card, { backgroundColor: withAlpha(drama.tone, 0.75) }, st === 'live' ? styles.liveCard : null]}>
-              <Poster drama={drama} width={64} />
-              <View style={{ flex: 1, justifyContent: 'space-between' }}>
-                <View>
-                  <View style={styles.top}>
-                    {st === 'live' ? <LivePulse size={6} style={{ marginLeft: -6, marginRight: -4 }} /> : null}
-                    <Text variant="overline" tone={st === 'live' ? 'accent' : 'secondary'}>
-                      {st === 'live' ? 'Live now' : st === 'upcoming' ? 'Coming up' : 'Aired'}
+      <TonightHero drama={lead!.drama} episode={lead!.episode} />
+      {rest.length ? (
+        <FlatList
+          horizontal
+          data={rest}
+          keyExtractor={(i) => i.episode.id}
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: space.margin, gap: space.gutter }}
+          renderItem={({ item: { drama, episode } }) => {
+            const st = episodeState(episode);
+            const watched = hasWatched(watch(drama.id), episode.season, episode.number);
+            const count = postsForEpisode(state, drama.id, episode.season, episode.number).length;
+            const when =
+              st === 'upcoming'
+                ? `${dayLabel(episode.airDate!)} · ${timeOfDay(episode.airDate!)} · ${countdown(episode.airDate!)}`
+                : st === 'live'
+                  ? 'Just aired · room is live'
+                  : `Aired ${dayLabel(episode.airDate!).toLowerCase()}`;
+            return (
+              <Tap
+                onPress={() => router.push(`/episode/${drama.id}/${episode.season}/${episode.number}`)}
+                accessibilityRole="button"
+                accessibilityLabel={`${drama.title} episode ${episode.number}, ${when}`}
+                style={[styles.card, { backgroundColor: withAlpha(drama.tone, 0.75) }, st === 'live' ? styles.liveCard : null]}
+              >
+                <Poster drama={drama} width={64} />
+                <View style={{ flex: 1, justifyContent: 'space-between' }}>
+                  <View>
+                    <View style={styles.top}>
+                      {st === 'live' ? <LivePulse size={6} style={{ marginLeft: -6, marginRight: -4 }} /> : null}
+                      <Text variant="overline" tone={st === 'live' ? 'accent' : 'secondary'}>
+                        {st === 'live' ? 'Live now' : st === 'upcoming' ? 'Coming up' : 'Aired'}
+                      </Text>
+                    </View>
+                    <Text variant="titleSmall" numberOfLines={1}>
+                      {drama.title}
+                    </Text>
+                    <Text variant="caption" tone="secondary" numberOfLines={1}>
+                      {drama.seasons.length > 1 ? `S${episode.season} · ` : ''}Episode {episode.number}
+                      {episode.title ? ` · ${episode.title}` : ''}
                     </Text>
                   </View>
-                  <Text variant="titleSmall" numberOfLines={1}>
-                    {drama.title}
-                  </Text>
-                  <Text variant="caption" tone="secondary" numberOfLines={1}>
-                    {drama.seasons.length > 1 ? `S${episode.season} · ` : ''}Episode {episode.number}
-                    {episode.title ? ` · ${episode.title}` : ''}
+                  <Text variant="caption" tone={watched ? 'success' : 'tertiary'} numberOfLines={1}>
+                    {watched ? 'Watched · ' : ''}
+                    {count ? `${count} talking` : when}
                   </Text>
                 </View>
-                <Text variant="caption" tone={watched ? 'success' : 'tertiary'} numberOfLines={1}>
-                  {watched ? 'Watched · ' : ''}
-                  {count ? `${count} talking` : when}
-                </Text>
-              </View>
-            </Tap>
-          );
-        }}
-      />
+              </Tap>
+            );
+          }}
+        />
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  hero: { marginHorizontal: space.margin, marginBottom: space.x3, borderRadius: radius.lg, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
+  heroLive: { borderColor: colors.accent },
+  heroScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(10,10,10,0.42)' },
+  heroBody: { ...StyleSheet.absoluteFillObject, justifyContent: 'flex-end', padding: space.x4, gap: 2 },
+  heroFoot: { flexDirection: 'row', alignItems: 'center', gap: space.x3, marginTop: space.x3 },
   card: { width: 280, flexDirection: 'row', gap: space.x3, padding: space.x3, backgroundColor: colors.surface1, borderRadius: radius.lg, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
   liveCard: { borderColor: colors.accent },
   top: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 },
