@@ -30,10 +30,10 @@ import { TopBar } from '../../components/ui/TopBar';
 import { colors, radius, sizes, space } from '../../constants/theme';
 import { catalog } from '../../lib/catalog';
 import { compact, countdown, dayLabel, timeOfDay } from '../../lib/format';
-import { useApp, useLayout, useLoad, useRequireMember } from '../../lib/hooks';
+import { haptic, useApp, useLayout, useLoad, useRequireMember } from '../../lib/hooks';
 import { heroInterpolations, useArrive, useScrollY, withAlpha } from '../../lib/motion';
 import { CastCredit, emptyReactions, Episode, Post, PostType } from '../../lib/model';
-import { collectionsContaining, postsForDrama, relatedDramas } from '../../lib/selectors';
+import { collectionsContaining, isPostVeiled as postVeiled, postsForDrama, relatedDramas } from '../../lib/selectors';
 
 type Tab = 'overview' | 'episodes' | 'community' | 'cast';
 /** Old deep links used six tabs; Media now lives in Overview and Activity is Community sorted by Latest. */
@@ -57,6 +57,7 @@ export default function DramaHub() {
   const [tab, setTab] = useState<Tab>(() => (params.tab && params.tab in LEGACY_TAB ? LEGACY_TAB[params.tab]! : ((params.tab as Tab | undefined) ?? 'overview')));
   const [filter, setFilter] = useState<Filter>('all');
   const [sort, setSort] = useState<'top' | 'latest'>(params.tab === 'activity' ? 'latest' : 'top');
+  const [safe, setSafe] = useState(false);
   const [season, setSeason] = useState<number>(watch(params.id)?.season ?? 1);
   const [menu, setMenu] = useState(false);
   const [collect, setCollect] = useState(false);
@@ -75,7 +76,10 @@ export default function DramaHub() {
   }, [enrich.data]);
 
   const posts = useMemo(() => (drama ? postsForDrama(state, drama.id, sort) : []), [state, drama, sort]);
-  const filtered = useMemo(() => (filter === 'all' ? posts.filter((p) => p.type !== 'short') : posts.filter((p) => p.type === filter)), [posts, filter]);
+  const typed = useMemo(() => (filter === 'all' ? posts.filter((p) => p.type !== 'short') : posts.filter((p) => p.type === filter)), [posts, filter]);
+  // "Safe for me" hides what would be veiled for this viewer, so a mid-series read isn't a wall of veils.
+  const veiledCount = useMemo(() => typed.filter((p) => postVeiled(state, p)).length, [state, typed]);
+  const filtered = useMemo(() => (safe && veiledCount ? typed.filter((p) => !postVeiled(state, p)) : typed), [typed, safe, veiledCount, state]);
   const shorts = useMemo(() => posts.filter((p) => p.type === 'short'), [posts]);
   const meter = useMemo(
     () =>
@@ -450,9 +454,27 @@ export default function DramaHub() {
             ))}
           </ChipRow>
           <View style={styles.sortRow}>
-            <Text variant="caption" tone="secondary">
+            <Text variant="caption" tone="secondary" style={{ flex: 1 }} numberOfLines={1}>
               {filtered.length} {filtered.length === 1 ? 'post' : 'posts'}
+              {veiledCount && !safe ? ` · ${veiledCount} veiled for you` : safe && veiledCount ? ` · ${veiledCount} hidden` : ''}
             </Text>
+            {veiledCount ? (
+              <Pressable
+                onPress={() => {
+                  haptic.select();
+                  setSafe((v) => !v);
+                }}
+                accessibilityRole="switch"
+                accessibilityState={{ checked: safe }}
+                accessibilityLabel="Safe for me: hide posts that would be veiled"
+                style={[styles.safeToggle, safe ? styles.safeOn : null]}
+              >
+                <Ionicons name={safe ? 'eye-off' : 'eye-off-outline'} size={13} color={safe ? colors.accentText : colors.textSecondary} />
+                <Text variant="label" tone={safe ? 'accent' : 'secondary'}>
+                  Safe for me
+                </Text>
+              </Pressable>
+            ) : null}
             <Pressable onPress={() => setSort((s) => (s === 'top' ? 'latest' : 'top'))} accessibilityRole="button" style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
               <Ionicons name="swap-vertical" size={14} color={colors.textSecondary} />
               <Text variant="label" tone="secondary">
@@ -728,6 +750,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface1,
     borderRadius: radius.lg,
   },
+  safeToggle: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, height: 28, borderRadius: 14, borderWidth: 1, borderColor: colors.borderSubtle, marginRight: space.x2 },
+  safeOn: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
   sortRow: {
     flexDirection: 'row',
     alignItems: 'center',

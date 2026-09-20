@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { colors, radius, space } from '../../constants/theme';
 import { countdown, dayLabel, timeOfDay } from '../../lib/format';
 import { haptic, useApp, useRequireMember } from '../../lib/hooks';
@@ -57,7 +57,7 @@ export function ReminderCard({ drama, episode }: { drama: Drama; episode: Episod
           {episode.airDate ? `Airs ${airs}` : airs}
         </Text>
         <Text variant="caption" tone="secondary" numberOfLines={2}>
-          {episode.airDate ? `${countdown(episode.airDate)} to go · ` : ''}
+          {episode.airDate ? `${countdown(episode.airDate) === 'now' ? 'Any moment now' : `Room opens ${countdown(episode.airDate)}`} · ` : ''}
           {on ? 'You’ll get a nudge when the room opens.' : 'Predictions and hype are welcome now; preview spoilers still need a level.'}
         </Text>
       </View>
@@ -73,7 +73,25 @@ export function ReminderCard({ drama, episode }: { drama: Drama; episode: Episod
   );
 }
 
+/** The 48px bell used on episode rows: same switch, no card. */
+export function ReminderBell({ drama, episode }: { drama: Drama; episode: Episode }) {
+  const { on, toggle } = useReminder(drama);
+  return (
+    <Pressable
+      onPress={() => toggle(episode)}
+      hitSlop={4}
+      accessibilityRole="switch"
+      accessibilityState={{ checked: on }}
+      accessibilityLabel={on ? `Reminder on for episode ${episode.number}` : `Remind me when episode ${episode.number} airs`}
+      style={({ pressed }) => [styles.bell, pressed ? { opacity: 0.6 } : null]}
+    >
+      <Ionicons name={on ? 'notifications' : 'notifications-outline'} size={20} color={on ? colors.accentText : colors.textTertiary} />
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
+  bell: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', marginRight: -12 },
   card: {
     marginHorizontal: space.margin,
     padding: space.x3,

@@ -7,6 +7,7 @@ import { countdown, dayLabel, now, runtimeLabel, shortDate, timeOfDay } from '..
 import { haptic, useApp, useRequireMember } from '../../lib/hooks';
 import { Drama, Episode } from '../../lib/model';
 import { hasWatched } from '../../lib/spoiler';
+import { ReminderBell } from './Reminder';
 import { Tap } from '../ui/Tap';
 import { Text } from '../ui/Text';
 
@@ -36,7 +37,10 @@ function EpisodeCardBase({ drama, episode, postCount, style, showDrama }: Episod
   const st = episodeState(episode);
   const total = drama.seasons.find((s) => s.number === episode.season)?.episodeCount ?? drama.episodeCount;
   const multi = drama.seasons.length > 1;
-  const dateLine = st === 'upcoming' && episode.airDate ? `${dayLabel(episode.airDate)} · ${timeOfDay(episode.airDate)} · ${countdown(episode.airDate)}` : [episode.airDate ? shortDate(episode.airDate) : 'TBA', runtimeLabel(episode.runtime)].filter(Boolean).join(' · ');
+  const dateLine =
+    st === 'upcoming' && episode.airDate
+      ? `${dayLabel(episode.airDate)} · ${timeOfDay(episode.airDate)} · ${countdown(episode.airDate)}`
+      : [episode.airDate ? shortDate(episode.airDate) : 'TBA', runtimeLabel(episode.runtime)].filter(Boolean).join(' · ');
 
   const toggleWatched = () =>
     require('mark episodes watched', () => {
@@ -46,7 +50,12 @@ function EpisodeCardBase({ drama, episode, postCount, style, showDrama }: Episod
     });
 
   return (
-    <Tap onPress={() => router.push(`/episode/${drama.id}/${episode.season}/${episode.number}`)} accessibilityRole="button" accessibilityLabel={`${multi ? `Season ${episode.season} ` : ''}Episode ${episode.number}${episode.title ? `, ${episode.title}` : ''}, ${watched ? 'watched' : st}`} style={[styles.row, style]}>
+    <Tap
+      onPress={() => router.push(`/episode/${drama.id}/${episode.season}/${episode.number}`)}
+      accessibilityRole="button"
+      accessibilityLabel={`${multi ? `Season ${episode.season} ` : ''}Episode ${episode.number}${episode.title ? `, ${episode.title}` : ''}, ${watched ? 'watched' : st}`}
+      style={[styles.row, style]}
+    >
       <View style={[styles.num, watched ? styles.numWatched : null]}>
         {st === 'live' ? <View style={styles.live} /> : null}
         <Text variant="titleSmall" numeric style={{ color: watched ? colors.textSecondary : colors.textPrimary }}>
@@ -75,11 +84,18 @@ function EpisodeCardBase({ drama, episode, postCount, style, showDrama }: Episod
         </View>
       ) : null}
       {st !== 'upcoming' ? (
-        <Tap onPress={toggleWatched} hitSlop={8} accessibilityRole="checkbox" accessibilityState={{ checked: watched }} accessibilityLabel={watched ? 'Mark as not watched' : 'Mark as watched'} style={styles.check}>
+        <Tap
+          onPress={toggleWatched}
+          hitSlop={8}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: watched }}
+          accessibilityLabel={watched ? 'Mark as not watched' : 'Mark as watched'}
+          style={styles.check}
+        >
           <Ionicons name={watched ? 'checkmark-circle' : 'ellipse-outline'} size={26} color={watched ? colors.success : colors.borderStrong} />
         </Tap>
       ) : (
-        <Ionicons name="time-outline" size={20} color={colors.textDisabled} style={{ marginHorizontal: 11 }} />
+        <ReminderBell drama={drama} episode={episode} />
       )}
     </Tap>
   );

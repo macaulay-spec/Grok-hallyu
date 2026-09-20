@@ -55,7 +55,7 @@ function TonightHero({ drama, episode }: { drama: Drama; episode: Episode }) {
   const recap = st === 'aired' && count ? recapFor(posts) : undefined;
   const h = Math.min(220, Math.round(((width - space.margin * 2) * 9) / 16));
   const airs = episode.airDate ? `${dayLabel(episode.airDate)} · ${timeOfDay(episode.airDate)}` : '';
-  const status = st === 'live' ? 'Live now' : st === 'upcoming' ? `In ${countdown(episode.airDate!)}` : agoH < 24 ? 'Last night in the room' : `Aired ${dayLabel(episode.airDate!)}`;
+  const status = st === 'live' ? 'Live now' : st === 'upcoming' ? (countdown(episode.airDate!) === 'now' ? 'Starting now' : `Airs ${countdown(episode.airDate!)}`) : agoH < 24 ? 'Last night in the room' : `Aired ${dayLabel(episode.airDate!)}`;
   const sub =
     st === 'live'
       ? count
