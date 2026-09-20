@@ -21,8 +21,8 @@ import { compact } from '../../lib/format';
 import { useApp, useLayout } from '../../lib/hooks';
 import { GENRES } from '../../lib/model';
 import { airingEpisodes, publicCollections, recommendedDramas, shorts, trendingDiscussions, trendingDramas } from '../../lib/selectors';
-import { ACTORS, TRENDING_HASHTAGS } from '../../lib/seed';
-import { allDramas } from '../../lib/store';
+import { TRENDING_HASHTAGS } from '../../lib/seed';
+import { allActors, allDramas } from '../../lib/store';
 
 /** Explore — editorial browsing. Search is a different job and lives one tap away. */
 export default function Explore() {
@@ -39,7 +39,7 @@ export default function Explore() {
   const collections = useMemo(() => publicCollections(state).slice(0, 8), [state]);
   const shortList = useMemo(() => shorts(state), [state]);
   const week = useMemo(() => airingEpisodes(state, 0, 7 * 24).slice(0, 10), [state]);
-  const actors = useMemo(() => [...ACTORS].sort((a, b) => b.followerCount - a.followerCount).slice(0, 12), []);
+  const actors = useMemo(() => [...allActors(state)].sort((a, b) => Number(!!b.photoUrl) - Number(!!a.photoUrl) || b.followerCount - a.followerCount).slice(0, 12), [state]);
   const lead = trending[0];
   const heroW = Math.min(width - space.margin * 2, 640);
 
@@ -51,7 +51,12 @@ export default function Explore() {
         </View>
 
         {lead ? (
-          <Tap onPress={() => router.push(`/drama/${lead.id}`)} style={[styles.hero, { width: heroW, backgroundColor: lead.tone }]} accessibilityRole="button" accessibilityLabel={`Trending: ${lead.title}`}>
+          <Tap
+            onPress={() => router.push(`/drama/${lead.id}`)}
+            style={[styles.hero, { width: heroW, backgroundColor: lead.tone }]}
+            accessibilityRole="button"
+            accessibilityLabel={`Trending: ${lead.title}`}
+          >
             <Poster drama={lead} width={heroW} rounded={radius.lg} style={{ height: 260, opacity: 0.55, position: 'absolute' }} />
             <View style={styles.heroScrim} />
             <View style={styles.heroBody}>
@@ -77,17 +82,29 @@ export default function Explore() {
 
         <View style={styles.section}>
           <SectionHeader eyebrow="Browse" title="By genre" />
-          <FlatList horizontal data={GENRES} keyExtractor={(g) => g} showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: space.margin, gap: space.x2 }} renderItem={({ item: g }) => {
-            const d = allDramas(state).find((x) => x.genres.includes(g));
-            return (
-              <Pressable onPress={() => router.push(`/genre/${encodeURIComponent(g)}`)} style={[styles.genre, { backgroundColor: d?.tone ?? colors.surface2 }]} accessibilityRole="button" accessibilityLabel={`${g} dramas`}>
-                <Text variant="titleSmall">{g}</Text>
-                <Text variant="caption" tone="secondary">
-                  {allDramas(state).filter((x) => x.genres.includes(g)).length} titles
-                </Text>
-              </Pressable>
-            );
-          }} />
+          <FlatList
+            horizontal
+            data={GENRES}
+            keyExtractor={(g) => g}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: space.margin, gap: space.x2 }}
+            renderItem={({ item: g }) => {
+              const d = allDramas(state).find((x) => x.genres.includes(g));
+              return (
+                <Pressable
+                  onPress={() => router.push(`/genre/${encodeURIComponent(g)}`)}
+                  style={[styles.genre, { backgroundColor: d?.tone ?? colors.surface2 }]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${g} dramas`}
+                >
+                  <Text variant="titleSmall">{g}</Text>
+                  <Text variant="caption" tone="secondary">
+                    {allDramas(state).filter((x) => x.genres.includes(g)).length} titles
+                  </Text>
+                </Pressable>
+              );
+            }}
+          />
         </View>
 
         {airing.length ? (
@@ -98,7 +115,11 @@ export default function Explore() {
         ) : null}
 
         <View style={styles.section}>
-          <SectionHeader eyebrow="Recommended" title="Picked for you" subtitle={state.prefs.personalization ? 'From your genres and watchlist' : 'Personalisation is off — showing community favourites'} />
+          <SectionHeader
+            eyebrow="Recommended"
+            title="Picked for you"
+            subtitle={state.prefs.personalization ? 'From your genres and watchlist' : 'Personalisation is off — showing community favourites'}
+          />
           <DramaRail dramas={recs.map((r) => r.drama)} reasons={Object.fromEntries(recs.map((r) => [r.drama.id, r.reason]))} />
         </View>
 
@@ -123,13 +144,24 @@ export default function Explore() {
 
         <View style={styles.section}>
           <SectionHeader eyebrow="Collections" title="Shelves from the community" onAction={() => router.push('/collections')} />
-          <FlatList horizontal data={collections} keyExtractor={(c) => c.id} showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: space.margin, gap: space.gutter }} renderItem={({ item }) => <CollectionCard collection={item} />} />
+          <FlatList
+            horizontal
+            data={collections}
+            keyExtractor={(c) => c.id}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: space.margin, gap: space.gutter }}
+            renderItem={({ item }) => <CollectionCard collection={item} />}
+          />
         </View>
 
         {upcoming.length ? (
           <View style={styles.section}>
             <SectionHeader eyebrow="Coming soon" title="Premieres" />
-            <DramaRail dramas={upcoming} size="m" badges={Object.fromEntries(upcoming.map((d) => [d.id, d.nextEpisodeAt ? new Date(d.nextEpisodeAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'Soon']))} />
+            <DramaRail
+              dramas={upcoming}
+              size="m"
+              badges={Object.fromEntries(upcoming.map((d) => [d.id, d.nextEpisodeAt ? new Date(d.nextEpisodeAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'Soon']))}
+            />
           </View>
         ) : null}
 
@@ -157,7 +189,16 @@ export default function Explore() {
 }
 
 const styles = StyleSheet.create({
-  hero: { alignSelf: 'center', height: 260, borderRadius: radius.lg, overflow: 'hidden', marginBottom: space.section, justifyContent: 'flex-end', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
+  hero: {
+    alignSelf: 'center',
+    height: 260,
+    borderRadius: radius.lg,
+    overflow: 'hidden',
+    marginBottom: space.section,
+    justifyContent: 'flex-end',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
   heroScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(10,10,10,0.45)' },
   heroBody: { padding: space.x4, gap: 4 },
   section: { marginBottom: space.section },

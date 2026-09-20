@@ -1,5 +1,5 @@
 import { Image } from 'expo-image';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 import { aspect, colors, fonts, radius } from '../../constants/theme';
 import { Drama } from '../../lib/model';
@@ -21,10 +21,16 @@ export function Poster({ drama, width, style, rounded = radius.sm, children }: P
   const height = Math.round(width / aspect.poster);
   const [failed, setFailed] = useState(false);
   // Real catalog art wins over the bundled placeholder artwork.
-  const source = drama.posterUrl ? { uri: drama.posterUrl } : drama.posterLocal ?? null;
+  const source = drama.posterUrl ? { uri: drama.posterUrl } : (drama.posterLocal ?? null);
+  // A new source (art arriving from the catalog) gets a fresh chance even if the previous one failed.
+  useEffect(() => setFailed(false), [drama.posterUrl]);
   const titleSize = Math.max(11, Math.min(18, width / 7));
   return (
-    <View style={[{ width, height, borderRadius: rounded, backgroundColor: drama.tone, overflow: 'hidden' }, width >= 56 ? styles.edge : null, style]} accessibilityRole="image" accessibilityLabel={`${drama.title} poster`}>
+    <View
+      style={[{ width, height, borderRadius: rounded, backgroundColor: drama.tone, overflow: 'hidden' }, width >= 56 ? styles.edge : null, style]}
+      accessibilityRole="image"
+      accessibilityLabel={`${drama.title} poster`}
+    >
       {source && !failed ? (
         <Image source={source} style={{ width, height }} contentFit="cover" transition={200} cachePolicy="memory-disk" onError={() => setFailed(true)} recyclingKey={drama.title} />
       ) : (
@@ -47,9 +53,26 @@ export function Poster({ drama, width, style, rounded = radius.sm, children }: P
 }
 
 /** 16:9 backdrop / still with the same fallback rules. */
-export function Backdrop({ uri, fallbackColor, width, height, children, style, label }: { uri?: string | number; fallbackColor: string; width: number | `${number}%`; height: number; children?: React.ReactNode; style?: StyleProp<ViewStyle>; label?: string }) {
+export function Backdrop({
+  uri,
+  fallbackColor,
+  width,
+  height,
+  children,
+  style,
+  label,
+}: {
+  uri?: string | number;
+  fallbackColor: string;
+  width: number | `${number}%`;
+  height: number;
+  children?: React.ReactNode;
+  style?: StyleProp<ViewStyle>;
+  label?: string;
+}) {
   const [failed, setFailed] = useState(false);
   const source = typeof uri === 'number' ? uri : uri ? { uri } : null;
+  useEffect(() => setFailed(false), [uri]);
   return (
     <View style={[{ width, height, backgroundColor: fallbackColor, overflow: 'hidden' }, style]} accessibilityLabel={label}>
       {source && !failed ? <Image source={source} style={{ width: '100%', height }} contentFit="cover" transition={200} cachePolicy="memory-disk" onError={() => setFailed(true)} /> : null}

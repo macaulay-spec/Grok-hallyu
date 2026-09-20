@@ -3,22 +3,7 @@ import React, { useEffect } from 'react';
 import { create } from 'zustand';
 import { useStoreWithEqualityFn } from 'zustand/traditional';
 import { uid } from './format';
-import {
-  Actor,
-  Collection,
-  Comment,
-  Draft,
-  Drama,
-  Notification,
-  NotificationGroup,
-  Post,
-  ReactionCounts,
-  ReactionKind,
-  SpoilerProtection,
-  User,
-  WatchStatus,
-  WatchlistItem,
-} from './model';
+import { Actor, Collection, Comment, Draft, Drama, Notification, NotificationGroup, Post, ReactionCounts, ReactionKind, SpoilerProtection, User, WatchStatus, WatchlistItem } from './model';
 import * as seed from './seed';
 
 const STORAGE_KEY = 'hallyu.state.v3';
@@ -252,7 +237,14 @@ function reducer(s: AppState, a: Action): AppState {
       return { ...s, [a.slice]: next };
     }
     case 'replace':
-      return { ...a.state, hydrated: true };
+      // The catalog cache (real art, TMDB ids, headshots) is device-level, not account-level: keep it
+      // across guest ↔ member ↔ demo switches so posters never fall back to placeholders mid-session.
+      return {
+        ...a.state,
+        hydrated: true,
+        importedDramas: a.state.importedDramas.length ? a.state.importedDramas : s.importedDramas,
+        importedActors: a.state.importedActors.length ? a.state.importedActors : s.importedActors,
+      };
     case 'onboarding':
       return { ...s, onboarding: { ...s.onboarding, ...a.patch } };
     case 'prefs':
@@ -277,7 +269,7 @@ function reducer(s: AppState, a: Action): AppState {
       next[a.dramaId] = {
         dramaId: a.dramaId,
         season,
-        currentEpisode: a.status === 'completed' ? total : a.status === 'want' ? 0 : prev?.currentEpisode ?? 0,
+        currentEpisode: a.status === 'completed' ? total : a.status === 'want' ? 0 : (prev?.currentEpisode ?? 0),
         note: prev?.note,
         addedAt: prev?.addedAt ?? nowIso,
         updatedAt: nowIso,
@@ -492,13 +484,21 @@ function deserialise(raw: string): Partial<AppState> | null {
     const counters = (data.postCounters ?? {}) as Record<string, Partial<Post>>;
     const deleted = new Set(userPosts.filter((p) => p.state === 'deleted').map((p) => p.id));
     const edited = new Map(userPosts.filter((p) => p.editedAt).map((p) => [p.id, p]));
-    const seedPosts = seed.POSTS.map((p) => ({ ...p, ...(counters[p.id] ?? {}), ...(edited.get(p.id) ? { body: edited.get(p.id)!.body, title: edited.get(p.id)!.title, editedAt: edited.get(p.id)!.editedAt, spoiler: edited.get(p.id)!.spoiler } : {}), ...(deleted.has(p.id) ? { state: 'deleted' as const } : {}) }));
+    const seedPosts = seed.POSTS.map((p) => ({
+      ...p,
+      ...(counters[p.id] ?? {}),
+      ...(edited.get(p.id) ? { body: edited.get(p.id)!.body, title: edited.get(p.id)!.title, editedAt: edited.get(p.id)!.editedAt, spoiler: edited.get(p.id)!.spoiler } : {}),
+      ...(deleted.has(p.id) ? { state: 'deleted' as const } : {}),
+    }));
     const fresh = userPosts.filter((p) => !seed.POSTS.some((sp) => sp.id === p.id));
     const posts = [...fresh, ...seedPosts].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     const userComments = (data.comments ?? []) as Comment[];
     const cCounters = (data.commentCounters ?? {}) as Record<string, ReactionCounts>;
     const deletedC = new Set(userComments.filter((c) => c.state === 'deleted').map((c) => c.id));
-    const comments = [...seed.COMMENTS.map((c) => ({ ...c, reactions: cCounters[c.id] ?? c.reactions, ...(deletedC.has(c.id) ? { state: 'deleted' as const } : {}) })), ...userComments.filter((c) => !seed.COMMENTS.some((sc) => sc.id === c.id))];
+    const comments = [
+      ...seed.COMMENTS.map((c) => ({ ...c, reactions: cCounters[c.id] ?? c.reactions, ...(deletedC.has(c.id) ? { state: 'deleted' as const } : {}) })),
+      ...userComments.filter((c) => !seed.COMMENTS.some((sc) => sc.id === c.id)),
+    ];
     const { postCounters: _pc, commentCounters: _cc, ...rest } = data;
     return { ...rest, posts, comments } as Partial<AppState>;
   } catch {

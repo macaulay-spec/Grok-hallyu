@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '../../components/ui/Button';
@@ -9,12 +9,12 @@ import { Text } from '../../components/ui/Text';
 import { Wordmark } from '../../components/ui/TopBar';
 import { useToast } from '../../components/ui/Toast';
 import { colors, motion, space } from '../../constants/theme';
+import { SHOW_DEMO } from '../../constants/keys';
 import { useAuth } from '../../lib/auth';
 import { useLayout } from '../../lib/hooks';
-import { DRAMAS } from '../../lib/seed';
+import { allDramas, useSlice } from '../../lib/store';
 
 /** Demo-data door: shown in demo builds (EXPO_PUBLIC_SHOW_DEMO=1); otherwise a long-press on the wordmark reveals it. */
-const SHOW_DEMO = process.env.EXPO_PUBLIC_SHOW_DEMO === '1';
 
 /**
  * Welcome: the promise, two doors (Google / email), a quiet sign-in link and "Look around first".
@@ -30,7 +30,10 @@ export default function Welcome() {
   const [demoVisible, setDemoVisible] = useState(SHOW_DEMO);
   const demo = () => {
     setBusy('demo');
-    auth.signInDemo().then(() => router.replace('/')).finally(() => setBusy(null));
+    auth
+      .signInDemo()
+      .then(() => router.replace('/'))
+      .finally(() => setBusy(null));
   };
   const rise = useRef(new Animated.Value(24)).current;
   const fade = useRef(new Animated.Value(0)).current;
@@ -56,8 +59,15 @@ export default function Welcome() {
     }
   };
 
+  const importedDramas = useSlice((s) => s.importedDramas);
   const posterW = Math.max(88, Math.floor((width - space.margin * 2 - space.x2 * 3) / 4));
-  const mosaic = DRAMAS.slice(5, 13);
+  // Real catalog art as it arrives (the enrichment runs from the root layout); titles with art lead.
+  const mosaic = useMemo(() => {
+    const all = allDramas({ importedDramas });
+    const withArt = all.filter((d) => d.posterUrl || d.posterLocal);
+    const rest = all.filter((d) => !d.posterUrl && !d.posterLocal);
+    return [...withArt, ...rest].slice(0, 8);
+  }, [importedDramas]);
 
   return (
     <View style={styles.root}>
@@ -69,7 +79,15 @@ export default function Welcome() {
       </View>
 
       <Animated.View style={[styles.content, { paddingBottom: insets.bottom + space.x6, opacity: fade, transform: [{ translateY: rise }] }]}>
-        <Pressable onLongPress={() => { setDemoVisible(true); toast.show({ message: 'Demo data unlocked', icon: 'sparkles-outline' }); }} delayLongPress={900} accessibilityLabel="Hallyu" style={{ alignSelf: 'flex-start' }}>
+        <Pressable
+          onLongPress={() => {
+            setDemoVisible(true);
+            toast.show({ message: 'Demo data unlocked', icon: 'sparkles-outline' });
+          }}
+          delayLongPress={900}
+          accessibilityLabel="Hallyu"
+          style={{ alignSelf: 'flex-start' }}
+        >
           <Wordmark size={40} />
         </Pressable>
         <Text variant="displayLarge" style={{ marginTop: space.x6 }}>
@@ -115,7 +133,19 @@ export default function Welcome() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.canvas },
-  mosaic: { position: 'absolute', top: 0, left: 0, right: 0, height: '52%', flexDirection: 'row', flexWrap: 'wrap', gap: space.x2, paddingHorizontal: space.margin, paddingTop: 24, overflow: 'hidden' },
+  mosaic: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: '52%',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: space.x2,
+    paddingHorizontal: space.margin,
+    paddingTop: 24,
+    overflow: 'hidden',
+  },
   scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(10,10,10,0.55)', borderBottomWidth: 200, borderBottomColor: colors.canvas },
   content: { flex: 1, justifyContent: 'flex-end', paddingHorizontal: space.x6, maxWidth: 560, width: '100%', alignSelf: 'center' },
   guestRow: { flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap', gap: space.x2, marginTop: space.x3 },

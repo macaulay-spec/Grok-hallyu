@@ -1,6 +1,6 @@
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { FlatList, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 import { colors, fonts, radius, space } from '../../constants/theme';
 import { initials } from '../../lib/format';
@@ -11,11 +11,16 @@ import { Text } from '../ui/Text';
 /** Actor portrait: circle at rails, square in cast grid. Placeholder = initials in tone. */
 export function ActorPortrait({ actor, size = 72, square }: { actor: Actor; size?: number; square?: boolean }) {
   const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [actor.photoUrl]);
   const r = square ? radius.md : size / 2;
   const seed = actor.id.length % 7;
   const tones = ['#3B2F4A', '#2F3A2A', '#3A2A2A', '#2A3A3A', '#3F352A', '#2A3340', '#4A2F3A'];
   return (
-    <View style={{ width: size, height: square ? size * 1.25 : size, borderRadius: r, backgroundColor: tones[seed], overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }} accessibilityRole="image" accessibilityLabel={actor.name}>
+    <View
+      style={{ width: size, height: square ? size * 1.25 : size, borderRadius: r, backgroundColor: tones[seed], overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}
+      accessibilityRole="image"
+      accessibilityLabel={actor.name}
+    >
       {actor.photoUrl && !failed ? (
         <Image source={{ uri: actor.photoUrl }} style={{ width: '100%', height: '100%' }} contentFit="cover" transition={160} cachePolicy="memory-disk" onError={() => setFailed(true)} />
       ) : (
@@ -54,7 +59,12 @@ export function ActorCard({ actor, role, size = 72, style, layout = 'rail', righ
     );
   }
   return (
-    <Tap onPress={go} accessibilityRole="button" accessibilityLabel={`${actor.name}${role ? ` as ${role}` : ''}`} style={[{ width: layout === 'grid' ? size : size, alignItems: layout === 'grid' ? 'flex-start' : 'center' }, style]}>
+    <Tap
+      onPress={go}
+      accessibilityRole="button"
+      accessibilityLabel={`${actor.name}${role ? ` as ${role}` : ''}`}
+      style={[{ width: layout === 'grid' ? size : size, alignItems: layout === 'grid' ? 'flex-start' : 'center' }, style]}
+    >
       <ActorPortrait actor={actor} size={size} square={layout === 'grid'} />
       <Text variant="label" numberOfLines={2} align={layout === 'grid' ? 'left' : 'center'} style={{ marginTop: space.x2 }}>
         {actor.name}

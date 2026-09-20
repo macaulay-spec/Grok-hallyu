@@ -4,19 +4,15 @@
  * TMDB-backed adapter layered over the local catalog; tomorrow it can be the Hallyu ingestion
  * service without touching a single screen.
  *
- * Configuration (see .env.example):
- *   EXPO_PUBLIC_TMDB_ACCESS_TOKEN  – v4 read access token (preferred, sent as a Bearer header)
- *   EXPO_PUBLIC_TMDB_API_KEY       – v3 API key (fallback, sent as ?api_key=)
- * Both are read-only, public-by-design client credentials; they are inlined into the bundle at build time.
+ * Credentials: constants/keys.ts (v4 read token preferred, sent as a Bearer header; the v3 key is the
+ * `?api_key=` fallback). Both are read-only, public-by-design client credentials baked into the app.
  */
+import { TMDB_ACCESS_TOKEN, TMDB_API_KEY } from '../constants/keys';
 import { Actor, Drama, Episode } from './model';
 
-// Same convention as lib/supabase.ts: env wins, otherwise the project's public read-only client credential.
-// TMDB credentials ship inside every client bundle by design (scope: api_read); rotate at themoviedb.org → Settings → API.
-export const TMDB_TOKEN =
-  process.env.EXPO_PUBLIC_TMDB_ACCESS_TOKEN ??
-  'eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJmZjAxZjI4ZmM1YzQ3NzkxZTI4MDM4MzQ5NDQ1YmY1OCIsIm5iZiI6MTc4OTAyMDA1Ny43NzksInN1YiI6IjZhYTI0Nzk5OGQ1YWFjZTczMzY2ODJkMyIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.ETon7kqWQjj7jtJJOXyRgAWme9Sh9B7OUrdAI61uuH8';
-export const TMDB_KEY = process.env.EXPO_PUBLIC_TMDB_API_KEY ?? 'ff01f28fc5c47791e28038349445bf58';
+// Credentials live in constants/keys.ts (wired into the app; env overrides only when non-empty).
+export const TMDB_TOKEN = TMDB_ACCESS_TOKEN;
+export const TMDB_KEY = TMDB_API_KEY;
 export const TMDB_IMG = 'https://image.tmdb.org/t/p';
 export const ATTRIBUTION = 'This product uses the TMDB API but is not endorsed or certified by TMDB.';
 
@@ -72,10 +68,18 @@ const GENRE_MAP: Record<number, string> = {
 
 const TONES = ['#2A2F3F', '#3B2F4A', '#2F3A2A', '#3A2A2A', '#2A3A3A', '#3F352A', '#2A3340'];
 const toneFor = (id: number) => TONES[id % TONES.length]!;
-const norm = (s: string) => s.toLowerCase().normalize('NFKD').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+const norm = (s: string) =>
+  s
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim();
 
 export class CatalogError extends Error {
-  constructor(message: string, readonly status: number) {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
     super(message);
     this.name = 'CatalogError';
   }
@@ -179,7 +183,9 @@ function mapTv(t: TmdbTv): Drama {
   const notStarted = !t.first_air_date || new Date(t.first_air_date) > new Date();
   const status: Drama['status'] = t.status === 'In Production' || t.status === 'Planned' || notStarted ? 'upcoming' : t.in_production || t.status === 'Returning Series' ? 'airing' : 'completed';
   const genreNames = t.genres?.map((g) => g.name) ?? (t.genre_ids ?? []).map((g) => GENRE_MAP[g]).filter((x): x is string => !!x);
-  const seasons = (t.seasons ?? []).filter((s) => s.season_number > 0).map((s) => ({ number: s.season_number, episodeCount: s.episode_count, year: s.air_date ? Number(s.air_date.slice(0, 4)) : undefined, name: s.name }));
+  const seasons = (t.seasons ?? [])
+    .filter((s) => s.season_number > 0)
+    .map((s) => ({ number: s.season_number, episodeCount: s.episode_count, year: s.air_date ? Number(s.air_date.slice(0, 4)) : undefined, name: s.name }));
   const cast = (t.aggregate_credits?.cast ?? []).slice(0, 16).map((c, i) => ({ actorId: `tmdb-${c.id}`, role: c.roles?.[0]?.character ?? 'Cast', order: i }));
   const episodes: Episode[] = [];
   for (const s of seasons) {
