@@ -24,6 +24,7 @@ import { Comment, emptyReactions, LIMITS, SpoilerLevel } from '../../lib/model';
 import { commentsFor } from '../../lib/selectors';
 import { SPOILER_LABEL } from '../../lib/spoiler';
 import { USERS } from '../../lib/seed';
+import { track } from '../../lib/analytics';
 
 type Sort = 'top' | 'newest' | 'oldest';
 type Row = { key: string; comment: Comment; isReply: boolean; replyCount: number };
@@ -102,6 +103,7 @@ export default function PostDetail() {
       const comment: Comment = { id: uid('c'), postId: post.id, authorId: me.id, parentId: replyTo ? replyTo.parentId ?? replyTo.id : undefined, replyToUserId: replyTo?.authorId, body, createdAt: new Date().toISOString(), spoiler, reactions: emptyReactions(), state: 'active' };
       void mentions;
       dispatch({ type: 'addComment', comment });
+      track('comment.add', { reply: !!replyTo, spoiler });
       haptic.success();
       setText('');
       setReplyTo(null);

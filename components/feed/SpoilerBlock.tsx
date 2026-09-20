@@ -7,6 +7,7 @@ import { Drama, SpoilerLevel } from '../../lib/model';
 import { veilCopy } from '../../lib/spoiler';
 import { Text } from '../ui/Text';
 import { useToast } from '../ui/Toast';
+import { track } from '../../lib/analytics';
 
 interface SpoilerBlockProps {
   id: string; // post or comment id (for reveal memory)
@@ -39,6 +40,7 @@ export function SpoilerBlock({ id, level, drama, season, episode, veiled, childr
   const reveal = (markWatched?: boolean) => {
     haptic.light();
     dispatch({ type: 'reveal', id });
+    track('spoiler.reveal', { level });
     if (markWatched && drama && episode) {
       require('mark episodes watched', () => {
         const total = drama.seasons.find((s) => s.number === (season ?? 1))?.episodeCount ?? drama.episodeCount;

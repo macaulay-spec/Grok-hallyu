@@ -22,6 +22,7 @@ import { useApp, useDebounced, useLoad, useNetwork } from '../lib/hooks';
 import { Actor, Drama } from '../lib/model';
 import { searchLocal, trendingDramas } from '../lib/selectors';
 import { TRENDING_HASHTAGS } from '../lib/seed';
+import { track } from '../lib/analytics';
 
 type Scope = 'all' | 'dramas' | 'actors' | 'people' | 'posts' | 'collections';
 
@@ -58,7 +59,10 @@ export default function Search() {
   }, [params.q]);
 
   useEffect(() => {
-    if (debounced.length >= 2) dispatch({ type: 'recentSearch', q: debounced });
+    if (debounced.length >= 2) {
+      dispatch({ type: 'recentSearch', q: debounced });
+      track('search.query', { length: debounced.length, scope, tag: debounced.startsWith('#') });
+    }
   }, [debounced, dispatch]);
 
   useEffect(() => {

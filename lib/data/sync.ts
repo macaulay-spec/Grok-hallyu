@@ -18,6 +18,7 @@ import { Post } from '../model';
 import * as sel from '../selectors';
 import { Action, AppState, dispatch, dispatchLocal, getState, Mutation, setDispatchMiddleware, useSlice } from '../store';
 import { Backend, BackendError, createLocalBackend, PullScope } from './backend';
+import { track } from '../analytics';
 
 let backend: Backend = createLocalBackend(() => getState().prefs.devNetwork);
 /** Swap the backend implementation (the Supabase adapter will register itself here; tests inject fakes). */
@@ -199,6 +200,7 @@ function onAccepted(m: Mutation) {
 
 function onGaveUp(m: Mutation, error: string) {
   const a = m.action;
+  track('sync.failed', { type: a.type, attempts: m.attempts, error });
   if (a.type === 'addPost' || a.type === 'addComment') {
     // Keep the content on screen with a retry strip instead of silently vanishing.
     dispatchLocal({ type: 'outbox.update', id: m.id, patch: { status: 'failed', error } });

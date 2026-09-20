@@ -4,6 +4,7 @@ import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from './supabase';
+import { track } from './analytics';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -162,6 +163,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
       if (error) throw error;
       await AsyncStorage.removeItem(GUEST_KEY);
+      track('auth.signin', { provider: 'email' });
     } catch (e) {
       throw normalise(e);
     }
@@ -202,6 +204,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await AsyncStorage.removeItem(GUEST_KEY);
     setUser(DEMO_USER);
     setStatus('signedIn');
+    track('auth.signin', { provider: 'demo' });
   }, []);
 
   const sendReset = useCallback(async (email: string) => {
@@ -235,6 +238,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const continueAsGuest = useCallback(() => {
     AsyncStorage.setItem(GUEST_KEY, '1').catch(() => {});
     setStatus('guest');
+    track('auth.guest');
   }, []);
 
   const signOut = useCallback(async () => {

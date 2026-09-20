@@ -9,6 +9,7 @@ import { Sheet, SheetRow } from '../ui/Sheet';
 import { Text } from '../ui/Text';
 import { TextField } from '../ui/TextField';
 import { useToast } from '../ui/Toast';
+import { track } from '../../lib/analytics';
 
 export const STATUS_LABEL: Record<WatchStatus, string> = { want: 'Want to watch', watching: 'Watching', completed: 'Completed', dropped: 'Dropped' };
 export const STATUS_ICON: Record<WatchStatus, keyof typeof Ionicons.glyphMap> = { want: 'add-circle-outline', watching: 'play-circle-outline', completed: 'checkmark-circle-outline', dropped: 'close-circle-outline' };
@@ -58,6 +59,7 @@ export function WatchStatusSheet({ drama, visible, onClose }: { drama: Drama; vi
   const setStatus = (status: WatchStatus | null) => {
     haptic.select();
     dispatch({ type: 'watch', dramaId: drama.id, status, season });
+    track('watch.set', { status });
     if (status === null) toast.show({ message: `Removed ${drama.title} from your watchlist`, actionLabel: 'Undo', onAction: () => item && dispatch({ type: 'watch', dramaId: drama.id, status: item.status, season: item.season }) });
     else if (status !== 'watching') {
       toast.show({ message: `${drama.title} · ${STATUS_LABEL[status]}`, icon: 'checkmark-circle' });

@@ -4,6 +4,7 @@ import { Button, ButtonSize } from '../ui/Button';
 import { useApp, useRequireMember, haptic } from '../../lib/hooks';
 import { useToast } from '../ui/Toast';
 import { AppState } from '../../lib/store';
+import { track } from '../../lib/analytics';
 
 interface FollowButtonProps {
   kind: keyof AppState['follows'];
@@ -36,6 +37,7 @@ export function FollowButton({ kind, id, name, size = 'sm', block, style, onFoll
         require(`follow this ${noun}`, () => {
           haptic.light();
           dispatch({ type: 'follow', kind, id, on: !on });
+          track('follow.set', { kind, on: !on });
           if (!on) {
             onFollowed?.();
             toast.show({ message: `Following ${name ?? `this ${noun}`}`, actionLabel: 'Undo', onAction: () => dispatch({ type: 'follow', kind, id, on: false }) });

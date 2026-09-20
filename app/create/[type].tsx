@@ -29,6 +29,7 @@ import { DiscussionKind, Draft, LIMITS, PostType, REACTIONS, ReactionKind, Spoil
 import { USERS } from '../../lib/seed';
 import { allActors, newPost } from '../../lib/store';
 import { SPOILER_LABEL } from '../../lib/spoiler';
+import { track } from '../../lib/analytics';
 
 const KINDS: DiscussionKind[] = ['general', 'theory', 'ending', 'character', 'scene', 'question'];
 
@@ -154,6 +155,7 @@ export default function Composer() {
     const post = newPost(me.id, { type, ...common });
     if (type === 'reaction') post.reactions = { ...post.reactions, [reactionKind]: 1 };
     dispatch({ type: 'addPost', post });
+    track('post.publish', { type, spoiler, hasDrama: !!dramaId, images: images.length, video: !!video });
     if (draft) dispatch({ type: 'deleteDraft', id: draft.id });
     haptic.success();
     toast.show({ message: type === 'review' ? 'Review published' : type === 'short' ? 'Short posted' : 'Posted', icon: 'checkmark-circle', tone: 'success', actionLabel: 'View', onAction: () => router.push(`/post/${post.id}`) });
