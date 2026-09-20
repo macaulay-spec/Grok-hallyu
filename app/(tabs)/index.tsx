@@ -9,6 +9,7 @@ import { useTabBarMotion } from '../../components/navigation/TabBarMotion';
 import { ShortsRail } from '../../components/feed/ShortCard';
 import { episodeState } from '../../components/drama/EpisodeCard';
 import { TonightRail } from '../../components/home/TonightRail';
+import { UpNextRail } from '../../components/home/UpNextRail';
 import { UserCard } from '../../components/people/UserRow';
 import { Avatar } from '../../components/ui/Avatar';
 import { Button } from '../../components/ui/Button';
@@ -25,7 +26,7 @@ import { colors, radius, space } from '../../constants/theme';
 import { useAuth } from '../../lib/auth';
 import { haptic, useApp, useReduceMotion } from '../../lib/hooks';
 import { Episode, Post } from '../../lib/model';
-import { airingEpisodes, forYou, following, recommendedDramas, recommendedPeople, shorts, trendingDiscussions } from '../../lib/selectors';
+import { airingEpisodes, forYou, following, recommendedDramas, recommendedPeople, shorts, trendingDiscussions, upNext } from '../../lib/selectors';
 import { getState } from '../../lib/store';
 
 type Row =
@@ -60,6 +61,13 @@ export default function Home() {
       .sort((a, b) => rank(a.episode) - rank(b.episode) || (rank(a.episode) === 2 ? b.episode.airDate!.localeCompare(a.episode.airDate!) : a.episode.airDate!.localeCompare(b.episode.airDate!)))
       .slice(0, 8);
   }, [state]);
+  const upNextItems = useMemo(() => {
+    if (guest) return [];
+    const inTonight = new Set(tonight.map((t) => t.episode.id));
+    return upNext(state)
+      .filter((x) => x.airedAgo && !inTonight.has(x.episode.id))
+      .slice(0, 6);
+  }, [state, guest, tonight]);
   const liveFeed = useMemo(() => (tab === 'forYou' ? forYou(state) : following(state)), [state, tab]);
 
   // Feed stability: the list you are reading never reshuffles under your thumb. New posts that
@@ -206,7 +214,12 @@ export default function Home() {
     [router, shortList, recs, people, discussions],
   );
 
-  const header = <View>{tab === 'forYou' ? <TonightRail items={tonight} onSeeAll={() => router.push('/schedule')} /> : null}</View>;
+  const header = (
+    <View>
+      {tab === 'forYou' ? <TonightRail items={tonight} onSeeAll={() => router.push('/schedule')} /> : null}
+      {tab === 'forYou' ? <UpNextRail items={upNextItems} onSeeAll={() => router.push('/watchlist')} /> : null}
+    </View>
+  );
 
   const empty =
     tab === 'following' ? (
