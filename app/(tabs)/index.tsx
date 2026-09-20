@@ -7,6 +7,7 @@ import { PostCard } from '../../components/feed/PostCard';
 import { useTabBarMotion } from '../../components/navigation/TabBarMotion';
 
 import { ShortsRail } from '../../components/feed/ShortCard';
+import { episodeState } from '../../components/drama/EpisodeCard';
 import { TonightRail } from '../../components/home/TonightRail';
 import { UserCard } from '../../components/people/UserRow';
 import { Avatar } from '../../components/ui/Avatar';
@@ -23,11 +24,17 @@ import { TopBar, Wordmark } from '../../components/ui/TopBar';
 import { colors, radius, space } from '../../constants/theme';
 import { useAuth } from '../../lib/auth';
 import { haptic, useApp, useReduceMotion } from '../../lib/hooks';
-import { Post } from '../../lib/model';
+import { Episode, Post } from '../../lib/model';
 import { airingEpisodes, forYou, following, recommendedDramas, recommendedPeople, shorts, trendingDiscussions } from '../../lib/selectors';
 import { getState } from '../../lib/store';
 
-type Row = { key: string; kind: 'post'; post: Post; reason?: string } | { key: string; kind: 'shorts' } | { key: string; kind: 'dramas' } | { key: string; kind: 'people' } | { key: string; kind: 'discussions' } | { key: string; kind: 'guest' };
+type Row =
+  | { key: string; kind: 'post'; post: Post; reason?: string }
+  | { key: string; kind: 'shorts' }
+  | { key: string; kind: 'dramas' }
+  | { key: string; kind: 'people' }
+  | { key: string; kind: 'discussions' }
+  | { key: string; kind: 'guest' };
 
 /**
  * Home — editorial, not a firehose. For You interleaves modules between posts;
@@ -45,7 +52,14 @@ export default function Home() {
   const padding = useListPadding();
   const guest = auth.status !== 'signedIn';
 
-  const tonight = useMemo(() => airingEpisodes(state, -30, 36).filter(({ drama }) => state.follows.dramas.includes(drama.id) || drama.status === 'airing').slice(0, 8), [state]);
+  const tonight = useMemo(() => {
+    // Lead with what matters now: live rooms, then the soonest upcoming, then last night's, newest first.
+    const rank = (e: Episode) => (episodeState(e) === 'live' ? 0 : episodeState(e) === 'upcoming' ? 1 : 2);
+    return airingEpisodes(state, -30, 36)
+      .filter(({ drama }) => state.follows.dramas.includes(drama.id) || drama.status === 'airing')
+      .sort((a, b) => rank(a.episode) - rank(b.episode) || (rank(a.episode) === 2 ? b.episode.airDate!.localeCompare(a.episode.airDate!) : a.episode.airDate!.localeCompare(b.episode.airDate!)))
+      .slice(0, 8);
+  }, [state]);
   const liveFeed = useMemo(() => (tab === 'forYou' ? forYou(state) : following(state)), [state, tab]);
 
   // Feed stability: the list you are reading never reshuffles under your thumb. New posts that
@@ -168,7 +182,14 @@ export default function Home() {
           return (
             <View style={styles.module}>
               <SectionHeader eyebrow="Community" title="People with your taste" />
-              <FlatList horizontal data={people} keyExtractor={(p) => p.user.id} showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: space.margin, gap: space.gutter }} renderItem={({ item: p }) => <UserCard user={p.user} reason={p.reason} />} />
+              <FlatList
+                horizontal
+                data={people}
+                keyExtractor={(p) => p.user.id}
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingHorizontal: space.margin, gap: space.gutter }}
+                renderItem={({ item: p }) => <UserCard user={p.user} reason={p.reason} />}
+              />
             </View>
           );
         case 'discussions':
@@ -185,18 +206,28 @@ export default function Home() {
     [router, shortList, recs, people, discussions],
   );
 
-  const header = (
-    <View>
-      {tab === 'forYou' ? <TonightRail items={tonight} onSeeAll={() => router.push('/schedule')} /> : null}
-    </View>
-  );
+  const header = <View>{tab === 'forYou' ? <TonightRail items={tonight} onSeeAll={() => router.push('/schedule')} /> : null}</View>;
 
   const empty =
     tab === 'following' ? (
       guest ? (
-        <EmptyState icon="people-outline" title="Following is yours to build" body="Sign in and follow dramas, actors and people. Their posts land here, newest first." actionLabel="Join Hallyu" onAction={() => router.push('/(auth)/sign-up')} />
+        <EmptyState
+          icon="people-outline"
+          title="Following is yours to build"
+          body="Sign in and follow dramas, actors and people. Their posts land here, newest first."
+          actionLabel="Join Hallyu"
+          onAction={() => router.push('/(auth)/sign-up')}
+        />
       ) : (
-        <EmptyState icon="people-outline" title="Nothing here yet" body="Follow a few dramas and people to fill this feed. Start with what you’re watching." actionLabel="Find fandoms" onAction={() => router.push('/(tabs)/explore')} secondaryLabel="People with your taste" onSecondary={() => router.push('/people')} />
+        <EmptyState
+          icon="people-outline"
+          title="Nothing here yet"
+          body="Follow a few dramas and people to fill this feed. Start with what you’re watching."
+          actionLabel="Find fandoms"
+          onAction={() => router.push('/(tabs)/explore')}
+          secondaryLabel="People with your taste"
+          onSecondary={() => router.push('/people')}
+        />
       )
     ) : (
       <View>
@@ -227,7 +258,17 @@ export default function Home() {
         />
       }
     >
-      <Segmented items={[{ key: 'forYou', label: 'For You' }, { key: 'following', label: 'Following', dot: tab !== 'following' && following(state).some((r) => new Date(r.post.createdAt) > new Date(state.lastSeenActivity)) && !guest }]} value={tab} onChange={(t) => { setTab(t); listRef.current?.scrollToOffset({ offset: 0, animated: false }); }} />
+      <Segmented
+        items={[
+          { key: 'forYou', label: 'For You' },
+          { key: 'following', label: 'Following', dot: tab !== 'following' && following(state).some((r) => new Date(r.post.createdAt) > new Date(state.lastSeenActivity)) && !guest },
+        ]}
+        value={tab}
+        onChange={(t) => {
+          setTab(t);
+          listRef.current?.scrollToOffset({ offset: 0, animated: false });
+        }}
+      />
       <FlatList
         ref={listRef}
         onScroll={onScroll}
@@ -279,5 +320,18 @@ const styles = StyleSheet.create({
   footer: { alignItems: 'center', gap: space.x2, paddingVertical: space.x8 },
   dot: { position: 'absolute', top: 8, right: 8, width: 9, height: 9, borderRadius: 5, backgroundColor: colors.accent, borderWidth: 2, borderColor: colors.canvas },
   pillHost: { position: 'absolute', top: 108, left: 0, right: 0, alignItems: 'center' },
-  pill: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 36, paddingHorizontal: 14, borderRadius: 18, backgroundColor: colors.accent, shadowColor: '#000', shadowOpacity: 0.35, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 6 },
+  pill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    height: 36,
+    paddingHorizontal: 14,
+    borderRadius: 18,
+    backgroundColor: colors.accent,
+    shadowColor: '#000',
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
+  },
 });

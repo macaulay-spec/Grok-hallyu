@@ -4,8 +4,8 @@ import { FlatList, Pressable, StyleSheet, View } from 'react-native';
 import { colors, radius, space } from '../../constants/theme';
 import { countdown, dayLabel, timeOfDay } from '../../lib/format';
 import { useApp, useLayout } from '../../lib/hooks';
-import { Drama, Episode } from '../../lib/model';
-import { postsForEpisode } from '../../lib/selectors';
+import { Drama, Episode, REACTIONS, emptyReactions } from '../../lib/model';
+import { postsForEpisode, topReactions } from '../../lib/selectors';
 import { hasWatched } from '../../lib/spoiler';
 import { withAlpha } from '../../lib/motion';
 import { episodeState } from '../drama/EpisodeCard';
@@ -26,6 +26,16 @@ function useMinuteTick() {
   }, []);
 }
 
+/** The morning-after summary: how the room felt and the thread people are in. */
+function recapFor(posts: ReturnType<typeof postsForEpisode>): { feeling?: string; thread?: string } {
+  const meter = emptyReactions();
+  for (const p of posts) for (const k of Object.keys(meter) as (keyof typeof meter)[]) meter[k] += p.reactions[k];
+  const top = topReactions({ reactions: meter }, 1)[0];
+  const feeling = top ? REACTIONS.find((r) => r.kind === top)?.label.toLowerCase() : undefined;
+  const thread = [...posts].filter((p) => p.type === 'discussion' && p.title && p.spoiler === 'none').sort((a, b) => b.commentCount - a.commentCount)[0]?.title;
+  return { feeling, thread };
+}
+
 /**
  * The lead card: the one episode that matters most right now — live, or the next to air — as a
  * cinematic still with the countdown and the room's pulse. "Join the room · 128 talking" is the
@@ -39,10 +49,13 @@ function TonightHero({ drama, episode }: { drama: Drama; episode: Episode }) {
   const reminder = useReminder(drama);
   const st = episodeState(episode);
   const watched = hasWatched(watch(drama.id), episode.season, episode.number);
-  const count = postsForEpisode(state, drama.id, episode.season, episode.number).length;
+  const posts = postsForEpisode(state, drama.id, episode.season, episode.number);
+  const count = posts.length;
+  const agoH = episode.airDate ? (Date.now() - new Date(episode.airDate).getTime()) / 3_600_000 : Infinity;
+  const recap = st === 'aired' && count ? recapFor(posts) : undefined;
   const h = Math.min(220, Math.round(((width - space.margin * 2) * 9) / 16));
   const airs = episode.airDate ? `${dayLabel(episode.airDate)} · ${timeOfDay(episode.airDate)}` : '';
-  const status = st === 'live' ? 'Live now' : st === 'upcoming' ? `In ${countdown(episode.airDate!)}` : 'Aired';
+  const status = st === 'live' ? 'Live now' : st === 'upcoming' ? `In ${countdown(episode.airDate!)}` : agoH < 24 ? 'Last night in the room' : `Aired ${dayLabel(episode.airDate!)}`;
   const sub =
     st === 'live'
       ? count
@@ -50,7 +63,9 @@ function TonightHero({ drama, episode }: { drama: Drama; episode: Episode }) {
         : 'Be the first in the room'
       : st === 'upcoming'
         ? `${airs}${count ? ` · ${count} waiting` : ''}`
-        : `${airs}${count ? ` · ${count} talking` : ''}`;
+        : recap
+          ? `${count} ${count === 1 ? 'post' : 'posts'}${recap.feeling ? ` · mostly ${recap.feeling}` : ''}`
+          : `${airs} · quiet room, so far`;
   const cta = st === 'live' ? 'Join the room' : st === 'upcoming' ? (reminder.on ? 'Reminder on' : 'Remind me') : watched ? 'Open the room' : 'Catch up';
   const open = () => router.push(`/episode/${drama.id}/${episode.season}/${episode.number}`);
   return (
@@ -81,6 +96,11 @@ function TonightHero({ drama, episode }: { drama: Drama; episode: Episode }) {
             {drama.seasons.length > 1 ? `S${episode.season} · ` : ''}Episode {episode.number}
             {episode.title ? ` · ${episode.title}` : ''}
           </Text>
+          {recap?.thread ? (
+            <Text variant="caption" tone="onMedia" numberOfLines={1} style={{ opacity: 0.85, fontStyle: 'italic' }}>
+              “{recap.thread}”
+            </Text>
+          ) : null}
           <View style={styles.heroFoot}>
             <Text variant="caption" tone="onMedia" numberOfLines={1} style={{ flex: 1, opacity: 0.85 }}>
               {sub}
