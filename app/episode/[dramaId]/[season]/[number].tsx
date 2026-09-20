@@ -23,7 +23,7 @@ import { countdown, dayLabel, runtimeLabel, shortDate, timeOfDay } from '../../.
 import { haptic, useApp, useLayout, useRequireMember } from '../../../../lib/hooks';
 import { heroInterpolations, useScrollY, withAlpha } from '../../../../lib/motion';
 import { emptyReactions, Post } from '../../../../lib/model';
-import { getEpisode, postsForEpisode } from '../../../../lib/selectors';
+import { getEpisode, isPostVeiled, postsForEpisode } from '../../../../lib/selectors';
 import { hasWatched } from '../../../../lib/spoiler';
 
 type Filter = 'all' | 'discussion' | 'reaction' | 'short' | 'post';
@@ -43,6 +43,7 @@ export default function EpisodeRoom() {
   const { width } = useLayout();
   const padding = useListPadding(false);
   const [filter, setFilter] = useState<Filter>('all');
+  const [safe, setSafe] = useState(false);
   const [create, setCreate] = useState(false);
   const [gateDismissed, setGateDismissed] = useState(false);
   const { scrollY, onScroll } = useScrollY();
@@ -50,7 +51,9 @@ export default function EpisodeRoom() {
   const drama = getDrama(dramaId);
   const episode = drama ? getEpisode(drama, season, number) : undefined;
   const posts = useMemo(() => (drama ? postsForEpisode(state, drama.id, season, number) : []), [state, drama, season, number]);
-  const filtered = useMemo(() => (filter === 'all' ? posts : posts.filter((p) => p.type === filter)), [posts, filter]);
+  const typed = useMemo(() => (filter === 'all' ? posts : posts.filter((p) => p.type === filter)), [posts, filter]);
+  const veiledForMe = useMemo(() => typed.filter((p) => isPostVeiled(state, p)).length, [state, typed]);
+  const filtered = useMemo(() => (safe && veiledForMe ? typed.filter((p) => !isPostVeiled(state, p)) : typed), [typed, safe, veiledForMe, state]);
   const meter = useMemo(
     () =>
       posts.reduce((acc, p) => {
@@ -224,6 +227,19 @@ export default function EpisodeRoom() {
             onPress={() => setFilter(f)}
           />
         ))}
+        {veiledForMe ? (
+          <Chip
+            label={safe ? `Safe for me · ${veiledForMe} hidden` : `Safe for me · ${veiledForMe} veiled`}
+            icon={safe ? 'eye-off' : 'eye-off-outline'}
+            size="sm"
+            selected={safe}
+            onPress={() => {
+              haptic.select();
+              setSafe((v) => !v);
+            }}
+            accessibilityLabel={safe ? 'Show veiled posts again' : 'Hide posts that would be veiled for you'}
+          />
+        ) : null}
       </ChipRow>
     </View>
   );
