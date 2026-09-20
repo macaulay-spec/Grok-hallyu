@@ -9,7 +9,10 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ToastProvider } from '../components/ui/Toast';
 import { colors } from '../constants/theme';
 import { AuthProvider, useAuth } from '../lib/auth';
-import { demoState, freshMemberState, GUEST_ID, guestState, StoreProvider, useStore } from '../lib/store';
+import { catalog } from '../lib/catalog';
+import { syncSeedCatalog } from '../lib/catalogSync';
+import { useNetwork } from '../lib/hooks';
+import { demoState, freshMemberState, GUEST_ID, guestState, StoreProvider, useSlice, useStore } from '../lib/store';
 import { ME } from '../lib/selectors';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -34,6 +37,7 @@ export default function RootLayout() {
           <ToastProvider>
             <StatusBar style="light" backgroundColor={colors.canvas} />
             <AccountSync />
+            <CatalogSync />
             <Stack
               screenOptions={{
                 headerShown: false,
@@ -101,5 +105,23 @@ function AccountSync() {
     if (auth.recoveryPending && segments[1] !== 'reset-password') router.push('/(auth)/reset-password');
   }, [auth.recoveryPending, segments, router]);
 
+  return null;
+}
+
+/** Once hydrated and online, attach real catalog art and ids to the seeded titles (no-op without a catalog key). */
+function CatalogSync() {
+  const hydrated = useSlice((s) => s.hydrated);
+  const online = useNetwork();
+  useEffect(() => {
+    if (!hydrated || !online || !catalog.available) return;
+    const ctrl = new AbortController();
+    const t = setTimeout(() => {
+      syncSeedCatalog(ctrl.signal).catch(() => {});
+    }, 1200); // let the first screen settle first
+    return () => {
+      clearTimeout(t);
+      ctrl.abort();
+    };
+  }, [hydrated, online]);
   return null;
 }

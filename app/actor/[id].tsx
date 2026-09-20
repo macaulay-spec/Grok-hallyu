@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { FlatList, Pressable, Share, StyleSheet, View } from 'react-native';
 import { CreateSheet } from '../../components/create/CreateSheet';
 import { ActorPortrait, ActorRail } from '../../components/drama/ActorCard';
@@ -16,7 +16,8 @@ import { Text } from '../../components/ui/Text';
 import { TopBar } from '../../components/ui/TopBar';
 import { sizes, space } from '../../constants/theme';
 import { compact, pluralize } from '../../lib/format';
-import { useApp, useLayout, useRequireMember } from '../../lib/hooks';
+import { catalog } from '../../lib/catalog';
+import { useApp, useLayout, useLoad, useNetwork, useRequireMember } from '../../lib/hooks';
 import { Drama } from '../../lib/model';
 import { postsForActor, relatedActors } from '../../lib/selectors';
 import { allDramas } from '../../lib/store';
@@ -27,7 +28,7 @@ type Tab = 'filmography' | 'community';
 export default function ActorPage() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { state, getActor, isFollowing, watch } = useApp();
+  const { state, getActor, isFollowing, watch, dispatch } = useApp();
   const require = useRequireMember();
   const { columns } = useLayout();
   const padding = useListPadding(false);
@@ -35,6 +36,21 @@ export default function ActorPage() {
   const [create, setCreate] = useState(false);
   const [bioOpen, setBioOpen] = useState(false);
   const actor = getActor(id);
+  const online = useNetwork();
+
+  // Catalog enrichment: biography, headshot and the full Korean filmography for anyone with a catalog id.
+  const thin = !!actor?.provider && (!actor.bio || actor.knownFor.length < 3);
+  const detail = useLoad(async (signal) => (actor?.provider ? catalog.getActor(actor.provider.id, signal) : null), [actor?.provider?.id], thin && catalog.available && online);
+  useEffect(() => {
+    if (!detail.data || !actor) return;
+    const known = allDramas(state);
+    const byProvider = new Map(known.filter((d) => d.provider).map((d) => [d.provider!.id, d]));
+    const credits = detail.data.credits.map((c) => byProvider.get(c.provider!.id) ?? c);
+    const fresh = credits.filter((c) => !known.some((d) => d.id === c.id));
+    const merged = { ...actor, ...detail.data.actor, id: actor.id, followerCount: actor.followerCount, knownFor: credits.slice(0, 8).map((c) => c.id) };
+    dispatch({ type: 'import', actors: [merged], dramas: fresh.length ? fresh : undefined });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail.data]);
 
   const filmography = useMemo<Drama[]>(() => {
     if (!actor) return [];

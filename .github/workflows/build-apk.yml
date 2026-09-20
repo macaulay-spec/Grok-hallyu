@@ -63,6 +63,10 @@ jobs:
       - name: Build APK (release, debug-signed → installable)
         working-directory: android
         run: ./gradlew assembleRelease --no-daemon
+        env:
+          # Catalog credentials are inlined into the JS bundle at build time (public, read-only).
+          EXPO_PUBLIC_TMDB_ACCESS_TOKEN: ${{ secrets.TMDB_ACCESS_TOKEN }}
+          EXPO_PUBLIC_TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
 
       - name: Rename APK
         run: |

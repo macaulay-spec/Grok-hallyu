@@ -20,7 +20,8 @@ interface PosterProps {
 export function Poster({ drama, width, style, rounded = radius.sm, children }: PosterProps) {
   const height = Math.round(width / aspect.poster);
   const [failed, setFailed] = useState(false);
-  const source = drama.posterLocal ?? (drama.posterUrl ? { uri: drama.posterUrl } : null);
+  // Real catalog art wins over the bundled placeholder artwork.
+  const source = drama.posterUrl ? { uri: drama.posterUrl } : drama.posterLocal ?? null;
   const titleSize = Math.max(11, Math.min(18, width / 7));
   return (
     <View style={[{ width, height, borderRadius: rounded, backgroundColor: drama.tone, overflow: 'hidden' }, width >= 56 ? styles.edge : null, style]} accessibilityRole="image" accessibilityLabel={`${drama.title} poster`}>
