@@ -4,7 +4,6 @@ import React, { useMemo, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, View } from 'react-native';
 import { DramaListRow } from '../components/drama/DramaCard';
 import { WatchStatusSheet } from '../components/drama/WatchStatus';
-import { Button } from '../components/ui/Button';
 import { IconButton } from '../components/ui/IconButton';
 import { Screen, useListPadding } from '../components/ui/Screen';
 import { ProgressBar } from '../components/ui/Section';
@@ -96,13 +95,24 @@ export default function Watchlist() {
                   )
                 }
                 onPress={() => router.push(`/drama/${drama!.id}`)}
+                onLongPress={() => {
+                  haptic.medium();
+                  setEditing(drama!);
+                }}
+                accessibilityHint="Double tap to open. Double tap and hold to change status or add a note."
               />
               {status === 'watching' ? <ProgressBar value={item.currentEpisode} max={total} style={{ marginHorizontal: space.margin, marginTop: -4, marginBottom: space.x2 }} /> : null}
             </View>
           );
         }}
         ListEmptyComponent={<EmptyState compact icon={status === 'completed' ? 'checkmark-done-outline' : status === 'dropped' ? 'close-circle-outline' : 'tv-outline'} title={empty[status].title} body={empty[status].body} actionLabel={empty[status].action} onAction={empty[status].go} />}
-        ListFooterComponent={items.length && status === 'watching' ? <Button label="Edit status or notes from any drama page" variant="ghost" size="sm" onPress={() => {}} disabled style={{ alignSelf: 'center', marginTop: space.x3 }} /> : null}
+        ListFooterComponent={
+          items.length ? (
+            <Text variant="caption" tone="tertiary" align="center" style={{ marginTop: space.x4, paddingHorizontal: space.margin }}>
+              Hold a title to change its shelf or add a private note.
+            </Text>
+          ) : null
+        }
       />
       {editing ? <WatchStatusSheet drama={editing} visible onClose={() => setEditing(null)} /> : null}
     </Screen>

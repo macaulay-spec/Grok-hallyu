@@ -126,10 +126,10 @@ export function DramaRail({ dramas, size = 'm', reasons, style, onPressItem, bad
 }
 
 /** List row variant (search results, watchlist) */
-export function DramaListRow({ drama, right, subtitle, onPress, style, title, badge }: { drama: Drama; right?: React.ReactNode; subtitle?: string; onPress?: () => void; style?: StyleProp<ViewStyle>; title?: string; badge?: string }) {
+export function DramaListRow({ drama, right, subtitle, onPress, onLongPress, style, title, badge, accessibilityHint }: { drama: Drama; right?: React.ReactNode; subtitle?: string; onPress?: () => void; onLongPress?: () => void; style?: StyleProp<ViewStyle>; title?: string; badge?: string; accessibilityHint?: string }) {
   const router = useRouter();
   return (
-    <Tap onPress={onPress ?? (() => router.push(`/drama/${drama.id}`))} accessibilityRole="button" accessibilityLabel={title ?? drama.title} style={[styles.row, style]}>
+    <Tap onPress={onPress ?? (() => router.push(`/drama/${drama.id}`))} onLongPress={onLongPress} accessibilityRole="button" accessibilityLabel={title ?? drama.title} accessibilityHint={accessibilityHint} style={[styles.row, style]}>
       <Poster drama={drama} width={56} rounded={radius.xs} />
       <View style={{ flex: 1 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>

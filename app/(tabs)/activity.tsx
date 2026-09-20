@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useMemo, useState } from 'react';
 import { Pressable, SectionList, StyleSheet, View } from 'react-native';
+import { FollowButton } from '../../components/drama/FollowButton';
 import { Avatar } from '../../components/ui/Avatar';
 import { useTabBarMotion } from '../../components/navigation/TabBarMotion';
 import { Button } from '../../components/ui/Button';
@@ -127,9 +128,13 @@ export default function Activity() {
                   {timeAgo(n.createdAt)} · {GROUP_LABEL[n.group]}
                 </Text>
               </View>
-              <View style={styles.kindIcon}>
-                <Ionicons name={d.icon} size={14} color={!n.read ? colors.accentText : colors.textTertiary} />
-              </View>
+              {n.kind === 'follow' && actor && (n.actorIds?.length ?? 0) === 1 ? (
+                <FollowButton kind="users" id={actor.id} name={actor.displayName} size="sm" />
+              ) : (
+                <View style={styles.kindIcon}>
+                  <Ionicons name={d.icon} size={14} color={!n.read ? colors.accentText : colors.textTertiary} />
+                </View>
+              )}
             </Pressable>
           );
         }}
