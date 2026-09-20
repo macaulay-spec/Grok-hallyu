@@ -182,17 +182,7 @@ export interface Collection {
 export interface Notification {
   id: ID;
   group: NotificationGroup;
-  kind:
-    | 'reaction'
-    | 'comment'
-    | 'reply'
-    | 'follow'
-    | 'mention'
-    | 'episode_aired'
-    | 'episode_live'
-    | 'drama_trending'
-    | 'collection_saved'
-    | 'system';
+  kind: 'reaction' | 'comment' | 'reply' | 'follow' | 'mention' | 'episode_aired' | 'episode_live' | 'drama_trending' | 'collection_saved' | 'system';
   actorIds?: ID[];
   postId?: ID;
   commentId?: ID;
@@ -229,7 +219,10 @@ export const LIMITS = {
   recommendation: 500,
   shortCaption: 300,
   comment: 1000,
-  images: 4,
+  images: 6,
+  /** seconds — shorts are 3–60 s, a post can carry a clip up to 2:20 like X */
+  shortVideo: 60,
+  postVideo: 140,
   actors: 3,
   bio: 160,
   displayName: 40,

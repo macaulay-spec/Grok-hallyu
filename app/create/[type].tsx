@@ -170,16 +170,25 @@ export default function Composer() {
       selectionLimit: LIMITS.images - images.length,
       quality: 0.85,
     });
-    if (!res.canceled) setImages((prev) => [...prev, ...res.assets.map((a) => a.uri)].slice(0, LIMITS.images));
+    if (!res.canceled) {
+      if (video) setVideo(null);
+      setImages((prev) => [...prev, ...res.assets.map((a) => a.uri)].slice(0, LIMITS.images));
+    }
   };
   const pickVideo = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) return toast.show({ message: 'Allow photo access in Settings to attach a video.', tone: 'danger' });
-    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Videos, allowsEditing: true, videoMaxDuration: 60 });
+    const max = type === 'short' ? LIMITS.shortVideo : LIMITS.postVideo;
+    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Videos, allowsEditing: true, videoMaxDuration: max });
     if (res.canceled) return;
     const a = res.assets[0]!;
     const secs = Math.round((a.duration ?? 0) / 1000);
-    if (secs && (secs < 3 || secs > 60)) return toast.show({ message: 'Shorts are 3 to 60 seconds. Trim it and try again.', tone: 'danger' });
+    if (secs && (secs < 3 || secs > max))
+      return toast.show({ message: type === 'short' ? 'Shorts are 3 to 60 seconds. Trim it and try again.' : 'Clips in posts run 3 seconds to 2:20. Trim it and try again.', tone: 'danger' });
+    if (images.length) {
+      setImages([]);
+      toast.show({ message: 'A post carries images or one video — images removed.' });
+    }
     setVideo({ uri: a.uri, duration: secs || 15 });
   };
 
@@ -587,6 +596,23 @@ export default function Composer() {
             </ScrollView>
           ) : null}
 
+          {video && type !== 'short' ? (
+            <View style={{ paddingHorizontal: space.margin, marginTop: space.x2 }}>
+              <View style={styles.videoChip}>
+                <Ionicons name="videocam" size={18} color={colors.textPrimary} />
+                <View style={{ flex: 1 }}>
+                  <Text variant="label">Video attached</Text>
+                  <Text variant="caption" tone="secondary">
+                    {Math.floor(video.duration / 60)}:{String(video.duration % 60).padStart(2, '0')} · plays inline in the feed
+                  </Text>
+                </View>
+                <Pressable onPress={() => setVideo(null)} hitSlop={8} accessibilityRole="button" accessibilityLabel="Remove video" style={styles.tool}>
+                  <Ionicons name="close" size={18} color={colors.textSecondary} />
+                </Pressable>
+              </View>
+            </View>
+          ) : null}
+
           {actorIds.length ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: space.margin, gap: space.x2, marginTop: space.x3 }}>
               {actorIds.map((id) => {
@@ -647,6 +673,11 @@ export default function Composer() {
                 accessibilityLabel={`Add images, ${images.length} of ${LIMITS.images}`}
               >
                 <Ionicons name="image-outline" size={22} color={images.length >= LIMITS.images ? colors.textDisabled : colors.textPrimary} />
+              </Pressable>
+            ) : null}
+            {type === 'post' || type === 'discussion' ? (
+              <Pressable onPress={pickVideo} style={styles.tool} accessibilityRole="button" accessibilityLabel={video ? 'Replace video' : 'Add a video'}>
+                <Ionicons name={video ? 'videocam' : 'videocam-outline'} size={22} color={video ? colors.accentText : colors.textPrimary} />
               </Pressable>
             ) : null}
             <Pressable onPress={() => setBody((b) => `${b}${b.endsWith(' ') || !b ? '' : ' '}#`)} style={styles.tool} accessibilityRole="button" accessibilityLabel="Add hashtag">
@@ -747,6 +778,16 @@ const styles = StyleSheet.create({
   ratingRow: { flexDirection: 'row', justifyContent: 'space-between' },
   ratingCell: { width: 30, height: 40, alignItems: 'center', justifyContent: 'center' },
   secondary: { flexDirection: 'row', alignItems: 'center', gap: space.x3, padding: space.x3, backgroundColor: colors.surface1, borderRadius: radius.md },
+  videoChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.x3,
+    padding: space.x3,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface1,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+  },
   videoBox: {
     height: 160,
     borderRadius: radius.lg,

@@ -212,13 +212,17 @@ function CatalogSync() {
   const hydrated = useSlice((s) => s.hydrated);
   const online = useNetwork();
   useEffect(() => {
-    if (!hydrated || !online || !catalog.available) return;
+    if (!hydrated || !catalog.available) return;
+    // Don't gate on `online`: the request itself is the cheapest connectivity test, and a false
+    // "offline" from the OS/browser must never leave the app on placeholder art. A flip back to
+    // online (or the app returning to the foreground) simply schedules another pass.
     const ctrl = new AbortController();
-    const t = setTimeout(() => {
-      syncSeedCatalog(ctrl.signal).catch(() => {});
-    }, 1200); // let the first screen settle first
+    const kick = () => syncSeedCatalog(ctrl.signal).catch(() => {});
+    const t = setTimeout(kick, online ? 300 : 4000);
+    const sub = RNAppState.addEventListener('change', (st) => st === 'active' && kick());
     return () => {
       clearTimeout(t);
+      sub.remove();
       ctrl.abort();
     };
   }, [hydrated, online]);

@@ -7,6 +7,7 @@ import { episodeState } from '../../../../components/drama/EpisodeCard';
 import { ReminderCard } from '../../../../components/drama/Reminder';
 import { LivePulse, LiveReactions } from '../../../../components/feed/LiveReactions';
 import { PostCard } from '../../../../components/feed/PostCard';
+import { FeedAutoplay } from '../../../../components/media/FeedViewport';
 import { ReactionMeter } from '../../../../components/feed/Reactions';
 import { Button } from '../../../../components/ui/Button';
 import { Chip, ChipRow } from '../../../../components/ui/Chip';
@@ -265,32 +266,38 @@ export default function EpisodeRoom() {
         />
       }
     >
-      <Animated.FlatList<Post>
-        data={filtered}
-        keyExtractor={(p) => p.id}
-        onScroll={onScroll}
-        scrollEventThrottle={16}
-        ListHeaderComponent={header}
-        contentContainerStyle={padding}
-        renderItem={({ item: p }) => <PostCard post={p} hideContext />}
-        ListEmptyComponent={
-          <EmptyState
-            compact
-            icon="chatbubbles-outline"
-            title={st === 'upcoming' ? 'The room opens when it airs' : filter === 'all' ? 'Quiet room, so far' : `No ${filter}s for this episode`}
-            body={st === 'upcoming' ? 'Follow the drama with alerts on and we’ll bring you back the moment it airs.' : 'Reactions, theories, that one scene — post first and set the tone.'}
-            actionLabel={st === 'upcoming' ? undefined : 'Post about this episode'}
-            onAction={() => require('post', () => setCreate(true))}
+      <FeedAutoplay<Post> getVideoId={(p) => (p.video ? p.id : null)}>
+        {(vp) => (
+          <Animated.FlatList<Post>
+            data={filtered}
+            keyExtractor={(p) => p.id}
+            onScroll={onScroll}
+            scrollEventThrottle={16}
+            onViewableItemsChanged={vp.onViewableItemsChanged}
+            viewabilityConfig={vp.viewabilityConfig}
+            ListHeaderComponent={header}
+            contentContainerStyle={padding}
+            renderItem={({ item: p }) => <PostCard post={p} hideContext />}
+            ListEmptyComponent={
+              <EmptyState
+                compact
+                icon="chatbubbles-outline"
+                title={st === 'upcoming' ? 'The room opens when it airs' : filter === 'all' ? 'Quiet room, so far' : `No ${filter}s for this episode`}
+                body={st === 'upcoming' ? 'Follow the drama with alerts on and we’ll bring you back the moment it airs.' : 'Reactions, theories, that one scene — post first and set the tone.'}
+                actionLabel={st === 'upcoming' ? undefined : 'Post about this episode'}
+                onAction={() => require('post', () => setCreate(true))}
+              />
+            }
+            ListFooterComponent={
+              filtered.length ? (
+                <View style={{ padding: space.margin }}>
+                  <Button label={`Post about Episode ${number}`} variant="secondary" icon="create-outline" block onPress={() => require('post', () => setCreate(true))} />
+                </View>
+              ) : null
+            }
           />
-        }
-        ListFooterComponent={
-          filtered.length ? (
-            <View style={{ padding: space.margin }}>
-              <Button label={`Post about Episode ${number}`} variant="secondary" icon="create-outline" block onPress={() => require('post', () => setCreate(true))} />
-            </View>
-          ) : null
-        }
-      />
+        )}
+      </FeedAutoplay>
       <CreateSheet visible={create} onClose={() => setCreate(false)} context={{ dramaId: drama.id, season, episode: number }} />
     </Screen>
   );

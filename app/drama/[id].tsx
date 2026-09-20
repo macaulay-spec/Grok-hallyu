@@ -11,6 +11,7 @@ import { FollowButton } from '../../components/drama/FollowButton';
 import { WatchStatusButton } from '../../components/drama/WatchStatus';
 import { CreateSheet } from '../../components/create/CreateSheet';
 import { PostCard } from '../../components/feed/PostCard';
+import { FeedAutoplay } from '../../components/media/FeedViewport';
 import { ReactionMeter } from '../../components/feed/Reactions';
 import { ShortsRail } from '../../components/feed/ShortCard';
 import { Button } from '../../components/ui/Button';
@@ -618,19 +619,25 @@ export default function DramaHub() {
         />
       }
     >
-      <Animated.FlatList
-        data={rows}
-        keyExtractor={(r) => r.key}
-        renderItem={renderRow}
-        onScroll={onScroll}
-        scrollEventThrottle={16}
-        refreshControl={refresh.control}
-        ListHeaderComponent={header}
-        stickyHeaderIndices={[1]}
-        contentContainerStyle={padding}
-        initialNumToRender={8}
-        windowSize={7}
-      />
+      <FeedAutoplay<Row> getVideoId={(r) => (r.k === 'post' && r.p.video ? r.p.id : null)}>
+        {(vp) => (
+          <Animated.FlatList
+            data={rows}
+            keyExtractor={(r) => r.key}
+            renderItem={renderRow}
+            onScroll={onScroll}
+            scrollEventThrottle={16}
+            onViewableItemsChanged={vp.onViewableItemsChanged}
+            viewabilityConfig={vp.viewabilityConfig}
+            refreshControl={refresh.control}
+            ListHeaderComponent={header}
+            stickyHeaderIndices={[1]}
+            contentContainerStyle={padding}
+            initialNumToRender={8}
+            windowSize={7}
+          />
+        )}
+      </FeedAutoplay>
 
       <Sheet visible={menu} onClose={() => setMenu(false)} title={drama.title}>
         <SheetRow

@@ -72,7 +72,8 @@ export interface Ranked {
 }
 
 export function forYou(s: AppState): Ranked[] {
-  const posts = visiblePosts(s).filter((p) => p.type !== 'short');
+  // Shorts ride in the timeline as inline video (like X); the vertical player is one tap away.
+  const posts = visiblePosts(s);
   const genres = new Set([...s.onboarding.genres, ...s.profile.favoriteGenres]);
   return posts
     .map((post) => {
@@ -95,7 +96,14 @@ export function forYou(s: AppState): Ranked[] {
       }
       if (post.context.actorIds?.some((a) => s.follows.actors.includes(a))) {
         w *= 1.5;
-        reason = reason ?? `Because you follow ${getActor(s, post.context.actorIds.find((a) => s.follows.actors.includes(a)))?.name}`;
+        reason =
+          reason ??
+          `Because you follow ${
+            getActor(
+              s,
+              post.context.actorIds.find((a) => s.follows.actors.includes(a)),
+            )?.name
+          }`;
       }
       if (d && s.prefs.personalization && d.genres.some((g) => genres.has(g))) {
         w *= 1.25;
@@ -111,13 +119,7 @@ export function forYou(s: AppState): Ranked[] {
 
 export function following(s: AppState): Ranked[] {
   return visiblePosts(s)
-    .filter((p) => p.type !== 'short')
-    .filter(
-      (p) =>
-        s.follows.users.includes(p.authorId) ||
-        (p.context.dramaId && s.follows.dramas.includes(p.context.dramaId)) ||
-        p.context.actorIds?.some((a) => s.follows.actors.includes(a)),
-    )
+    .filter((p) => s.follows.users.includes(p.authorId) || (p.context.dramaId && s.follows.dramas.includes(p.context.dramaId)) || p.context.actorIds?.some((a) => s.follows.actors.includes(a)))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     .map((post) => ({
       post,
@@ -125,7 +127,12 @@ export function following(s: AppState): Ranked[] {
         ? undefined
         : post.context.dramaId && s.follows.dramas.includes(post.context.dramaId)
           ? `${getDrama(s, post.context.dramaId)?.title} fandom`
-          : `${getActor(s, post.context.actorIds?.find((a) => s.follows.actors.includes(a)))?.name} fandom`,
+          : `${
+              getActor(
+                s,
+                post.context.actorIds?.find((a) => s.follows.actors.includes(a)),
+              )?.name
+            } fandom`,
     }));
 }
 
@@ -149,7 +156,10 @@ export function postsForEpisode(s: AppState, dramaId: string, season: number, ep
 export function postsForActor(s: AppState, actorId: string): Post[] {
   const actor = getActor(s, actorId);
   return visiblePosts(s)
-    .filter((p) => p.context.actorIds?.includes(actorId) || (p.context.dramaId && actor?.knownFor.includes(p.context.dramaId) && p.body.toLowerCase().includes((actor?.name ?? '').toLowerCase().split(' ')[0]!)))
+    .filter(
+      (p) =>
+        p.context.actorIds?.includes(actorId) || (p.context.dramaId && actor?.knownFor.includes(p.context.dramaId) && p.body.toLowerCase().includes((actor?.name ?? '').toLowerCase().split(' ')[0]!)),
+    )
     .sort((a, b) => hot(b) - hot(a));
 }
 
@@ -247,7 +257,14 @@ export function recommendedPeople(s: AppState, n = 6): { user: User; reason: str
 export function relatedDramas(s: AppState, d: Drama, n = 8): Drama[] {
   return allDramas(s)
     .filter((x) => x.id !== d.id)
-    .map((x) => ({ x, w: x.genres.filter((g) => d.genres.includes(g)).length * 2 + (x.tags ?? []).filter((t) => (d.tags ?? []).includes(t)).length * 3 + (x.cast.some((c) => d.cast.some((c2) => c2.actorId === c.actorId)) ? 2 : 0) + (x.network === d.network ? 0.5 : 0) }))
+    .map((x) => ({
+      x,
+      w:
+        x.genres.filter((g) => d.genres.includes(g)).length * 2 +
+        (x.tags ?? []).filter((t) => (d.tags ?? []).includes(t)).length * 3 +
+        (x.cast.some((c) => d.cast.some((c2) => c2.actorId === c.actorId)) ? 2 : 0) +
+        (x.network === d.network ? 0.5 : 0),
+    }))
     .filter((r) => r.w > 0)
     .sort((a, b) => b.w - a.w)
     .slice(0, n)
@@ -310,9 +327,15 @@ export function publicCollections(s: AppState): Collection[] {
 }
 
 export function currentlyWatching(s: AppState, userId: string): Drama[] {
-  if (userId === s.profile.id) return watchlistByStatus(s, 'watching').map((w) => getDrama(s, w.dramaId)!).filter(Boolean);
+  if (userId === s.profile.id)
+    return watchlistByStatus(s, 'watching')
+      .map((w) => getDrama(s, w.dramaId)!)
+      .filter(Boolean);
   const u = getUser(s, userId);
-  return (u?.favoriteDramaIds ?? []).slice(0, 2).map((id) => getDrama(s, id)!).filter(Boolean);
+  return (u?.favoriteDramaIds ?? [])
+    .slice(0, 2)
+    .map((id) => getDrama(s, id)!)
+    .filter(Boolean);
 }
 
 export interface SearchResults {
@@ -331,8 +354,12 @@ export function searchLocal(s: AppState, q: string): SearchResults {
   const has = (...fields: (string | undefined)[]) => fields.some((f) => f?.toLowerCase().includes(needle));
   const tag = needle.startsWith('#') ? needle.slice(1) : undefined;
   return {
-    dramas: allDramas(s).filter((d) => has(d.title, d.originalTitle, ...d.genres, ...(d.tags ?? []), d.network)).slice(0, 12),
-    actors: allActors(s).filter((a) => has(a.name, a.koreanName)).slice(0, 12),
+    dramas: allDramas(s)
+      .filter((d) => has(d.title, d.originalTitle, ...d.genres, ...(d.tags ?? []), d.network))
+      .slice(0, 12),
+    actors: allActors(s)
+      .filter((a) => has(a.name, a.koreanName))
+      .slice(0, 12),
     people: seed.USERS.filter((u) => !u.isPrivate && u.id !== s.profile.id && has(u.displayName, u.handle, u.bio)).slice(0, 12),
     posts: visiblePosts(s)
       .filter((p) => (tag ? p.hashtags.some((h) => h.toLowerCase() === tag) : has(p.title, p.body, p.verdict, ...p.hashtags.map((h) => `#${h}`))))
@@ -340,10 +367,14 @@ export function searchLocal(s: AppState, q: string): SearchResults {
     episodes: allDramas(s)
       .flatMap((d) => d.episodes.filter((e) => e.title && has(e.title)).map((episode) => ({ drama: d, episode })))
       .slice(0, 8),
-    collections: publicCollections(s).filter((c) => has(c.title, c.description)).slice(0, 8),
+    collections: publicCollections(s)
+      .filter((c) => has(c.title, c.description))
+      .slice(0, 8),
   };
 }
 
 export function dramasByGenre(s: AppState, genre: string): Drama[] {
-  return allDramas(s).filter((d) => d.genres.some((g) => g.toLowerCase() === genre.toLowerCase())).sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
+  return allDramas(s)
+    .filter((d) => d.genres.some((g) => g.toLowerCase() === genre.toLowerCase()))
+    .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
 }

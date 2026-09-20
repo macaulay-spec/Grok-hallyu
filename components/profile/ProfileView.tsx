@@ -10,6 +10,7 @@ import { currentlyWatching, postsByUser } from '../../lib/selectors';
 import { CollectionCard } from '../collections/CollectionCard';
 import { FollowButton } from '../drama/FollowButton';
 import { PostCard } from '../feed/PostCard';
+import { FeedAutoplay } from '../media/FeedViewport';
 import { ShortTile } from '../feed/ShortCard';
 import { Avatar } from '../ui/Avatar';
 import { useTabBarMotion } from '../navigation/TabBarMotion';
@@ -39,8 +40,14 @@ export function ProfileView({ user, isMe, headerExtra }: { user: User; isMe: boo
   const isPrivate = !!user.isPrivate && !isMe && !followingThem;
 
   const posts = useMemo(() => postsByUser(state, user.id), [state, user.id]);
-  const byTab = useMemo<Post[]>(() => (tab === 'posts' ? posts.filter((p) => p.type !== 'short') : tab === 'shorts' ? posts.filter((p) => p.type === 'short') : tab === 'reviews' ? posts.filter((p) => p.type === 'review') : []), [posts, tab]);
-  const collections = useMemo(() => state.collections.filter((c) => c.ownerId === user.id && (isMe || c.visibility === 'public')).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), [state.collections, user.id, isMe]);
+  const byTab = useMemo<Post[]>(
+    () => (tab === 'posts' ? posts.filter((p) => p.type !== 'short') : tab === 'shorts' ? posts.filter((p) => p.type === 'short') : tab === 'reviews' ? posts.filter((p) => p.type === 'review') : []),
+    [posts, tab],
+  );
+  const collections = useMemo(
+    () => state.collections.filter((c) => c.ownerId === user.id && (isMe || c.visibility === 'public')).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+    [state.collections, user.id, isMe],
+  );
   const watching = useMemo(() => currentlyWatching(state, user.id).map((drama) => ({ drama })), [state, user.id]);
   const favorites = (isMe ? state.profile.favoriteDramaIds : user.favoriteDramaIds).map((id) => getDrama(id)).filter(Boolean);
 
@@ -62,9 +69,21 @@ export function ProfileView({ user, isMe, headerExtra }: { user: User; isMe: boo
             @{user.handle}
           </Text>
           <View style={styles.stats}>
-            <Stat n={user.followers + (followingThem && !isMe ? 1 : 0)} label="followers" onPress={() => router.push({ pathname: '/user/[handle]/connections', params: { handle: user.handle, tab: 'followers' } })} />
-            <Stat n={isMe ? state.follows.users.length : user.following} label="following" onPress={() => router.push({ pathname: '/user/[handle]/connections', params: { handle: user.handle, tab: 'following' } })} />
-            <Stat n={isMe ? Object.values(state.watchlist).filter((w) => w.status === 'completed').length : Math.round(user.followers / 40) + user.favoriteDramaIds.length} label="completed" onPress={() => (isMe ? router.push('/watchlist') : undefined)} />
+            <Stat
+              n={user.followers + (followingThem && !isMe ? 1 : 0)}
+              label="followers"
+              onPress={() => router.push({ pathname: '/user/[handle]/connections', params: { handle: user.handle, tab: 'followers' } })}
+            />
+            <Stat
+              n={isMe ? state.follows.users.length : user.following}
+              label="following"
+              onPress={() => router.push({ pathname: '/user/[handle]/connections', params: { handle: user.handle, tab: 'following' } })}
+            />
+            <Stat
+              n={isMe ? Object.values(state.watchlist).filter((w) => w.status === 'completed').length : Math.round(user.followers / 40) + user.favoriteDramaIds.length}
+              label="completed"
+              onPress={() => (isMe ? router.push('/watchlist') : undefined)}
+            />
           </View>
         </View>
       </View>
@@ -92,7 +111,15 @@ export function ProfileView({ user, isMe, headerExtra }: { user: User; isMe: boo
             <Button label="Watchlist" variant="secondary" size="sm" icon="tv-outline" onPress={() => router.push('/watchlist')} />
           </>
         ) : blocked ? (
-          <Button label="Unblock" variant="secondary" size="sm" onPress={() => { dispatch({ type: 'block', userId: user.id, on: false }); toast.show({ message: `Unblocked @${user.handle}` }); }} />
+          <Button
+            label="Unblock"
+            variant="secondary"
+            size="sm"
+            onPress={() => {
+              dispatch({ type: 'block', userId: user.id, on: false });
+              toast.show({ message: `Unblocked @${user.handle}` });
+            }}
+          />
         ) : (
           <>
             <FollowButton kind="users" id={user.id} name={user.displayName} style={{ flex: 1 }} />
@@ -106,29 +133,39 @@ export function ProfileView({ user, isMe, headerExtra }: { user: User; isMe: boo
       {!isPrivate && !blocked ? (
         <>
           {watching.length ? (
-            <Shelf title={isMe ? 'Currently watching' : `${user.displayName.split(' ')[0]} is watching`} onSeeAll={isMe ? () => router.push({ pathname: '/watchlist', params: { status: 'watching' } }) : undefined}>
-              <FlatList horizontal data={watching} keyExtractor={(w) => w.drama.id} showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: space.margin, gap: space.gutter }} renderItem={({ item: w }) => {
-                const it = isMe ? watch(w.drama.id) : undefined;
-                const total = w.drama.seasons.find((s) => s.number === (it?.season ?? 1))?.episodeCount ?? w.drama.episodeCount;
-                return (
-                  <Pressable onPress={() => router.push(`/drama/${w.drama.id}`)} style={{ width: sizes.poster.s }} accessibilityRole="button" accessibilityLabel={w.drama.title}>
-                    <Poster drama={w.drama} width={sizes.poster.s} />
-                    {it ? (
-                      <View style={styles.progress}>
-                        <View style={[styles.progressFill, { width: `${Math.min(100, ((it.currentEpisode ?? 0) / Math.max(1, total)) * 100)}%` }]} />
-                      </View>
-                    ) : null}
-                    <Text variant="caption" numberOfLines={1} style={{ marginTop: 6 }}>
-                      {w.drama.title}
-                    </Text>
-                    {it ? (
-                      <Text variant="caption" tone="secondary">
-                        Ep {it.currentEpisode ?? 0}/{total}
+            <Shelf
+              title={isMe ? 'Currently watching' : `${user.displayName.split(' ')[0]} is watching`}
+              onSeeAll={isMe ? () => router.push({ pathname: '/watchlist', params: { status: 'watching' } }) : undefined}
+            >
+              <FlatList
+                horizontal
+                data={watching}
+                keyExtractor={(w) => w.drama.id}
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingHorizontal: space.margin, gap: space.gutter }}
+                renderItem={({ item: w }) => {
+                  const it = isMe ? watch(w.drama.id) : undefined;
+                  const total = w.drama.seasons.find((s) => s.number === (it?.season ?? 1))?.episodeCount ?? w.drama.episodeCount;
+                  return (
+                    <Pressable onPress={() => router.push(`/drama/${w.drama.id}`)} style={{ width: sizes.poster.s }} accessibilityRole="button" accessibilityLabel={w.drama.title}>
+                      <Poster drama={w.drama} width={sizes.poster.s} />
+                      {it ? (
+                        <View style={styles.progress}>
+                          <View style={[styles.progressFill, { width: `${Math.min(100, ((it.currentEpisode ?? 0) / Math.max(1, total)) * 100)}%` }]} />
+                        </View>
+                      ) : null}
+                      <Text variant="caption" numberOfLines={1} style={{ marginTop: 6 }}>
+                        {w.drama.title}
                       </Text>
-                    ) : null}
-                  </Pressable>
-                );
-              }} />
+                      {it ? (
+                        <Text variant="caption" tone="secondary">
+                          Ep {it.currentEpisode ?? 0}/{total}
+                        </Text>
+                      ) : null}
+                    </Pressable>
+                  );
+                }}
+              />
             </Shelf>
           ) : isMe ? (
             <Pressable onPress={() => router.push('/(tabs)/explore')} style={styles.hint} accessibilityRole="button">
@@ -157,7 +194,18 @@ export function ProfileView({ user, isMe, headerExtra }: { user: User; isMe: boo
               </View>
             </Shelf>
           ) : null}
-          <Segmented items={[{ key: 'posts', label: 'Posts', count: posts.filter((p) => p.type !== 'short').length }, { key: 'shorts', label: 'Shorts', count: posts.filter((p) => p.type === 'short').length }, { key: 'reviews', label: 'Reviews', count: posts.filter((p) => p.type === 'review').length }, { key: 'collections', label: 'Collections', count: collections.length }]} value={tab} onChange={setTab} scrollable style={{ marginTop: space.x4 }} />
+          <Segmented
+            items={[
+              { key: 'posts', label: 'Posts', count: posts.filter((p) => p.type !== 'short').length },
+              { key: 'shorts', label: 'Shorts', count: posts.filter((p) => p.type === 'short').length },
+              { key: 'reviews', label: 'Reviews', count: posts.filter((p) => p.type === 'review').length },
+              { key: 'collections', label: 'Collections', count: collections.length },
+            ]}
+            value={tab}
+            onChange={setTab}
+            scrollable
+            style={{ marginTop: space.x4 }}
+          />
         </>
       ) : null}
     </View>
@@ -165,18 +213,42 @@ export function ProfileView({ user, isMe, headerExtra }: { user: User; isMe: boo
 
   if (blocked) {
     return (
-      <FlatList data={[]} renderItem={null} ListHeaderComponent={header} contentContainerStyle={padding} ListEmptyComponent={<EmptyState icon="ban-outline" title={`You blocked @${user.handle}`} body="They can’t see your posts or follow you, and you won’t see theirs. Unblock any time." />} />
+      <FlatList
+        data={[]}
+        renderItem={null}
+        ListHeaderComponent={header}
+        contentContainerStyle={padding}
+        ListEmptyComponent={<EmptyState icon="ban-outline" title={`You blocked @${user.handle}`} body="They can’t see your posts or follow you, and you won’t see theirs. Unblock any time." />}
+      />
     );
   }
   if (isPrivate) {
-    return <FlatList data={[]} renderItem={null} ListHeaderComponent={header} contentContainerStyle={padding} ListEmptyComponent={<EmptyState icon="lock-closed-outline" title="This profile is private" body={`Follow @${user.handle} to request access. Their posts and shelves stay hidden until they accept.`} />} />;
+    return (
+      <FlatList
+        data={[]}
+        renderItem={null}
+        ListHeaderComponent={header}
+        contentContainerStyle={padding}
+        ListEmptyComponent={
+          <EmptyState icon="lock-closed-outline" title="This profile is private" body={`Follow @${user.handle} to request access. Their posts and shelves stay hidden until they accept.`} />
+        }
+      />
+    );
   }
 
   const emptyCopy: Record<Tab, { title: string; body: string; action?: string; go?: () => void }> = {
-    posts: isMe ? { title: 'Say something', body: 'Your posts, reactions and discussions show up here.', action: 'Create a post', go: () => router.push('/create/post') } : { title: 'No posts yet', body: `${user.displayName} hasn’t posted. Follow to catch their first one.` },
-    shorts: isMe ? { title: 'No shorts yet', body: 'Sixty seconds, vertical. Your best scene reactions live here.', action: 'Make a short', go: () => router.push('/create/short') } : { title: 'No shorts', body: 'Nothing vertical from them yet.' },
-    reviews: isMe ? { title: 'No reviews yet', body: 'Rate a drama 1–10 with a one-line verdict. Finished ones are waiting in your watchlist.', action: 'Write a review', go: () => router.push('/create/review') } : { title: 'No reviews', body: 'They haven’t rated anything publicly.' },
-    collections: isMe ? { title: 'Start a shelf', body: 'Group dramas your way — “Rainy day comfort”, “Best endings”, “Second-lead syndrome”.', action: 'New collection', go: () => router.push('/collection/new') } : { title: 'No public collections', body: 'Their shelves are private or empty.' },
+    posts: isMe
+      ? { title: 'Say something', body: 'Your posts, reactions and discussions show up here.', action: 'Create a post', go: () => router.push('/create/post') }
+      : { title: 'No posts yet', body: `${user.displayName} hasn’t posted. Follow to catch their first one.` },
+    shorts: isMe
+      ? { title: 'No shorts yet', body: 'Sixty seconds, vertical. Your best scene reactions live here.', action: 'Make a short', go: () => router.push('/create/short') }
+      : { title: 'No shorts', body: 'Nothing vertical from them yet.' },
+    reviews: isMe
+      ? { title: 'No reviews yet', body: 'Rate a drama 1–10 with a one-line verdict. Finished ones are waiting in your watchlist.', action: 'Write a review', go: () => router.push('/create/review') }
+      : { title: 'No reviews', body: 'They haven’t rated anything publicly.' },
+    collections: isMe
+      ? { title: 'Start a shelf', body: 'Group dramas your way — “Rainy day comfort”, “Best endings”, “Second-lead syndrome”.', action: 'New collection', go: () => router.push('/collection/new') }
+      : { title: 'No public collections', body: 'Their shelves are private or empty.' },
   };
 
   return (
@@ -193,7 +265,9 @@ export function ProfileView({ user, isMe, headerExtra }: { user: User; isMe: boo
           columnWrapperStyle={{ gap: space.gutter, paddingHorizontal: space.margin }}
           contentContainerStyle={[padding, { gap: space.x4 }]}
           renderItem={({ item }) => <CollectionCard collection={item} style={{ flex: 1 }} />}
-          ListEmptyComponent={<EmptyState icon="albums-outline" title={emptyCopy.collections.title} body={emptyCopy.collections.body} actionLabel={emptyCopy.collections.action} onAction={emptyCopy.collections.go} />}
+          ListEmptyComponent={
+            <EmptyState icon="albums-outline" title={emptyCopy.collections.title} body={emptyCopy.collections.body} actionLabel={emptyCopy.collections.action} onAction={emptyCopy.collections.go} />
+          }
         />
       ) : tab === 'shorts' ? (
         <FlatList
@@ -210,14 +284,77 @@ export function ProfileView({ user, isMe, headerExtra }: { user: User; isMe: boo
           ListEmptyComponent={<EmptyState icon="videocam-outline" title={emptyCopy.shorts.title} body={emptyCopy.shorts.body} actionLabel={emptyCopy.shorts.action} onAction={emptyCopy.shorts.go} />}
         />
       ) : (
-        <FlatList onScroll={tabBar.onScroll} scrollEventThrottle={16} data={byTab} key={tab} keyExtractor={(p) => p.id} ListHeaderComponent={header} contentContainerStyle={padding} renderItem={({ item }) => <PostCard post={item} />} ListEmptyComponent={<EmptyState icon={tab === 'reviews' ? 'star-outline' : 'chatbubble-outline'} title={emptyCopy[tab].title} body={emptyCopy[tab].body} actionLabel={emptyCopy[tab].action} onAction={emptyCopy[tab].go} />} />
+        <FeedAutoplay<Post> getVideoId={(p) => (p.video ? p.id : null)}>
+          {(vp) => (
+            <FlatList
+              onScroll={tabBar.onScroll}
+              scrollEventThrottle={16}
+              data={byTab}
+              key={tab}
+              keyExtractor={(p) => p.id}
+              onViewableItemsChanged={vp.onViewableItemsChanged}
+              viewabilityConfig={vp.viewabilityConfig}
+              ListHeaderComponent={header}
+              contentContainerStyle={padding}
+              renderItem={({ item }) => <PostCard post={item} />}
+              ListEmptyComponent={
+                <EmptyState
+                  icon={tab === 'reviews' ? 'star-outline' : 'chatbubble-outline'}
+                  title={emptyCopy[tab].title}
+                  body={emptyCopy[tab].body}
+                  actionLabel={emptyCopy[tab].action}
+                  onAction={emptyCopy[tab].go}
+                />
+              }
+            />
+          )}
+        </FeedAutoplay>
       )}
       <Sheet visible={menu} onClose={() => setMenu(false)} title={`@${user.handle}`}>
-        <SheetRow icon="share-social-outline" label="Share profile" onPress={() => { setMenu(false); share(); }} />
-        <SheetRow icon="copy-outline" label="Copy link" onPress={() => { setMenu(false); toast.show({ message: 'Link copied' }); }} />
-        <SheetRow icon="volume-mute-outline" label={state.mutedUsers.includes(user.id) ? 'Unmute' : 'Mute'} onPress={() => { setMenu(false); dispatch({ type: 'muteUser', userId: user.id, on: !state.mutedUsers.includes(user.id) }); toast.show({ message: state.mutedUsers.includes(user.id) ? `Unmuted @${user.handle}` : `Muted @${user.handle}. You won’t see their posts.` }); }} />
-        <SheetRow icon="ban-outline" label="Block" tone="danger" onPress={() => { setMenu(false); dispatch({ type: 'block', userId: user.id, on: true }); toast.show({ message: `Blocked @${user.handle}`, actionLabel: 'Undo', onAction: () => dispatch({ type: 'block', userId: user.id, on: false }) }); }} />
-        <SheetRow icon="flag-outline" label="Report" tone="danger" onPress={() => { setMenu(false); router.push({ pathname: '/report', params: { targetId: user.id, kind: 'user' } }); }} />
+        <SheetRow
+          icon="share-social-outline"
+          label="Share profile"
+          onPress={() => {
+            setMenu(false);
+            share();
+          }}
+        />
+        <SheetRow
+          icon="copy-outline"
+          label="Copy link"
+          onPress={() => {
+            setMenu(false);
+            toast.show({ message: 'Link copied' });
+          }}
+        />
+        <SheetRow
+          icon="volume-mute-outline"
+          label={state.mutedUsers.includes(user.id) ? 'Unmute' : 'Mute'}
+          onPress={() => {
+            setMenu(false);
+            dispatch({ type: 'muteUser', userId: user.id, on: !state.mutedUsers.includes(user.id) });
+            toast.show({ message: state.mutedUsers.includes(user.id) ? `Unmuted @${user.handle}` : `Muted @${user.handle}. You won’t see their posts.` });
+          }}
+        />
+        <SheetRow
+          icon="ban-outline"
+          label="Block"
+          tone="danger"
+          onPress={() => {
+            setMenu(false);
+            dispatch({ type: 'block', userId: user.id, on: true });
+            toast.show({ message: `Blocked @${user.handle}`, actionLabel: 'Undo', onAction: () => dispatch({ type: 'block', userId: user.id, on: false }) });
+          }}
+        />
+        <SheetRow
+          icon="flag-outline"
+          label="Report"
+          tone="danger"
+          onPress={() => {
+            setMenu(false);
+            router.push({ pathname: '/report', params: { targetId: user.id, kind: 'user' } });
+          }}
+        />
       </Sheet>
     </>
   );
@@ -263,5 +400,14 @@ const styles = StyleSheet.create({
   progress: { height: 3, backgroundColor: colors.surface3, borderRadius: 2, marginTop: 6, overflow: 'hidden' },
   progressFill: { height: 3, backgroundColor: colors.accent },
   slot: { width: sizes.poster.s, aspectRatio: 2 / 3, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.borderSubtle, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center' },
-  hint: { flexDirection: 'row', alignItems: 'center', gap: space.x3, marginHorizontal: space.margin, marginTop: space.x5, padding: space.x3, backgroundColor: colors.surface1, borderRadius: radius.md },
+  hint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.x3,
+    marginHorizontal: space.margin,
+    marginTop: space.x5,
+    padding: space.x3,
+    backgroundColor: colors.surface1,
+    borderRadius: radius.md,
+  },
 });

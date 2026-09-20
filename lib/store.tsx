@@ -389,8 +389,43 @@ function reducer(s: AppState, a: Action): AppState {
       if (!a.q) return s;
       return { ...s, recentSearches: [a.q, ...s.recentSearches.filter((x) => x !== a.q)].slice(0, 8) };
     case 'import': {
-      const dramas = a.dramas ? [...s.importedDramas.filter((d) => !a.dramas!.some((n) => n.id === d.id)), ...a.dramas] : s.importedDramas;
-      const actors = a.actors ? [...s.importedActors.filter((d) => !a.actors!.some((n) => n.id === d.id)), ...a.actors] : s.importedActors;
+      // A thin list record (no episodes/cast) must never overwrite a rich one already held — it only
+      // refreshes the volatile bits (art, rating, status, next air date).
+      const mergeDrama = (prev: Drama | undefined, next: Drama): Drama => {
+        if (!prev) return next;
+        const thin = next.episodes.length === 0 && next.cast.length === 0;
+        const rich = prev.episodes.length > 0 || prev.cast.length > 0;
+        if (!(thin && rich)) return next;
+        return {
+          ...prev,
+          posterUrl: next.posterUrl ?? prev.posterUrl,
+          backdropUrl: next.backdropUrl ?? prev.backdropUrl,
+          rating: next.rating ?? prev.rating,
+          status: next.status,
+          nextEpisodeAt: next.nextEpisodeAt ?? prev.nextEpisodeAt,
+          followerCount: Math.max(prev.followerCount, next.followerCount),
+          provider: prev.provider ?? next.provider,
+        };
+      };
+      let dramas = s.importedDramas;
+      if (a.dramas?.length) {
+        const prevById = new Map(s.importedDramas.map((d) => [d.id, d]));
+        const incoming = new Map(a.dramas.map((d) => [d.id, mergeDrama(prevById.get(d.id), d)]));
+        dramas = [...s.importedDramas.filter((d) => !incoming.has(d.id)), ...incoming.values()];
+        // Keep the persisted cache bounded: evict the oldest thin records nobody tracks or follows.
+        const MAX = 400;
+        if (dramas.length > MAX) {
+          const pinned = new Set([...Object.keys(s.watchlist), ...s.follows.dramas]);
+          const evictable = dramas.filter((d) => !pinned.has(d.id) && d.episodes.length === 0 && d.cast.length === 0 && !d.id.startsWith('seed:'));
+          const drop = new Set(evictable.slice(0, dramas.length - MAX).map((d) => d.id));
+          dramas = dramas.filter((d) => !drop.has(d.id));
+        }
+      }
+      let actors = s.importedActors;
+      if (a.actors?.length) {
+        const incoming = new Map(a.actors.map((x) => [x.id, x]));
+        actors = [...s.importedActors.filter((x) => !incoming.has(x.id)), ...incoming.values()];
+      }
       return { ...s, importedDramas: dramas, importedActors: actors };
     }
     case 'seenActivity':

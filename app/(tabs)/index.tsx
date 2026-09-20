@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, FlatList, NativeScrollEvent, NativeSyntheticEvent, Pressable, StyleSheet, View } from 'react-native';
+import { FeedViewportProvider, useViewabilityTracker } from '../../components/media/FeedViewport';
 import { DramaRail } from '../../components/drama/DramaCard';
 import { PostCard } from '../../components/feed/PostCard';
 import { useTabBarMotion } from '../../components/navigation/TabBarMotion';
@@ -24,10 +25,12 @@ import { Text } from '../../components/ui/Text';
 import { TopBar, Wordmark } from '../../components/ui/TopBar';
 import { colors, radius, space } from '../../constants/theme';
 import { useAuth } from '../../lib/auth';
-import { haptic, useApp, useReduceMotion } from '../../lib/hooks';
+import { haptic, useApp, useLoad, useReduceMotion } from '../../lib/hooks';
 import { Episode, Post } from '../../lib/model';
-import { airingEpisodes, forYou, following, recommendedDramas, recommendedPeople, shorts, trendingDiscussions, upNext } from '../../lib/selectors';
+import { airingEpisodes, forYou, following, getDrama, recommendedDramas, recommendedPeople, shorts, trendingDiscussions, upNext } from '../../lib/selectors';
 import { getState } from '../../lib/store';
+import { catalog } from '../../lib/catalog';
+import { adoptDramas } from '../../lib/catalogSync';
 
 type Row =
   | { key: string; kind: 'post'; post: Post; reason?: string }
@@ -41,13 +44,30 @@ type Row =
  * Home — editorial, not a firehose. For You interleaves modules between posts;
  * Following is chronological from people/dramas/actors you follow.
  */
-export default function Home() {
+export default function HomeScreen() {
+  // Pause inline video while another tab or a modal is on top.
+  const [focused, setFocused] = useState(true);
+  useFocusEffect(
+    useCallback(() => {
+      setFocused(true);
+      return () => setFocused(false);
+    }, []),
+  );
+  return (
+    <FeedViewportProvider paused={!focused}>
+      <Home />
+    </FeedViewportProvider>
+  );
+}
+
+function Home() {
   const router = useRouter();
   const tabBar = useTabBarMotion();
   const auth = useAuth();
   const { state, me, unread } = useApp();
   const [tab, setTab] = useState<'forYou' | 'following'>('forYou');
   const listRef = useRef<FlatList<Row>>(null);
+  const viewport = useViewabilityTracker<Row>((r) => (r.kind === 'post' && r.post.video ? r.post.id : null));
   const { control: refreshControl, onRefresh: pull, refreshing } = useRefresh('home');
   const reduceMotion = useReduceMotion(state.prefs.reduceMotion);
   const padding = useListPadding();
@@ -118,6 +138,39 @@ export default function Home() {
   }, [newCount, pillY]);
   const shortList = useMemo(() => shorts(state), [state]);
   const recs = useMemo(() => recommendedDramas(state, 10), [state]);
+  // Live "because you watched" from the catalog, anchored on the title you touched most recently.
+  const anchor = useMemo(() => {
+    const items = Object.values(state.watchlist).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    for (const w of items) {
+      const d = getDrama(state, w.dramaId);
+      if (d?.provider) return d;
+    }
+    for (const id of state.follows.dramas) {
+      const d = getDrama(state, id);
+      if (d?.provider) return d;
+    }
+    return undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.watchlist, state.follows.dramas, state.importedDramas]);
+  const liveRecs = useLoad(
+    async (signal) => {
+      if (!anchor?.provider) return [];
+      const tracked = new Set(Object.keys(state.watchlist));
+      return adoptDramas(await catalog.recommendations(anchor.provider.id, signal)).filter((d) => !tracked.has(d.id));
+    },
+    [anchor?.id],
+    !!anchor && !guest && catalog.available,
+  );
+  const recRail = useMemo(() => {
+    if (liveRecs.data?.length && anchor)
+      return {
+        dramas: liveRecs.data,
+        reasons: Object.fromEntries(liveRecs.data.map((d) => [d.id, `Because you watched ${anchor.title}`])),
+        title: 'Your next obsession',
+        eyebrow: `Because you watched ${anchor.title}`,
+      };
+    return { dramas: recs.map((r) => r.drama), reasons: Object.fromEntries(recs.map((r) => [r.drama.id, r.reason])), title: 'Your next obsession', eyebrow: 'For you' };
+  }, [liveRecs.data, anchor, recs]);
   const people = useMemo(() => recommendedPeople(state, 6), [state]);
   const discussions = useMemo(() => trendingDiscussions(state, 4), [state]);
 
@@ -182,8 +235,8 @@ export default function Home() {
         case 'dramas':
           return (
             <View style={styles.module}>
-              <SectionHeader eyebrow="For you" title="Your next obsession" onAction={() => router.push('/(tabs)/explore')} actionLabel="Explore" />
-              <DramaRail dramas={recs.map((r) => r.drama)} reasons={Object.fromEntries(recs.map((r) => [r.drama.id, r.reason]))} />
+              <SectionHeader eyebrow={recRail.eyebrow} title={recRail.title} onAction={() => router.push('/(tabs)/explore')} actionLabel="Explore" />
+              <DramaRail dramas={recRail.dramas} reasons={recRail.reasons} />
             </View>
           );
         case 'people':
@@ -211,7 +264,7 @@ export default function Home() {
           );
       }
     },
-    [router, shortList, recs, people, discussions],
+    [router, shortList, recRail, people, discussions],
   );
 
   const header = (
@@ -289,6 +342,8 @@ export default function Home() {
         data={rows}
         keyExtractor={(r) => r.key}
         renderItem={renderItem}
+        onViewableItemsChanged={viewport.onViewableItemsChanged}
+        viewabilityConfig={viewport.viewabilityConfig}
         ListHeaderComponent={header}
         ListEmptyComponent={empty}
         contentContainerStyle={[padding, { paddingTop: space.x4 }]}

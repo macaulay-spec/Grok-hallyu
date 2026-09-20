@@ -11,7 +11,9 @@ import { useToast } from '../../components/ui/Toast';
 import { colors, motion, space } from '../../constants/theme';
 import { SHOW_DEMO } from '../../constants/keys';
 import { useAuth } from '../../lib/auth';
-import { useLayout } from '../../lib/hooks';
+import { useLayout, useLoad } from '../../lib/hooks';
+import { catalog } from '../../lib/catalog';
+import { adoptDramas } from '../../lib/catalogSync';
 import { allDramas, useSlice } from '../../lib/store';
 
 /** Demo-data door: shown in demo builds (EXPO_PUBLIC_SHOW_DEMO=1); otherwise a long-press on the wordmark reveals it. */
@@ -61,13 +63,18 @@ export default function Welcome() {
 
   const importedDramas = useSlice((s) => s.importedDramas);
   const posterW = Math.max(88, Math.floor((width - space.margin * 2 - space.x2 * 3) / 4));
-  // Real catalog art as it arrives (the enrichment runs from the root layout); titles with art lead.
+  // The wall is what's trending this week (live), so the first screen is the real K-drama world;
+  // saved art fills in until it arrives or when offline.
+  const live = useLoad(async (signal) => adoptDramas(await catalog.trending(signal)), [], catalog.available);
   const mosaic = useMemo(() => {
+    const trending = (live.data ?? []).filter((d) => d.posterUrl);
+    if (trending.length >= 8) return trending.slice(0, 8);
     const all = allDramas({ importedDramas });
     const withArt = all.filter((d) => d.posterUrl || d.posterLocal);
     const rest = all.filter((d) => !d.posterUrl && !d.posterLocal);
-    return [...withArt, ...rest].slice(0, 8);
-  }, [importedDramas]);
+    const seen = new Set(trending.map((d) => d.id));
+    return [...trending, ...withArt.filter((d) => !seen.has(d.id)), ...rest].slice(0, 8);
+  }, [importedDramas, live.data]);
 
   return (
     <View style={styles.root}>

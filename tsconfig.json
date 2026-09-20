@@ -1,1 +1,10 @@
-{"extends":"expo/tsconfig.base","compilerOptions":{"strict":true,"paths":{"@/*":["./*"]}}}
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "exclude": ["node_modules", "dist", "android", "ios", "supabase/functions"]
+}

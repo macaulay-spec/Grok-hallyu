@@ -93,7 +93,12 @@ export function useNetwork() {
   const [online, setOnline] = useState(true);
   const simulatedOffline = useSlice((s) => s.prefs.devNetwork === 'offline');
   useEffect(() => {
-    const sub = NetInfo.addEventListener((st) => setOnline(st.isConnected !== false && st.isInternetReachable !== false));
+    const sub = NetInfo.addEventListener((st) => {
+      // On web NetInfo probes reachability with a cross-origin HEAD that browsers often block (CORS),
+      // which reports "unreachable" on a perfectly good connection — trust navigator.onLine there.
+      const reachable = Platform.OS === 'web' ? true : st.isInternetReachable !== false;
+      setOnline(st.isConnected !== false && reachable);
+    });
     return () => sub();
   }, []);
   return online && !simulatedOffline;
@@ -108,7 +113,9 @@ export function useLayout(): { width: number; height: number; wc: WindowClass; m
 export function useReduceMotion(pref?: boolean) {
   const [sys, setSys] = useState(false);
   useEffect(() => {
-    AccessibilityInfo.isReduceMotionEnabled().then(setSys).catch(() => {});
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then(setSys)
+      .catch(() => {});
     const sub = AccessibilityInfo.addEventListener('reduceMotionChanged', setSys);
     return () => sub.remove();
   }, []);
@@ -183,4 +190,29 @@ export function useDebounced<T>(value: T, ms = 250): T {
     return () => clearTimeout(t);
   }, [value, ms]);
   return v;
+}
+
+/** Coarse connection type for data-sensitive choices (autoplay on Wi-Fi only). Web has no signal → 'unknown'. */
+export function useConnectionType(): 'wifi' | 'cellular' | 'unknown' {
+  const [kind, setKind] = useState<'wifi' | 'cellular' | 'unknown'>('unknown');
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    const sub = NetInfo.addEventListener((st) => setKind(st.type === 'wifi' || st.type === 'ethernet' ? 'wifi' : st.type === 'cellular' ? 'cellular' : 'unknown'));
+    return () => sub();
+  }, []);
+  return kind;
+}
+
+/**
+ * Should videos start on their own in feeds? Settings → Content: Always / Wi-Fi only (default) /
+ * Never; reduced motion (system or app) always wins and turns autoplay off.
+ */
+export function useAutoplayAllowed(): boolean {
+  const pref = useSlice((s) => s.prefs.autoplay);
+  const reducePref = useSlice((s) => s.prefs.reduceMotion);
+  const reduce = useReduceMotion(reducePref);
+  const conn = useConnectionType();
+  if (reduce || pref === 'never') return false;
+  if (pref === 'always') return true;
+  return conn !== 'cellular'; // 'wifi' — unknown (web/desktop) counts as unmetered
 }
