@@ -15,7 +15,7 @@ import { Actor, Drama, Episode } from './model';
 // TMDB credentials ship inside every client bundle by design (scope: api_read); rotate at themoviedb.org → Settings → API.
 export const TMDB_TOKEN =
   process.env.EXPO_PUBLIC_TMDB_ACCESS_TOKEN ??
-  'eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJmZjAxZjI4ZmM1YzQ3NzkxZTI4MDM4MzQ5NDQ1YmY1OCIsIm5iZiI6MTc1ODM4MDU2OC4wMzMsInN1YiI6IjY4Y2ZlYzE4ZjM3NmYzNjVhYjE5MzE4NCIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.NfL0Fq5Bv5QlqIoafCRQPl54ahfEGlWPr0Q3uhrgz3M';
+  'eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJmZjAxZjI4ZmM1YzQ3NzkxZTI4MDM4MzQ5NDQ1YmY1OCIsIm5iZiI6MTc4OTAyMDA1Ny43NzksInN1YiI6IjZhYTI0Nzk5OGQ1YWFjZTczMzY2ODJkMyIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.ETon7kqWQjj7jtJJOXyRgAWme9Sh9B7OUrdAI61uuH8';
 export const TMDB_KEY = process.env.EXPO_PUBLIC_TMDB_API_KEY ?? 'ff01f28fc5c47791e28038349445bf58';
 export const TMDB_IMG = 'https://image.tmdb.org/t/p';
 export const ATTRIBUTION = 'This product uses the TMDB API but is not endorsed or certified by TMDB.';
