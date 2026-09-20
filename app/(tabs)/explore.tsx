@@ -73,7 +73,7 @@ export default function Explore() {
           <DramaRail dramas={trending.slice(1)} size="m" />
         </View>
 
-        <TonightRail items={week} title="This week" eyebrow="Airing schedule" onSeeAll={() => router.push('/schedule')} />
+        <TonightRail items={week} title="This week" eyebrow="Airing schedule" hero={false} onSeeAll={() => router.push('/schedule')} />
 
         <View style={styles.section}>
           <SectionHeader eyebrow="Browse" title="By genre" />

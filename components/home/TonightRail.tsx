@@ -120,15 +120,16 @@ function TonightHero({ drama, episode }: { drama: Drama; episode: Episode }) {
 }
 
 /** "Tonight / This week": the lead episode as a hero, the rest as a rail. Live ones lead. */
-export function TonightRail({ items, title = 'Tonight', eyebrow = 'On air', onSeeAll }: { items: { drama: Drama; episode: Episode }[]; title?: string; eyebrow?: string; onSeeAll?: () => void }) {
+export function TonightRail({ items, title = 'Tonight', eyebrow = 'On air', onSeeAll, hero = true }: { items: { drama: Drama; episode: Episode }[]; title?: string; eyebrow?: string; onSeeAll?: () => void; hero?: boolean }) {
   const router = useRouter();
   const { state, watch } = useApp();
   if (!items.length) return null;
-  const [lead, ...rest] = items;
+  const lead = hero ? items[0] : undefined;
+  const rest = hero ? items.slice(1) : items;
   return (
     <View style={{ marginBottom: space.section }}>
       <SectionHeader eyebrow={eyebrow} title={title} live onAction={onSeeAll} actionLabel="Schedule" />
-      <TonightHero drama={lead!.drama} episode={lead!.episode} />
+      {lead ? <TonightHero drama={lead.drama} episode={lead.episode} /> : null}
       {rest.length ? (
         <FlatList
           horizontal
