@@ -1,11 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { colors, radius, sizes, space } from '../../constants/theme';
-import { haptic, useApp, useLayout, useRequireMember } from '../../lib/hooks';
+import { colors, motion, radius, sizes, space } from '../../constants/theme';
+import { haptic, useApp, useLayout, useReduceMotion, useRequireMember } from '../../lib/hooks';
+import { springs } from '../../lib/motion';
 import { Text } from '../ui/Text';
 import { CreateSheet } from '../create/CreateSheet';
 import { useTabBarMotion } from './TabBarMotion';
@@ -56,29 +57,19 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
     const focused = currentKey === t.key;
     if (t.key === 'create') {
       return (
-        <Pressable key={t.key} onPress={() => go(t.key)} onLongPress={() => { haptic.medium(); require('create a post', () => setCreate(true)); }} delayLongPress={280} accessibilityRole="button" accessibilityLabel="Create" accessibilityHint="Opens the composer. Long press to choose a post type." style={[styles.item, rail ? styles.railItem : null]}>
-          <View style={styles.create}>
-            <Ionicons name="add" size={24} color={colors.onAccent} />
-          </View>
-          {rail ? (
-            <Text variant="tabLabel" tone="secondary">
-              Create
-            </Text>
-          ) : null}
-        </Pressable>
+        <CreateTab
+          key={t.key}
+          rail={rail}
+          onPress={() => go(t.key)}
+          onLongPress={() => {
+            haptic.medium();
+            require('create a post', () => setCreate(true));
+          }}
+        />
       );
     }
     return (
-      <Pressable key={t.key} onPress={() => go(t.key)} accessibilityRole="tab" accessibilityState={{ selected: focused }} accessibilityLabel={`${t.label}${t.key === 'activity' && unread ? `, ${unread} unread` : ''}`} style={[styles.item, rail ? styles.railItem : null]}>
-        <View>
-          <Ionicons name={focused ? t.active : t.icon} size={24} color={focused ? colors.textPrimary : colors.textSecondary} />
-          {t.key === 'activity' && unread > 0 ? <View style={styles.unread} /> : null}
-        </View>
-        <Text variant="tabLabel" style={{ color: focused ? colors.textPrimary : colors.textSecondary }}>
-          {t.label}
-        </Text>
-        {focused ? <View style={styles.signal} /> : null}
-      </Pressable>
+      <TabItem key={t.key} label={t.label} icon={focused ? t.active : t.icon} focused={focused} rail={rail} unread={t.key === 'activity' ? unread : 0} onPress={() => go(t.key)} />
     );
   });
 
@@ -93,6 +84,71 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
       )}
       <CreateSheet visible={create} onClose={() => setCreate(false)} />
     </>
+  );
+}
+
+/** A tab: the icon settles in with a small spring when it becomes current; the Signal dot fades in beneath. */
+function TabItem({ label, icon, focused, rail, unread, onPress }: { label: string; icon: keyof typeof Ionicons.glyphMap; focused: boolean; rail: boolean; unread: number; onPress: () => void }) {
+  const reduce = useReduceMotion();
+  const pop = useRef(new Animated.Value(1)).current;
+  const dot = useRef(new Animated.Value(focused ? 1 : 0)).current;
+  useEffect(() => {
+    if (reduce) {
+      dot.setValue(focused ? 1 : 0);
+      return;
+    }
+    Animated.timing(dot, { toValue: focused ? 1 : 0, duration: motion.short, useNativeDriver: true }).start();
+    if (focused) {
+      pop.setValue(0.82);
+      Animated.spring(pop, { toValue: 1, ...springs.snappy }).start();
+    }
+  }, [focused, reduce, pop, dot]);
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="tab"
+      accessibilityState={{ selected: focused }}
+      accessibilityLabel={`${label}${unread ? `, ${unread} unread` : ''}`}
+      style={[styles.item, rail ? styles.railItem : null]}
+    >
+      <Animated.View style={{ transform: [{ scale: pop }] }}>
+        <Ionicons name={icon} size={24} color={focused ? colors.textPrimary : colors.textSecondary} />
+        {unread > 0 ? <View style={styles.unread} /> : null}
+      </Animated.View>
+      <Text variant="tabLabel" style={{ color: focused ? colors.textPrimary : colors.textSecondary }}>
+        {label}
+      </Text>
+      <Animated.View style={[styles.signal, { opacity: dot, transform: [{ scale: dot }] }]} />
+    </Pressable>
+  );
+}
+
+/** The Create button presses like a real key: 0.9 on touch, springs back on release. */
+function CreateTab({ rail, onPress, onLongPress }: { rail: boolean; onPress: () => void; onLongPress: () => void }) {
+  const reduce = useReduceMotion();
+  const press = useRef(new Animated.Value(1)).current;
+  const to = (v: number) => (reduce ? press.setValue(1) : Animated.spring(press, { toValue: v, ...springs.snappy }).start());
+  return (
+    <Pressable
+      onPress={onPress}
+      onLongPress={onLongPress}
+      onPressIn={() => to(0.9)}
+      onPressOut={() => to(1)}
+      delayLongPress={280}
+      accessibilityRole="button"
+      accessibilityLabel="Create"
+      accessibilityHint="Opens the composer. Long press to choose a post type."
+      style={[styles.item, rail ? styles.railItem : null]}
+    >
+      <Animated.View style={[styles.create, { transform: [{ scale: press }] }]}>
+        <Ionicons name="add" size={24} color={colors.onAccent} />
+      </Animated.View>
+      {rail ? (
+        <Text variant="tabLabel" tone="secondary">
+          Create
+        </Text>
+      ) : null}
+    </Pressable>
   );
 }
 

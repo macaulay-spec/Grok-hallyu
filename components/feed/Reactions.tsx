@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Pressable, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
+import { AccessibilityInfo, Animated, Pressable, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 import { colors, motion, radius, space } from '../../constants/theme';
 import { compact } from '../../lib/format';
 import { haptic, useApp, useReduceMotion, useRequireMember } from '../../lib/hooks';
@@ -32,19 +32,32 @@ export function ReactionButton({ targetId, counts, isComment, compactMode, style
   const require = useRequireMember();
   const mine = myReaction(targetId);
   const [picker, setPicker] = useState(false);
+  const reduce = useReduceMotion();
   const scale = useRef(new Animated.Value(1)).current;
+  const bloom = useRef(new Animated.Value(0)).current;
+  const [bloomColor, setBloomColor] = useState<string>(colors.accent);
   const total = reactionTotal({ reactions: counts });
 
-  const pop = () => {
-    scale.setValue(0.8);
-    Animated.spring(scale, { toValue: 1, useNativeDriver: true, damping: 10, stiffness: 300 }).start();
+  /** Scale pop + a soft colour bloom behind the glyph in the reaction's colour. Reduced motion → just the colour change. */
+  const pop = (kind: ReactionKind | null) => {
+    if (reduce || !kind) return;
+    setBloomColor(REACTION_COLOR[kind]);
+    scale.setValue(0.7);
+    bloom.setValue(0);
+    Animated.parallel([
+      Animated.spring(scale, { toValue: 1, ...springs.bouncy }),
+      Animated.timing(bloom, { toValue: 1, duration: motion.long, useNativeDriver: true }),
+    ]).start(() => bloom.setValue(0));
   };
 
   const set = (kind: ReactionKind | null) => {
     require('react to posts', () => {
-      haptic.light();
+      if (kind) haptic.light();
+      else haptic.select();
       dispatch({ type: 'react', targetId, kind, isComment });
-      pop();
+      pop(kind);
+      const label = kind ? REACTIONS.find((r) => r.kind === kind)?.label : null;
+      AccessibilityInfo.announceForAccessibility?.(label ? `Reacted ${label}` : 'Reaction removed');
     });
   };
 
@@ -56,9 +69,22 @@ export function ReactionButton({ targetId, counts, isComment, compactMode, style
   return (
     <>
       <Pressable onPress={onPress} onLongPress={() => { haptic.medium(); setPicker(true); }} delayLongPress={280} hitSlop={6} accessibilityRole="button" accessibilityLabel={mine ? `You reacted ${mine}. ${total} reactions. Double tap to remove, long press to change.` : `React. ${total} reactions. Long press for more reactions.`} style={[styles.btn, style]}>
-        <Animated.View style={{ transform: [{ scale }] }}>
-          <ReactionGlyph kind={mine ?? 'loved'} size={compactMode ? 16 : 20} active={!!mine} />
-        </Animated.View>
+        <View style={styles.glyphHost}>
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              styles.bloom,
+              {
+                backgroundColor: bloomColor,
+                opacity: bloom.interpolate({ inputRange: [0, 0.25, 1], outputRange: [0, 0.35, 0] }),
+                transform: [{ scale: bloom.interpolate({ inputRange: [0, 1], outputRange: [0.4, 2.2] }) }],
+              },
+            ]}
+          />
+          <Animated.View style={{ transform: [{ scale }] }}>
+            <ReactionGlyph kind={mine ?? 'loved'} size={compactMode ? 16 : 20} active={!!mine} />
+          </Animated.View>
+        </View>
         {total > 0 ? (
           <Text variant={compactMode ? 'caption' : 'label'} style={{ color: mine ? REACTION_COLOR[mine] : colors.textSecondary }} numeric>
             {compact(total)}
@@ -174,7 +200,9 @@ export function ReactionMeter({ counts, style }: { counts: ReactionCounts; style
 }
 
 const styles = StyleSheet.create({
-  btn: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 36, paddingHorizontal: 4 },
+  btn: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 44, minWidth: 44, paddingHorizontal: 4 },
+  glyphHost: { alignItems: 'center', justifyContent: 'center', width: 24, height: 24 },
+  bloom: { position: 'absolute', width: 24, height: 24, borderRadius: 12 },
   pickerRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.x2, paddingBottom: space.x3 },
   pick: { width: '31%', flexGrow: 1, alignItems: 'center', gap: 6, paddingVertical: space.x3, borderRadius: radius.md, backgroundColor: colors.surface1, borderWidth: 1, borderColor: 'transparent' },
   summary: { flexDirection: 'row', alignItems: 'center', gap: 6 },

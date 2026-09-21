@@ -33,7 +33,7 @@ export function Chip({ label, selected, onPress, icon, size = 'md', tone = 'defa
   );
   if (!onPress) return body;
   return (
-    <Tap onPress={onPress} accessibilityRole="button" accessibilityState={{ selected: !!selected }} accessibilityLabel={accessibilityLabel ?? label} hitSlop={4}>
+    <Tap onPress={onPress} accessibilityRole="button" accessibilityState={{ selected: !!selected }} accessibilityLabel={accessibilityLabel ?? label} hitSlop={{ top: size === 'sm' ? 10 : 6, bottom: size === 'sm' ? 10 : 6, left: 2, right: 2 }}>
       {body}
     </Tap>
   );

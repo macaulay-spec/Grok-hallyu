@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useRef, useState } from 'react';
-import { Animated, Pressable, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
+import { AccessibilityInfo, Animated, Easing, Pressable, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 import { colors, motion, radius, space } from '../../constants/theme';
 import { haptic, useApp, useReduceMotion, useRequireMember } from '../../lib/hooks';
 import { Drama, SpoilerLevel } from '../../lib/model';
@@ -43,6 +43,7 @@ export function SpoilerBlock({ id, level, drama, season, episode, veiled, childr
     haptic.light();
     dispatch({ type: 'reveal', id });
     track('spoiler.reveal', { level });
+    AccessibilityInfo.announceForAccessibility?.('Spoiler revealed');
     if (markWatched && drama && episode) {
       require('mark episodes watched', () => {
         const total = drama.seasons.find((s) => s.number === (season ?? 1))?.episodeCount ?? drama.episodeCount;
@@ -60,8 +61,8 @@ export function SpoilerBlock({ id, level, drama, season, episode, veiled, childr
     fade.setValue(0);
     veilA.setValue(1);
     Animated.parallel([
-      Animated.timing(fade, { toValue: 1, duration: motion.long, useNativeDriver: true }),
-      Animated.timing(veilA, { toValue: 0, duration: motion.medium, delay: 60, useNativeDriver: true }),
+      Animated.timing(fade, { toValue: 1, duration: motion.long, easing: Easing.bezier(0.05, 0.7, 0.1, 1), useNativeDriver: true }),
+      Animated.timing(veilA, { toValue: 0, duration: motion.medium, delay: 40, easing: Easing.bezier(0.3, 0, 0.8, 0.15), useNativeDriver: true }),
     ]).start(() => {
       setShowing(true);
       setDissolving(false);
@@ -94,7 +95,12 @@ export function SpoilerBlock({ id, level, drama, season, episode, veiled, childr
   if (showing || dissolving) {
     return (
       <View style={style}>
-        <Animated.View style={{ opacity: fade, transform: [{ translateY: fade.interpolate({ inputRange: [0, 1], outputRange: [6, 0] }) }] }}>
+        <Animated.View
+          style={{
+            opacity: fade,
+            transform: [{ translateY: fade.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }, { scale: fade.interpolate({ inputRange: [0, 1], outputRange: [0.985, 1] }) }],
+          }}
+        >
           {children}
           {veiled ? (
             <Text variant="caption" tone="tertiary" style={{ marginTop: space.x1 }}>
@@ -103,7 +109,13 @@ export function SpoilerBlock({ id, level, drama, season, episode, veiled, childr
           ) : null}
         </Animated.View>
         {dissolving ? (
-          <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { opacity: veilA, transform: [{ scale: veilA.interpolate({ inputRange: [0, 1], outputRange: [0.985, 1] }) }] }]}>
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              StyleSheet.absoluteFill,
+              { opacity: veilA, transform: [{ translateY: veilA.interpolate({ inputRange: [0, 1], outputRange: [-10, 0] }) }, { scale: veilA.interpolate({ inputRange: [0, 1], outputRange: [1.015, 1] }) }] },
+            ]}
+          >
             {veilBox}
           </Animated.View>
         ) : null}
@@ -133,6 +145,6 @@ const styles = StyleSheet.create({
   veilCompact: { padding: space.x2, gap: space.x2 },
   veilHeader: { flexDirection: 'row', alignItems: 'center', gap: space.x2 },
   veilActions: { flexDirection: 'row', gap: space.x2, flexWrap: 'wrap' },
-  veilBtn: { height: 34, paddingHorizontal: 14, borderRadius: 17, backgroundColor: colors.surface3, alignItems: 'center', justifyContent: 'center' },
+  veilBtn: { height: 40, paddingHorizontal: 14, borderRadius: 20, backgroundColor: colors.surface3, alignItems: 'center', justifyContent: 'center' },
   tag: { flexDirection: 'row', alignItems: 'center', gap: 4, height: 22, paddingHorizontal: 8, borderRadius: 11, backgroundColor: colors.surface2 },
 });

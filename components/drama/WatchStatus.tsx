@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useEffect, useState } from 'react';
-import { Pressable, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { AccessibilityInfo, Animated, Pressable, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 import { colors, radius, space } from '../../constants/theme';
-import { haptic, useApp, useRequireMember } from '../../lib/hooks';
+import { haptic, useApp, useReduceMotion, useRequireMember } from '../../lib/hooks';
+import { springs } from '../../lib/motion';
 import { Drama, LIMITS, WatchStatus } from '../../lib/model';
 import { Button, ButtonSize } from '../ui/Button';
 import { Sheet, SheetRow } from '../ui/Sheet';
@@ -56,10 +57,13 @@ export function WatchStatusSheet({ drama, visible, onClose }: { drama: Drama; vi
   const total = drama.seasons.find((s) => s.number === season)?.episodeCount ?? drama.episodeCount;
   const current = item?.season === season ? item.currentEpisode : 0;
 
+  const reduce = useReduceMotion();
+  const epPop = useRef(new Animated.Value(1)).current;
   const setStatus = (status: WatchStatus | null) => {
     haptic.select();
     dispatch({ type: 'watch', dramaId: drama.id, status, season });
     track('watch.set', { status });
+    AccessibilityInfo.announceForAccessibility?.(status ? `${drama.title}: ${STATUS_LABEL[status]}` : `${drama.title} removed from your watchlist`);
     if (status === null) toast.show({ message: `Removed ${drama.title} from your watchlist`, actionLabel: 'Undo', onAction: () => item && dispatch({ type: 'watch', dramaId: drama.id, status: item.status, season: item.season }) });
     else if (status !== 'watching') {
       toast.show({ message: `${drama.title} · ${STATUS_LABEL[status]}`, icon: 'checkmark-circle' });
@@ -69,6 +73,11 @@ export function WatchStatusSheet({ drama, visible, onClose }: { drama: Drama; vi
   const setProgress = (ep: number) => {
     haptic.light();
     dispatch({ type: 'progress', dramaId: drama.id, season, episode: ep, total });
+    AccessibilityInfo.announceForAccessibility?.(`Episode ${ep} of ${total}`);
+    if (!reduce) {
+      epPop.setValue(0.86);
+      Animated.spring(epPop, { toValue: 1, ...springs.snappy }).start();
+    }
     if (ep >= total && total > 0) {
       toast.show({ message: `${drama.title} completed. Spoilers are now unveiled for you.`, icon: 'checkmark-circle', tone: 'success' });
       onClose();
@@ -102,9 +111,11 @@ export function WatchStatusSheet({ drama, visible, onClose }: { drama: Drama; vi
               <Ionicons name="remove" size={22} color={colors.textPrimary} />
             </Pressable>
             <View style={{ alignItems: 'center', flex: 1 }}>
-              <Text variant="headline" numeric>
-                Ep {current}
-              </Text>
+              <Animated.Text style={[{ transform: [{ scale: epPop }] }]} accessible={false}>
+                <Text variant="headline" numeric>
+                  Ep {current}
+                </Text>
+              </Animated.Text>
               <Text variant="caption" tone="secondary" numeric>
                 of {total}
               </Text>

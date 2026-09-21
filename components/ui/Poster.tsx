@@ -29,7 +29,7 @@ export function Poster({ drama, width, style, rounded = radius.sm, children }: P
     <View
       style={[{ width, height, borderRadius: rounded, backgroundColor: drama.tone, overflow: 'hidden' }, width >= 56 ? styles.edge : null, style]}
       accessibilityRole="image"
-      accessibilityLabel={`${drama.title} poster`}
+      accessibilityLabel={`${drama.title}${drama.year ? `, ${drama.year}` : ''} poster`}
     >
       {source && !failed ? (
         <Image source={source} style={{ width, height }} contentFit="cover" transition={200} cachePolicy="memory-disk" onError={() => setFailed(true)} recyclingKey={drama.title} />

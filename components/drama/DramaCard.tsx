@@ -47,7 +47,9 @@ function DramaCardBase({ drama, size = 'm', reason, meta, showProgress = true, s
           setMenu(true);
         }}
         accessibilityRole="button"
-        accessibilityLabel={`${drama.title}, ${line}${item ? `, ${STATUS_LABEL[item.status]}` : ''}`}
+        accessibilityLabel={`${drama.title}, ${line}${drama.status === 'airing' ? ', airing now' : ''}${item ? `, ${STATUS_LABEL[item.status]}${item.status === 'watching' ? ` episode ${item.currentEpisode}` : ''}` : ''}${selected ? ', selected' : ''}`}
+        accessibilityHint="Opens the drama hub. Long press for quick actions."
+        accessibilityState={{ selected: !!selected }}
         style={[{ width }, style]}
       >
         <Poster drama={drama} width={width} rounded={radius.sm} style={selected ? styles.selected : null}>
@@ -129,7 +131,14 @@ export function DramaRail({ dramas, size = 'm', reasons, style, onPressItem, bad
 export function DramaListRow({ drama, right, subtitle, onPress, onLongPress, style, title, badge, accessibilityHint }: { drama: Drama; right?: React.ReactNode; subtitle?: string; onPress?: () => void; onLongPress?: () => void; style?: StyleProp<ViewStyle>; title?: string; badge?: string; accessibilityHint?: string }) {
   const router = useRouter();
   return (
-    <Tap onPress={onPress ?? (() => router.push(`/drama/${drama.id}`))} onLongPress={onLongPress} accessibilityRole="button" accessibilityLabel={title ?? drama.title} accessibilityHint={accessibilityHint} style={[styles.row, style]}>
+    <Tap
+      onPress={onPress ?? (() => router.push(`/drama/${drama.id}`))}
+      onLongPress={onLongPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${title ?? drama.title}${drama.year ? `, ${drama.year}` : ''}${subtitle ? `, ${subtitle}` : ''}${badge ? `, ${badge}` : ''}`}
+      accessibilityHint={accessibilityHint}
+      style={[styles.row, style]}
+    >
       <Poster drama={drama} width={56} rounded={radius.xs} />
       <View style={{ flex: 1 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>

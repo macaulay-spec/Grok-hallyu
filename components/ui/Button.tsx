@@ -20,13 +20,15 @@ interface ButtonProps {
   block?: boolean;
   style?: StyleProp<ViewStyle>;
   accessibilityLabel?: string;
+  /** Extra state merged into the button's accessibility state (e.g. `selected` for toggles like Follow). */
+  accessibilityState?: { selected?: boolean; checked?: boolean; expanded?: boolean };
   testID?: string;
 }
 
 const heights: Record<ButtonSize, number> = { sm: 36, md: 44, lg: 52 };
 const paddings: Record<ButtonSize, number> = { sm: 12, md: 16, lg: 20 };
 
-export function Button({ label, onPress, variant = 'primary', size = 'md', icon, iconRight, loading, disabled, block, style, accessibilityLabel, testID }: ButtonProps) {
+export function Button({ label, onPress, variant = 'primary', size = 'md', icon, iconRight, loading, disabled, block, style, accessibilityLabel, accessibilityState, testID }: ButtonProps) {
   const bg = variant === 'primary' ? colors.accent : variant === 'danger' ? colors.dangerFill : variant === 'accentSoft' ? colors.accentSoft : variant === 'secondary' ? colors.surface2 : 'transparent';
   const fg = variant === 'primary' || variant === 'danger' ? colors.onAccent : variant === 'accentSoft' ? colors.accentText : colors.textPrimary;
   const border = variant === 'secondary' ? colors.borderStrong : 'transparent';
@@ -37,9 +39,9 @@ export function Button({ label, onPress, variant = 'primary', size = 'md', icon,
       disabled={disabled || loading}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
-      accessibilityState={{ disabled: !!disabled, busy: !!loading }}
+      accessibilityState={{ disabled: !!disabled, busy: !!loading, ...accessibilityState }}
       testID={testID}
-      hitSlop={size === 'sm' ? 6 : 0}
+      hitSlop={size === 'sm' ? { top: 6, bottom: 6, left: 4, right: 4 } : 0}
       style={[styles.base, { height: h, minHeight: h, paddingHorizontal: paddings[size], backgroundColor: bg, borderColor: border, borderWidth: variant === 'secondary' ? 1 : 0, alignSelf: block ? 'stretch' : 'flex-start' }, block ? { width: '100%' } : null, style]}
     >
       <View style={styles.row}>
