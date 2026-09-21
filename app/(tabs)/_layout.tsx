@@ -3,7 +3,7 @@ import React from 'react';
 import { View } from 'react-native';
 import { TabBar } from '../../components/navigation/TabBar';
 import { TabBarMotionProvider } from '../../components/navigation/TabBarMotion';
-import { colors } from '../../constants/theme';
+import { colors, sizes } from '../../constants/theme';
 import { useLayout } from '../../lib/hooks';
 
 export default function TabsLayout() {
@@ -11,7 +11,7 @@ export default function TabsLayout() {
   const rail = wc !== 'compact';
   return (
     <TabBarMotionProvider>
-    <View style={{ flex: 1, backgroundColor: colors.canvas, paddingLeft: rail ? 80 : 0 }}>
+    <View style={{ flex: 1, backgroundColor: colors.canvas, paddingLeft: rail ? sizes.rail : 0 }}>
       <Tabs
         tabBar={(props) => <TabBar {...props} />}
         screenOptions={{ headerShown: false, lazy: true }}

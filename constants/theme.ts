@@ -131,6 +131,8 @@ export const sizes = {
   touch: 48,
   topBar: 56,
   tabBar: 64,
+  /** left navigation rail on medium/expanded widths */
+  rail: 80,
   createButton: 40,
   avatar: { xs: 24, sm: 32, md: 40, lg: 56, xl: 88 },
   poster: { s: 72, m: 104, l: 140, xl: 180 },

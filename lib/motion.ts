@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Animated, NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
+import { Animated, Easing, NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
 import { useReduceMotion } from './hooks';
 
 /**
@@ -84,4 +84,23 @@ export function useArrive(delay = 0, enabled = true) {
     opacity: a,
     transform: [{ translateY: a.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) }, { scale: a.interpolate({ inputRange: [0, 1], outputRange: [0.96, 1] }) }],
   };
+}
+
+/**
+ * The hero backdrop lands: a slow settle from 1.05 → 1 on the emphasized-decelerate curve, so the
+ * image feels placed rather than pasted. Reduced motion → 1 immediately. Compose after the
+ * scroll-driven stretch in the transform list.
+ */
+export function useHeroSettle() {
+  const reduce = useReduceMotion();
+  const a = useRef(new Animated.Value(reduce ? 1 : 1.05)).current;
+  useEffect(() => {
+    if (reduce) {
+      a.setValue(1);
+      return;
+    }
+    a.setValue(1.05);
+    Animated.timing(a, { toValue: 1, duration: 900, easing: Easing.bezier(0.05, 0.7, 0.1, 1), useNativeDriver: true }).start();
+  }, [a, reduce]);
+  return a;
 }

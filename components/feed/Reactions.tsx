@@ -52,8 +52,10 @@ export function ReactionButton({ targetId, counts, isComment, compactMode, style
 
   const set = (kind: ReactionKind | null) => {
     require('react to posts', () => {
-      if (kind) haptic.light();
-      else haptic.select();
+      // Each reaction has its own weight in the hand: the loud ones thump, the soft ones tap.
+      if (!kind) haptic.select();
+      else if (kind === 'screamed' || kind === 'furious') haptic.medium();
+      else haptic.light();
       dispatch({ type: 'react', targetId, kind, isComment });
       pop(kind);
       const label = kind ? REACTIONS.find((r) => r.kind === kind)?.label : null;

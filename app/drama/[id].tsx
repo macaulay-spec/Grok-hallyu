@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Animated, FlatList, Pressable, Share, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AddToCollectionSheet } from '../../components/collections/AddToCollectionSheet';
 import { CollectionCard } from '../../components/collections/CollectionCard';
 import { ActorCard, ActorRail } from '../../components/drama/ActorCard';
@@ -34,7 +35,7 @@ import { colors, radius, sizes, space } from '../../constants/theme';
 import { catalog } from '../../lib/catalog';
 import { compact, countdown, dayLabel, timeOfDay } from '../../lib/format';
 import { haptic, useApp, useLayout, useLoad, useRequireMember } from '../../lib/hooks';
-import { heroInterpolations, useArrive, useScrollY, withAlpha } from '../../lib/motion';
+import { heroInterpolations, useArrive, useHeroSettle, useScrollY, withAlpha } from '../../lib/motion';
 import { CastCredit, emptyReactions, Episode, Post, PostType } from '../../lib/model';
 import { collectionsContaining, isPostVeiled as postVeiled, postsForDrama, relatedDramas } from '../../lib/selectors';
 
@@ -53,12 +54,18 @@ export default function DramaHub() {
   const params = useLocalSearchParams<{ id: string; tab?: string }>();
   const { state, dispatch, getDrama, getActor, watch, isFollowing } = useApp();
   const require = useRequireMember();
-  const { width } = useLayout();
+  const { width, wc } = useLayout();
+  const insets = useSafeAreaInsets();
   const padding = useListPadding(false);
   const column = useColumn(sizes.readingColumn + 200);
   const refresh = useRefresh('drama');
   const drama = getDrama(params.id);
-  const [tab, setTab] = useState<Tab>(() => (params.tab && params.tab in LEGACY_TAB ? LEGACY_TAB[params.tab]! : ((params.tab as Tab | undefined) ?? 'overview')));
+  // Expanded widths (tablet landscape, desktop web): Overview stays put on the left while
+  // Episodes / Community / Cast scroll on the right — the hub becomes a two-pane reading room.
+  const twoPane = wc === 'expanded';
+  const leftW = twoPane ? Math.min(560, Math.round(width * 0.46)) : width;
+  const [tabState, setTab] = useState<Tab>(() => (params.tab && params.tab in LEGACY_TAB ? LEGACY_TAB[params.tab]! : ((params.tab as Tab | undefined) ?? 'overview')));
+  const tab: Tab = twoPane && tabState === 'overview' ? 'community' : tabState;
   const [filter, setFilter] = useState<Filter>('all');
   const [sort, setSort] = useState<'top' | 'latest'>(params.tab === 'activity' ? 'latest' : 'top');
   const [safe, setSafe] = useState(false);
@@ -70,6 +77,9 @@ export default function DramaHub() {
   const { scrollY, onScroll } = useScrollY();
   const arrivePoster = useArrive(0);
   const arriveTitle = useArrive(60);
+  const arriveChips = useArrive(110);
+  const arriveActions = useArrive(150);
+  const heroSettle = useHeroSettle();
 
   // Thin (search-imported) records get enriched from the catalog provider.
   const thin = !!drama?.provider && drama.episodes.length === 0 && drama.cast.length === 0;
@@ -147,7 +157,7 @@ export default function DramaHub() {
         kind: 'still' as const,
       })),
   ];
-  const heroH = Math.min(420, Math.round((width * 9) / 16));
+  const heroH = Math.min(sizes.heroMax, Math.round((leftW * 9) / 16));
   const total = drama.seasons.find((s) => s.number === (item?.season ?? 1))?.episodeCount ?? drama.episodeCount;
   const share = () =>
     Share.share({
@@ -176,7 +186,7 @@ export default function DramaHub() {
           height: heroH,
           overflow: 'hidden',
           opacity: hero.heroFade,
-          transform: [{ translateY: hero.parallax }, { scale: hero.stretch }],
+          transform: [{ translateY: hero.parallax }, { scale: hero.stretch }, { scale: heroSettle }],
         }}
       >
         <Backdrop uri={drama.backdropUrl ?? drama.posterUrl ?? drama.posterLocal} fallbackColor={drama.tone} width="100%" height={heroH} label={`${drama.title} backdrop`}>
@@ -209,12 +219,14 @@ export default function DramaHub() {
           </Text>
         </Animated.View>
       </View>
-      <ChipRow style={{ paddingHorizontal: space.margin, marginTop: space.x3 }}>
-        {drama.genres.slice(0, 4).map((g) => (
-          <Chip key={g} label={g} size="sm" onPress={() => router.push(`/genre/${encodeURIComponent(g)}`)} />
-        ))}
-      </ChipRow>
-      <View style={styles.actions}>
+      <Animated.View style={arriveChips}>
+        <ChipRow style={{ paddingHorizontal: space.margin, marginTop: space.x3 }}>
+          {drama.genres.slice(0, 4).map((g) => (
+            <Chip key={g} label={g} size="sm" onPress={() => router.push(`/genre/${encodeURIComponent(g)}`)} />
+          ))}
+        </ChipRow>
+      </Animated.View>
+      <Animated.View style={[styles.actions, arriveActions]}>
         <FollowButton kind="dramas" id={drama.id} name={drama.title} style={{ flex: 1 }} />
         <WatchStatusButton drama={drama} style={{ flex: 1.4 }} />
         <IconButton icon="albums-outline" label="Add to collection" filled onPress={() => require('save to a collection', () => setCollect(true))} />
@@ -231,7 +243,7 @@ export default function DramaHub() {
             }}
           />
         ) : null}
-      </View>
+      </Animated.View>
 
       {liveEp || (next && drama.status !== 'completed') ? (
         <Pressable
@@ -256,7 +268,7 @@ export default function DramaHub() {
       <Segmented
         scrollable
         items={[
-          { key: 'overview', label: 'Overview' },
+          ...(twoPane ? [] : [{ key: 'overview' as Tab, label: 'Overview' }]),
           {
             key: 'episodes',
             label: 'Episodes',
@@ -643,25 +655,52 @@ export default function DramaHub() {
         />
       }
     >
-      <FeedAutoplay<Row> getVideoId={(r) => (r.k === 'post' && r.p.video ? r.p.id : null)}>
-        {(vp) => (
-          <Animated.FlatList
-            data={rows}
-            keyExtractor={(r) => r.key}
-            renderItem={renderRow}
-            onScroll={onScroll}
-            scrollEventThrottle={16}
-            onViewableItemsChanged={vp.onViewableItemsChanged}
-            viewabilityConfig={vp.viewabilityConfig}
-            refreshControl={refresh.control}
-            ListHeaderComponent={header}
-            stickyHeaderIndices={[1]}
-            contentContainerStyle={[padding, column]}
-            initialNumToRender={8}
-            windowSize={7}
-          />
-        )}
-      </FeedAutoplay>
+      {twoPane ? (
+        <View style={styles.panes}>
+          <Animated.ScrollView style={{ width: leftW }} onScroll={onScroll} scrollEventThrottle={16} contentContainerStyle={padding} showsVerticalScrollIndicator={false}>
+            {header}
+            {overview}
+          </Animated.ScrollView>
+          <View style={styles.paneRule} />
+          <FeedAutoplay<Row> getVideoId={(r) => (r.k === 'post' && r.p.video ? r.p.id : null)}>
+            {(vp) => (
+              <FlatList
+                data={rows}
+                keyExtractor={(r) => r.key}
+                renderItem={renderRow}
+                onViewableItemsChanged={vp.onViewableItemsChanged}
+                viewabilityConfig={vp.viewabilityConfig}
+                refreshControl={refresh.control}
+                stickyHeaderIndices={[0]}
+                contentContainerStyle={[padding, { paddingTop: insets.top + sizes.topBar }]}
+                style={{ flex: 1 }}
+                initialNumToRender={8}
+                windowSize={7}
+              />
+            )}
+          </FeedAutoplay>
+        </View>
+      ) : (
+        <FeedAutoplay<Row> getVideoId={(r) => (r.k === 'post' && r.p.video ? r.p.id : null)}>
+          {(vp) => (
+            <Animated.FlatList
+              data={rows}
+              keyExtractor={(r) => r.key}
+              renderItem={renderRow}
+              onScroll={onScroll}
+              scrollEventThrottle={16}
+              onViewableItemsChanged={vp.onViewableItemsChanged}
+              viewabilityConfig={vp.viewabilityConfig}
+              refreshControl={refresh.control}
+              ListHeaderComponent={header}
+              stickyHeaderIndices={[1]}
+              contentContainerStyle={[padding, column]}
+              initialNumToRender={8}
+              windowSize={7}
+            />
+          )}
+        </FeedAutoplay>
+      )}
 
       <Sheet visible={menu} onClose={() => setMenu(false)} title={drama.title}>
         <SheetRow
@@ -719,7 +758,7 @@ export default function DramaHub() {
       <AddToCollectionSheet dramaId={drama.id} visible={collect} onClose={() => setCollect(false)} />
       <CoachMarks
         id="hub"
-        when={tab === 'overview' && !menu && !collect && !create}
+        when={(twoPane || tab === 'overview') && !menu && !collect && !create}
         delay={1200}
         steps={[
           { icon: 'shield-checkmark-outline', title: 'Track it, and we protect you', body: 'Set Watching and tell us your episode. Anything past that point is veiled until you catch up.' },
@@ -740,6 +779,8 @@ export default function DramaHub() {
 }
 
 const styles = StyleSheet.create({
+  panes: { flex: 1, flexDirection: 'row' },
+  paneRule: { width: StyleSheet.hairlineWidth, backgroundColor: colors.borderSubtle },
   tabsBar: {
     backgroundColor: colors.canvas,
     paddingTop: space.x4,

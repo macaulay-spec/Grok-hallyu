@@ -76,7 +76,13 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
   return (
     <>
       {rail ? (
-        <View style={[styles.rail, { paddingTop: insets.top + space.x4, paddingBottom: insets.bottom + space.x4 }]}>{items}</View>
+        <View style={[styles.rail, { paddingTop: insets.top + space.x4, paddingBottom: insets.bottom + space.x4 }]} accessibilityRole="tablist">
+          <Pressable onPress={() => go('index')} accessibilityRole="button" accessibilityLabel="Hallyu, go Home" style={styles.railMark}>
+            <Text style={styles.railMarkText}>H</Text>
+            <View style={styles.railMarkDot} />
+          </Pressable>
+          <View style={styles.railItems}>{items}</View>
+        </View>
       ) : (
         <Animated.View style={[styles.bar, { paddingBottom: insets.bottom, height: barH, transform: [{ translateY }] }]} accessibilityRole="tablist">
           {items}
@@ -111,14 +117,15 @@ function TabItem({ label, icon, focused, rail, unread, onPress }: { label: strin
       accessibilityLabel={`${label}${unread ? `, ${unread} unread` : ''}`}
       style={[styles.item, rail ? styles.railItem : null]}
     >
+      {rail ? <Animated.View style={[styles.railIndicator, { opacity: dot, transform: [{ scaleX: dot }] }]} /> : null}
       <Animated.View style={{ transform: [{ scale: pop }] }}>
         <Ionicons name={icon} size={24} color={focused ? colors.textPrimary : colors.textSecondary} />
         {unread > 0 ? <View style={styles.unread} /> : null}
       </Animated.View>
-      <Text variant="tabLabel" style={{ color: focused ? colors.textPrimary : colors.textSecondary }}>
+      <Text variant="tabLabel" style={{ color: focused ? colors.textPrimary : colors.textSecondary }} maxFontSizeMultiplier={1.4} numberOfLines={1}>
         {label}
       </Text>
-      <Animated.View style={[styles.signal, { opacity: dot, transform: [{ scale: dot }] }]} />
+      {rail ? null : <Animated.View style={[styles.signal, { opacity: dot, transform: [{ scale: dot }] }]} />}
     </Pressable>
   );
 }
@@ -154,9 +161,14 @@ function CreateTab({ rail, onPress, onLongPress }: { rail: boolean; onPress: () 
 
 const styles = StyleSheet.create({
   bar: { position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', backgroundColor: colors.canvas },
-  rail: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 80, backgroundColor: colors.canvas, borderRightWidth: 1, borderRightColor: colors.borderSubtle, alignItems: 'center', gap: space.x4 },
+  rail: { position: 'absolute', left: 0, top: 0, bottom: 0, width: sizes.rail, backgroundColor: colors.canvas, borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: colors.borderSubtle, alignItems: 'center' },
+  railMark: { width: 44, height: 44, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', marginBottom: space.x6 },
+  railMarkText: { fontFamily: 'Pretendard-ExtraBold', fontSize: 24, lineHeight: 28, color: colors.textPrimary, letterSpacing: -0.5 },
+  railMarkDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.accent, marginLeft: 1, marginTop: 10 },
+  railItems: { alignItems: 'center', gap: space.x3 },
+  railIndicator: { position: 'absolute', top: 2, width: 56, height: 32, borderRadius: radius.full, backgroundColor: colors.surface2 },
   item: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 3, paddingTop: 8 },
-  railItem: { flex: 0, width: 64, height: 64, borderRadius: radius.md, paddingTop: 0 },
+  railItem: { flex: 0, width: 64, height: 60, borderRadius: radius.md, paddingTop: 0, justifyContent: 'flex-start', paddingVertical: 6 },
   create: { width: sizes.createButton, height: sizes.createButton, borderRadius: radius.full, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
   signal: { position: 'absolute', top: 2, width: 4, height: 4, borderRadius: 2, backgroundColor: colors.accent },
   unread: { position: 'absolute', top: -1, right: -2, width: 9, height: 9, borderRadius: 5, backgroundColor: colors.accent, borderWidth: 2, borderColor: colors.canvas },
