@@ -258,7 +258,7 @@ export default function Composer() {
         <Text variant="label">Add context</Text>
       </Pressable>
       <Text variant="caption" tone="tertiary" style={{ alignSelf: 'center' }}>
-        Drama · episode · actors · spoiler level
+        Drama · episode · actors · spoiler level{type === 'post' ? ' · or switch to a review, discussion…' : ''}
       </Text>
     </View>
   ) : (
@@ -356,7 +356,7 @@ export default function Composer() {
             </View>
           ) : null}
 
-          {!editing ? (
+          {!editing && (type !== 'post' || dirty || contextVisible) ? (
             <ChipRow style={styles.typeRow}>
               {CREATE_TYPES.map((t) => (
                 <Chip

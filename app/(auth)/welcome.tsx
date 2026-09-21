@@ -86,7 +86,7 @@ export default function Welcome() {
 
   return (
     <View style={styles.root}>
-      <LivingWall dramas={mosaic} tiles={tiles} tileWidth={posterW} height="56%" />
+      <LivingWall key={tiles} dramas={mosaic} tiles={tiles} tileWidth={posterW} height="56%" />
 
       <Animated.View style={[styles.content, { paddingBottom: insets.bottom + space.x6, opacity: fade, transform: [{ translateY: rise }] }]}>
         <Pressable
