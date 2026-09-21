@@ -296,8 +296,16 @@ function Home() {
           onSecondary={() => router.push('/people')}
         />
       )
+    ) : state.hydrated ? (
+      <EmptyState
+        icon="sparkles-outline"
+        title="Quiet in here"
+        body="Nothing matches your filters right now. Explore what’s airing tonight and the room will fill up."
+        actionLabel="Open Explore"
+        onAction={() => router.push('/(tabs)/explore')}
+      />
     ) : (
-      <View>
+      <View accessibilityLabel="Loading your feed">
         <PostSkeleton />
         <PostSkeleton />
       </View>
