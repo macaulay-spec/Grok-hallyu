@@ -19,7 +19,7 @@ import { Tap } from '../../components/ui/Tap';
 import { Text } from '../../components/ui/Text';
 import { TopBar } from '../../components/ui/TopBar';
 import { colors, radius, space } from '../../constants/theme';
-import { catalog, invalidateCatalogLists } from '../../lib/catalog';
+import { catalog, invalidateCatalogLists, friendlyCatalogCopy } from '../../lib/catalog';
 import { adoptActors, adoptDramas } from '../../lib/catalogSync';
 import { Loadable, useApp, useCatalogHealth, useLayout, useLoad, useNetwork } from '../../lib/hooks';
 import { Actor, Drama, GENRES } from '../../lib/model';
@@ -96,9 +96,7 @@ export default function Explore() {
             <InlineNotice
               tone="warning"
               icon={online ? 'cloud-offline-outline' : 'wifi-outline'}
-              text={
-                online ? `Couldn’t load the live catalog — ${health.message ?? 'no answer from TMDB'}. Tap to try again.` : 'You’re offline. Live titles come back with your connection — tap to retry.'
-              }
+              text={`${friendlyCatalogCopy(health, online).title}. ${friendlyCatalogCopy(health, online).body}`}
             />
           </Pressable>
         ) : null}

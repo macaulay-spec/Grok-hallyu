@@ -9,7 +9,7 @@ import { SpoilerTag } from '../../components/feed/SpoilerBlock';
 import { Avatar } from '../../components/ui/Avatar';
 import { Button } from '../../components/ui/Button';
 import { Chip, ChipRow } from '../../components/ui/Chip';
-import { Screen } from '../../components/ui/Screen';
+import { Screen, useColumn } from '../../components/ui/Screen';
 import { Segmented } from '../../components/ui/Segmented';
 import { Sheet } from '../../components/ui/Sheet';
 import { EmptyState, ErrorState } from '../../components/ui/States';
@@ -35,6 +35,7 @@ export default function PostDetail() {
   const toast = useToast();
   const auth = useAuth();
   const insets = useSafeAreaInsets();
+  const column = useColumn();
   const { id, commentId, focus } = useLocalSearchParams<{ id: string; commentId?: string; focus?: string }>();
   const { state, dispatch, getPost, getUser, me } = useApp();
   const require = useRequireMember();
@@ -149,7 +150,7 @@ export default function PostDetail() {
           ListHeaderComponent={header}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
-          contentContainerStyle={{ paddingBottom: space.x6 }}
+          contentContainerStyle={[{ paddingBottom: space.x6 }, column]}
           onScrollToIndexFailed={() => {}}
           renderItem={({ item: r }) => <CommentItem comment={r.comment} post={post} isReply={r.isReply} onReply={startReply} highlighted={r.key === commentId} replyCount={r.replyCount} onOpenThread={r.replyCount ? () => setCollapsed((c) => ({ ...c, [r.key]: !c[r.key] })) : undefined} />}
           ListEmptyComponent={<EmptyState compact icon="chatbubble-ellipses-outline" title="No comments yet" body={post.type === 'discussion' ? 'The author asked a question. Answer it.' : 'Be first. Kind, specific, spoiler-tagged if it needs it.'} actionLabel="Write a comment" onAction={() => require('comment', () => inputRef.current?.focus())} />}

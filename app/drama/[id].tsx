@@ -21,7 +21,7 @@ import { Disclosure } from '../../components/ui/Disclosure';
 import { IconButton } from '../../components/ui/IconButton';
 import { Backdrop, Poster } from '../../components/ui/Poster';
 import { useRefresh } from '../../components/ui/Refresh';
-import { Screen, useListPadding } from '../../components/ui/Screen';
+import { Screen, useColumn, useListPadding } from '../../components/ui/Screen';
 import { KeyValue, ProgressBar, SectionHeader } from '../../components/ui/Section';
 import { Segmented } from '../../components/ui/Segmented';
 import { Sheet, SheetRow } from '../../components/ui/Sheet';
@@ -55,6 +55,7 @@ export default function DramaHub() {
   const require = useRequireMember();
   const { width } = useLayout();
   const padding = useListPadding(false);
+  const column = useColumn(sizes.readingColumn + 200);
   const refresh = useRefresh('drama');
   const drama = getDrama(params.id);
   const [tab, setTab] = useState<Tab>(() => (params.tab && params.tab in LEGACY_TAB ? LEGACY_TAB[params.tab]! : ((params.tab as Tab | undefined) ?? 'overview')));
@@ -655,7 +656,7 @@ export default function DramaHub() {
             refreshControl={refresh.control}
             ListHeaderComponent={header}
             stickyHeaderIndices={[1]}
-            contentContainerStyle={padding}
+            contentContainerStyle={[padding, column]}
             initialNumToRender={8}
             windowSize={7}
           />

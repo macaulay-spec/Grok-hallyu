@@ -62,6 +62,16 @@ export function useListPadding(tabbed = true) {
   return { paddingBottom: (tabbed ? sizes.tabBar : 0) + insets.bottom + space.x6 };
 }
 
+/**
+ * Reading column for medium/expanded widths: content stays a comfortable measure and sits centred
+ * instead of stretching edge to edge. A no-op on compact phones. Spread it into a list's
+ * `contentContainerStyle` or a wrapper's style.
+ */
+export function useColumn(max: number = sizes.readingColumn): ViewStyle {
+  const { wc } = useLayout();
+  return wc === 'compact' ? {} : { width: '100%', maxWidth: max, alignSelf: 'center' };
+}
+
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.canvas },
   column: { width: '100%', maxWidth: sizes.readingColumn, alignSelf: 'center' },

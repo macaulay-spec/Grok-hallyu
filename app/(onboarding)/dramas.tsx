@@ -9,7 +9,7 @@ import { Skeleton } from '../../components/ui/Skeleton';
 import { InlineNotice } from '../../components/ui/States';
 import { Text } from '../../components/ui/Text';
 import { sizes, space } from '../../constants/theme';
-import { catalog } from '../../lib/catalog';
+import { catalog, friendlyCatalogCopy } from '../../lib/catalog';
 import { adoptDramas, syncSeedCatalog } from '../../lib/catalogSync';
 import { haptic, useCatalogHealth, useDebounced, useLayout, useLoad } from '../../lib/hooks';
 import { Drama, WatchStatus } from '../../lib/model';
@@ -117,7 +117,7 @@ export default function DramasStep() {
       ) : null}
       {wall.error && !wall.data ? (
         <Pressable onPress={wall.reload} accessibilityRole="button" accessibilityLabel="Retry loading the catalog" style={{ marginBottom: space.x3 }}>
-          <InlineNotice tone="warning" icon="cloud-offline-outline" text={`Couldn’t load live titles — ${health.message ?? 'the catalog didn’t answer'}. Showing saved titles; tap to retry.`} />
+          <InlineNotice tone="warning" icon="cloud-offline-outline" text={`${friendlyCatalogCopy(health).title}. ${friendlyCatalogCopy(health).body}`} />
         </Pressable>
       ) : null}
       {showSkeleton ? (

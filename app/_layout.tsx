@@ -8,6 +8,7 @@ import { AppState as RNAppState, View } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ErrorBoundary } from '../components/ui/ErrorBoundary';
+import { MilestoneWatcher } from '../components/moments/MilestoneWatcher';
 import { ToastProvider } from '../components/ui/Toast';
 import { colors } from '../constants/theme';
 import { AuthProvider, useAuth } from '../lib/auth';
@@ -44,6 +45,7 @@ export default function RootLayout() {
             <CatalogSync />
             <SyncProvider />
             <ReminderSync />
+            <MilestoneWatcher />
             <ErrorBoundary scope="Hallyu">
               <Stack
                 screenOptions={{

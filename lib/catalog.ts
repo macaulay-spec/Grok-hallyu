@@ -123,6 +123,18 @@ function setHealth(next: CatalogHealth) {
   healthListeners.forEach((l) => l(health));
 }
 export const getCatalogHealth = () => health;
+
+/**
+ * What a normal person should read when the live catalog is unavailable. Never the raw error —
+ * that lives in Settings → About → Live catalog for whoever needs it.
+ */
+export function friendlyCatalogCopy(h: CatalogHealth, online = true): { title: string; body: string } {
+  if (!online) return { title: 'You’re offline', body: 'Live titles come back with your connection. Tap to retry.' };
+  if (h.status === 401 || h.status === 403) return { title: 'The catalog isn’t answering right now', body: 'We’re showing saved titles in the meantime. Tap to try again.' };
+  if (h.status === 429) return { title: 'The catalog is busy', body: 'Too many people at once. Give it a moment and tap to retry.' };
+  if (h.status && h.status >= 500) return { title: 'The catalog is having a moment', body: 'Their side, not yours. Saved titles are here — tap to try again shortly.' };
+  return { title: 'Couldn’t reach the live catalog', body: 'Check your connection or try again in a moment. Saved titles are here meanwhile.' };
+}
 export function subscribeCatalogHealth(l: (h: CatalogHealth) => void) {
   healthListeners.add(l);
   return () => {
