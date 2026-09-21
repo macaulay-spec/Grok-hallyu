@@ -71,6 +71,8 @@ export interface AppState {
   lastSeenActivity: string;
   /** Mutations waiting to reach the backend (persisted). See lib/data. */
   outbox: Mutation[];
+  /** Device-local, never synced: first-run guides and milestone moments already shown (id → ISO date). */
+  seen: Record<string, string>;
 }
 
 const defaultPrefs: Prefs = {
@@ -116,6 +118,7 @@ function initialState(): AppState {
     importedActors: [],
     lastSeenActivity: new Date(0).toISOString(),
     outbox: [],
+    seen: {},
   };
 }
 
@@ -156,6 +159,7 @@ export type Action =
   | { type: 'hydrate'; state: Partial<AppState> }
   | { type: 'replace'; state: AppState }
   | { type: 'onboarding'; patch: Partial<AppState['onboarding']> }
+  | { type: 'seen'; id: string }
   | { type: 'prefs'; patch: Partial<Prefs> }
   | { type: 'profile'; patch: Partial<User> }
   | { type: 'follow'; kind: keyof AppState['follows']; id: string; on?: boolean }
@@ -325,6 +329,8 @@ function reducer(s: AppState, a: Action): AppState {
     }
     case 'reveal':
       return { ...s, revealed: { ...s.revealed, [a.id]: true } };
+    case 'seen':
+      return s.seen[a.id] ? s : { ...s, seen: { ...s.seen, [a.id]: new Date().toISOString() } };
     case 'addPost':
       return { ...s, posts: [a.post, ...s.posts] };
     case 'editPost':
@@ -496,6 +502,7 @@ const PERSISTED_KEYS: (keyof AppState)[] = [
   'importedActors',
   'lastSeenActivity',
   'outbox',
+  'seen',
 ];
 
 /** Posts with local `require()` images cannot be serialised; keep seed posts by reference and only persist user-made content. */

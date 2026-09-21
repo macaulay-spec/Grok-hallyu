@@ -72,6 +72,10 @@ export default function Composer() {
   const [video, setVideo] = useState<{ uri: string; duration: number } | null>(editing?.video ? { uri: editing.video.url, duration: editing.video.duration } : null);
   const [reactionKind, setReactionKind] = useState<ReactionKind>('loved');
   const [sheet, setSheet] = useState<null | 'drama' | 'secondary' | 'episode' | 'actors' | 'spoiler'>(null);
+  // Progressive disclosure: a plain post starts as a clean page; drama/episode/actors/spoiler
+  // controls appear once you ask for context — or immediately when the type needs a drama or
+  // context arrived with the deep link / draft / edit.
+  const [contextOpen, setContextOpen] = useState(false);
   const [leaveDialog, setLeaveDialog] = useState(false);
   const [guidelines, setGuidelines] = useState(!state.prefs.guidelinesAccepted);
   const [posting, setPosting] = useState(false);
@@ -237,7 +241,27 @@ export default function Composer() {
     router.back();
   };
 
-  const attachRow = (
+  const contextVisible = contextOpen || needsDrama || !!drama || actorIds.length > 0 || spoiler !== 'none' || !!hint;
+  const attachRow = !contextVisible ? (
+    <View style={styles.attachRow}>
+      <Pressable
+        onPress={() => {
+          haptic.select();
+          setContextOpen(true);
+        }}
+        style={styles.attach}
+        accessibilityRole="button"
+        accessibilityLabel="Add context: drama, episode, actors or spoiler level"
+        accessibilityHint="Reveals the context controls"
+      >
+        <Ionicons name="add-circle-outline" size={16} color={colors.textSecondary} />
+        <Text variant="label">Add context</Text>
+      </Pressable>
+      <Text variant="caption" tone="tertiary" style={{ alignSelf: 'center' }}>
+        Drama · episode · actors · spoiler level
+      </Text>
+    </View>
+  ) : (
     <View style={styles.attachRow}>
       <Pressable
         onPress={() => setSheet('drama')}

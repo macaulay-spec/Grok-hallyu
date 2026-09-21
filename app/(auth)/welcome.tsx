@@ -4,8 +4,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '../../components/ui/Button';
-import { Poster } from '../../components/ui/Poster';
 import { Text } from '../../components/ui/Text';
+import { LivingWall } from '../../components/onboarding/LivingWall';
 import { Wordmark } from '../../components/ui/TopBar';
 import { useToast } from '../../components/ui/Toast';
 import { colors, motion, space } from '../../constants/theme';
@@ -62,28 +62,31 @@ export default function Welcome() {
   };
 
   const importedDramas = useSlice((s) => s.importedDramas);
-  const posterW = Math.max(88, Math.floor((width - space.margin * 2 - space.x2 * 3) / 4));
+  const cols = width >= 840 ? 6 : width >= 600 ? 5 : 4;
+  const posterW = Math.max(88, Math.floor((width - space.margin * 2 - space.x2 * (cols - 1)) / cols));
   // The wall is what's trending this week (live), so the first screen is the real K-drama world;
   // saved art fills in until it arrives or when offline.
-  const live = useLoad(async (signal) => adoptDramas(await catalog.trending(signal)), [], catalog.available);
+  const live = useLoad(
+    async (signal) => {
+      const [t, p] = await Promise.all([catalog.trending(signal), catalog.popular(1, signal).catch(() => [] as typeof importedDramas)]);
+      return adoptDramas([...t, ...p]);
+    },
+    [],
+    catalog.available,
+  );
+  // The wall draws from what's trending (plus popular, for variety); saved art fills in until it arrives or offline.
   const mosaic = useMemo(() => {
     const trending = (live.data ?? []).filter((d) => d.posterUrl);
-    if (trending.length >= 8) return trending.slice(0, 8);
     const all = allDramas({ importedDramas });
     const withArt = all.filter((d) => d.posterUrl || d.posterLocal);
-    const rest = all.filter((d) => !d.posterUrl && !d.posterLocal);
     const seen = new Set(trending.map((d) => d.id));
-    return [...trending, ...withArt.filter((d) => !seen.has(d.id)), ...rest].slice(0, 8);
+    return [...trending, ...withArt.filter((d) => !seen.has(d.id))];
   }, [importedDramas, live.data]);
+  const tiles = cols * 2;
 
   return (
     <View style={styles.root}>
-      <View style={styles.mosaic} pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-        {mosaic.map((d, i) => (
-          <Poster key={d.id} drama={d} width={posterW} style={{ opacity: 0.55, marginTop: i % 2 ? 28 : 0 }} />
-        ))}
-        <View style={styles.scrim} />
-      </View>
+      <LivingWall dramas={mosaic} tiles={tiles} tileWidth={posterW} height="56%" />
 
       <Animated.View style={[styles.content, { paddingBottom: insets.bottom + space.x6, opacity: fade, transform: [{ translateY: rise }] }]}>
         <Pressable
@@ -140,20 +143,6 @@ export default function Welcome() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.canvas },
-  mosaic: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: '52%',
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: space.x2,
-    paddingHorizontal: space.margin,
-    paddingTop: 24,
-    overflow: 'hidden',
-  },
-  scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(10,10,10,0.55)', borderBottomWidth: 200, borderBottomColor: colors.canvas },
   content: { flex: 1, justifyContent: 'flex-end', paddingHorizontal: space.x6, maxWidth: 560, width: '100%', alignSelf: 'center' },
   guestRow: { flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap', gap: space.x2, marginTop: space.x3 },
   tmdb: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, marginTop: space.x2 },

@@ -12,22 +12,36 @@ interface SectionHeaderProps {
   onAction?: () => void;
   style?: StyleProp<ViewStyle>;
   live?: boolean;
+  /**
+   * 'editorial' (default) — overline + large title, for the one or two things a screen leads with.
+   * 'quiet' — a single small title line, for supporting rails so they never compete with the lead.
+   */
+  weight?: 'editorial' | 'quiet';
 }
 
 /** Editorial section header: optional overline eyebrow, title, "See all" chevron. */
-export function SectionHeader({ title, eyebrow, subtitle, actionLabel, onAction, style, live }: SectionHeaderProps) {
+export function SectionHeader({ title, eyebrow, subtitle, actionLabel, onAction, style, live, weight = 'editorial' }: SectionHeaderProps) {
+  const quiet = weight === 'quiet';
   return (
-    <View style={[styles.wrap, style]}>
+    <View style={[styles.wrap, quiet && styles.wrapQuiet, style]}>
       <View style={{ flex: 1 }}>
-        {eyebrow ? (
+        {eyebrow && !quiet ? (
           <View style={styles.eyebrowRow}>
             {live ? <View style={styles.live} /> : null}
             <Text variant="overline">{eyebrow}</Text>
           </View>
         ) : null}
-        <Text variant="titleLarge" accessibilityRole="header">
-          {title}
-        </Text>
+        <View style={styles.titleRow}>
+          {quiet && live ? <View style={styles.live} /> : null}
+          <Text variant={quiet ? 'titleSmall' : 'titleLarge'} accessibilityRole="header" maxFontSizeMultiplier={1.6}>
+            {title}
+          </Text>
+          {quiet && eyebrow ? (
+            <Text variant="caption" tone="tertiary">
+              · {eyebrow}
+            </Text>
+          ) : null}
+        </View>
         {subtitle ? (
           <Text variant="bodySmall" tone="secondary" style={{ marginTop: 2 }}>
             {subtitle}
@@ -76,9 +90,11 @@ export function KeyValue({ label, value }: { label: string; value: string }) {
 
 const styles = StyleSheet.create({
   wrap: { flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: space.margin, marginBottom: space.x3 },
+  wrapQuiet: { alignItems: 'center', marginBottom: space.x2 },
+  titleRow: { flexDirection: 'row', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' },
   eyebrowRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
   live: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.live },
-  action: { flexDirection: 'row', alignItems: 'center', paddingBottom: 4 },
+  action: { flexDirection: 'row', alignItems: 'center', minHeight: 44, paddingLeft: space.x2 },
   divider: { height: 1, backgroundColor: colors.borderSubtle },
   kv: { gap: 2 },
 });

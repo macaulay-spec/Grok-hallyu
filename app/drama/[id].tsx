@@ -16,6 +16,8 @@ import { ReactionMeter } from '../../components/feed/Reactions';
 import { ShortsRail } from '../../components/feed/ShortCard';
 import { Button } from '../../components/ui/Button';
 import { Chip, ChipRow } from '../../components/ui/Chip';
+import { CoachMarks } from '../../components/ui/CoachMarks';
+import { Disclosure } from '../../components/ui/Disclosure';
 import { IconButton } from '../../components/ui/IconButton';
 import { Backdrop, Poster } from '../../components/ui/Poster';
 import { useRefresh } from '../../components/ui/Refresh';
@@ -90,6 +92,7 @@ export default function DramaHub() {
       }, emptyReactions()),
     [posts],
   );
+  const meterTotal = useMemo(() => Object.values(meter).reduce((a, b) => a + b, 0), [meter]);
   const related = useMemo(() => (drama ? relatedDramas(state, drama, 8) : []), [state, drama]);
   const inCollections = useMemo(() => (drama ? collectionsContaining(state, drama.id) : []), [state, drama]);
   const publicCols = useMemo(() => (drama ? state.collections.filter((c) => c.visibility === 'public' && c.items.some((i) => i.dramaId === drama.id)).slice(0, 6) : []), [state.collections, drama]);
@@ -206,7 +209,7 @@ export default function DramaHub() {
         </Animated.View>
       </View>
       <ChipRow style={{ paddingHorizontal: space.margin, marginTop: space.x3 }}>
-        {drama.genres.map((g) => (
+        {drama.genres.slice(0, 4).map((g) => (
           <Chip key={g} label={g} size="sm" onPress={() => router.push(`/genre/${encodeURIComponent(g)}`)} />
         ))}
       </ChipRow>
@@ -274,14 +277,25 @@ export default function DramaHub() {
     </View>
   );
 
+  const details: { label: string; value: string }[] = [
+    ...(drama.streamingOn?.length ? [{ label: 'Watch on', value: drama.streamingOn.join(', ') }] : []),
+    ...(drama.airsOn ? [{ label: 'Airs', value: drama.airsOn }] : []),
+    ...(drama.network ? [{ label: 'Network', value: drama.network }] : []),
+    ...(drama.creators?.length ? [{ label: 'Written / directed', value: drama.creators.join(', ') }] : []),
+    ...(drama.tags?.length ? [{ label: 'Tags', value: drama.tags.join(' · ') }] : []),
+  ];
+  const moreSummary = [meterTotal ? 'Reaction meter' : null, details.length ? 'Details' : null, stills.length ? 'Stills' : null, shorts.length ? 'Shorts' : null, publicCols.length ? 'Shelves' : null].filter(Boolean).join(' · ');
+
+  // Overview answers three things in under a second: what is it, where am I, who's in it.
+  // Everything else waits behind one calm row.
   const overview = (
     <View>
       <View style={styles.section}>
-        <Pressable onPress={() => setSynopsisOpen((v) => !v)} accessibilityRole="button" accessibilityLabel={synopsisOpen ? 'Collapse synopsis' : 'Expand synopsis'}>
-          <Text variant="body" numberOfLines={synopsisOpen ? undefined : 4}>
+        <Pressable onPress={() => setSynopsisOpen((v) => !v)} accessibilityRole="button" accessibilityLabel={synopsisOpen ? 'Collapse synopsis' : 'Expand synopsis'} accessibilityState={{ expanded: synopsisOpen }}>
+          <Text variant="body" numberOfLines={synopsisOpen ? undefined : 3} style={{ maxWidth: 640 }}>
             {drama.synopsis}
           </Text>
-          {drama.synopsis.length > 180 ? (
+          {drama.synopsis.length > 160 ? (
             <Text variant="label" tone="accent" style={{ marginTop: 6 }}>
               {synopsisOpen ? 'Less' : 'More'}
             </Text>
@@ -289,7 +303,7 @@ export default function DramaHub() {
         </Pressable>
       </View>
       {item?.status === 'watching' ? (
-        <Pressable onPress={() => setTab('episodes')} style={styles.progressCard} accessibilityRole="button">
+        <Pressable onPress={() => setTab('episodes')} style={styles.progressCard} accessibilityRole="button" accessibilityLabel={`Your progress: episode ${item.currentEpisode} of ${total}. Opens episodes`}>
           <View style={{ flex: 1 }}>
             <Text variant="titleSmall">Your progress</Text>
             <Text variant="caption" tone="secondary">
@@ -320,28 +334,8 @@ export default function DramaHub() {
           ) : null}
         </Pressable>
       ) : null}
-      {item?.note ? (
-        <View style={[styles.section, { paddingTop: 0 }]}>
-          <Text variant="overline" style={{ marginBottom: 4 }}>
-            Your private note
-          </Text>
-          <Text variant="bodySmall" tone="secondary">
-            {item.note}
-          </Text>
-        </View>
-      ) : null}
-      <View style={styles.section}>
-        <SectionHeader eyebrow="Reaction meter" title="How the fandom feels" style={{ paddingHorizontal: 0 }} />
-        <ReactionMeter counts={meter} />
-      </View>
-      <View style={styles.section}>
-        {drama.streamingOn?.length ? <KeyValue label="Watch on" value={drama.streamingOn.join(', ')} /> : null}
-        {drama.airsOn ? <KeyValue label="Airs" value={drama.airsOn} /> : null}
-        {drama.creators?.length ? <KeyValue label="Written / directed" value={drama.creators.join(', ')} /> : null}
-        {drama.tags?.length ? <KeyValue label="Tags" value={drama.tags.join(' · ')} /> : null}
-      </View>
       {drama.cast.length ? (
-        <View style={{ paddingVertical: space.x4 }}>
+        <View style={{ paddingTop: space.x5, paddingBottom: space.x2 }}>
           <SectionHeader eyebrow="Cast" title="Who’s in it" onAction={() => setTab('cast')} />
           <ActorRail
             actors={drama.cast.map((c) => getActor(c.actorId)).filter(Boolean) as NonNullable<ReturnType<typeof getActor>>[]}
@@ -349,43 +343,8 @@ export default function DramaHub() {
           />
         </View>
       ) : null}
-      {stills.length ? (
-        <View style={styles.moduleRail}>
-          <SectionHeader eyebrow="Media" title="Stills & art" />
-          <FlatList
-            horizontal
-            data={stills}
-            keyExtractor={(m) => m.uri}
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{
-              paddingHorizontal: space.margin,
-              gap: space.gutter,
-            }}
-            renderItem={({ item: m }) => (
-              <Pressable
-                onPress={() =>
-                  router.push({
-                    pathname: '/media',
-                    params: { uri: m.uri, title: m.title },
-                  })
-                }
-                accessibilityRole="imagebutton"
-                accessibilityLabel={m.title}
-              >
-                <Backdrop
-                  uri={m.uri}
-                  fallbackColor={drama.tone}
-                  width={m.kind === 'poster' ? Math.round((stillH * 2) / 3) : Math.round((stillH * 16) / 9)}
-                  height={stillH}
-                  style={{ borderRadius: radius.sm, overflow: 'hidden' }}
-                />
-              </Pressable>
-            )}
-          />
-        </View>
-      ) : null}
       {posts.length ? (
-        <View style={{ paddingVertical: space.x4 }}>
+        <View style={{ paddingTop: space.x4 }}>
           <SectionHeader eyebrow="Community" title="Top conversations" onAction={() => setTab('community')} />
           {posts
             .filter((p) => p.type === 'discussion' || p.type === 'review')
@@ -395,47 +354,111 @@ export default function DramaHub() {
             ))}
         </View>
       ) : null}
-      {shorts.length ? (
-        <View style={{ paddingVertical: space.x4 }}>
-          <SectionHeader
-            eyebrow="Shorts"
-            title={`${drama.title} in sixty seconds`}
-            onAction={() =>
-              router.push({
-                pathname: '/shorts',
-                params: { id: shorts[0]!.id, dramaId: drama.id },
-              })
-            }
-          />
-          <ShortsRail posts={shorts} />
-        </View>
+
+      {moreSummary || item?.note ? (
+        <Disclosure title={`More about ${drama.title}`} summary={moreSummary || 'Your note'} style={{ marginTop: space.x4 }}>
+          {item?.note ? (
+            <View style={[styles.section, { paddingBottom: 0 }]}>
+              <Text variant="overline" style={{ marginBottom: 4 }}>
+                Your private note
+              </Text>
+              <Text variant="bodySmall" tone="secondary">
+                {item.note}
+              </Text>
+            </View>
+          ) : null}
+          {meterTotal ? (
+            <View style={styles.section}>
+              <SectionHeader eyebrow="Reaction meter" title="How the fandom feels" style={{ paddingHorizontal: 0 }} />
+              <ReactionMeter counts={meter} />
+            </View>
+          ) : null}
+          {details.length ? (
+            <View style={[styles.section, { paddingTop: meterTotal ? 0 : space.x4 }]}>
+              {details.map((d) => (
+                <KeyValue key={d.label} label={d.label} value={d.value} />
+              ))}
+            </View>
+          ) : null}
+          {stills.length ? (
+            <View style={styles.moduleRail}>
+              <SectionHeader eyebrow="Media" title="Stills & art" />
+              <FlatList
+                horizontal
+                data={stills}
+                keyExtractor={(m) => m.uri}
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{
+                  paddingHorizontal: space.margin,
+                  gap: space.gutter,
+                }}
+                renderItem={({ item: m }) => (
+                  <Pressable
+                    onPress={() =>
+                      router.push({
+                        pathname: '/media',
+                        params: { uri: m.uri, title: m.title },
+                      })
+                    }
+                    accessibilityRole="imagebutton"
+                    accessibilityLabel={m.title}
+                  >
+                    <Backdrop
+                      uri={m.uri}
+                      fallbackColor={drama.tone}
+                      width={m.kind === 'poster' ? Math.round((stillH * 2) / 3) : Math.round((stillH * 16) / 9)}
+                      height={stillH}
+                      style={{ borderRadius: radius.sm, overflow: 'hidden' }}
+                    />
+                  </Pressable>
+                )}
+              />
+            </View>
+          ) : null}
+          {shorts.length ? (
+            <View style={{ paddingVertical: space.x4 }}>
+              <SectionHeader
+                eyebrow="Shorts"
+                title={`${drama.title} in sixty seconds`}
+                onAction={() =>
+                  router.push({
+                    pathname: '/shorts',
+                    params: { id: shorts[0]!.id, dramaId: drama.id },
+                  })
+                }
+              />
+              <ShortsRail posts={shorts} />
+            </View>
+          ) : null}
+          {publicCols.length ? (
+            <View style={{ paddingVertical: space.x4 }}>
+              <SectionHeader eyebrow="Collections" title="Shelves it’s on" />
+              <FlatList
+                horizontal
+                data={publicCols}
+                keyExtractor={(c) => c.id}
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{
+                  paddingHorizontal: space.margin,
+                  gap: space.gutter,
+                }}
+                renderItem={({ item: c }) => <CollectionCard collection={c} />}
+              />
+            </View>
+          ) : null}
+          {inCollections.length ? (
+            <Text variant="caption" tone="secondary" style={{ paddingHorizontal: space.margin, paddingBottom: space.x4 }}>
+              In your collections: {inCollections.map((c) => c.title).join(', ')}
+            </Text>
+          ) : null}
+        </Disclosure>
       ) : null}
+
       {related.length ? (
-        <View style={{ paddingVertical: space.x4 }}>
+        <View style={{ paddingVertical: space.x5 }}>
           <SectionHeader eyebrow="If you liked this" title="Related dramas" />
           <DramaRail dramas={related} size="m" />
         </View>
-      ) : null}
-      {publicCols.length ? (
-        <View style={{ paddingVertical: space.x4 }}>
-          <SectionHeader eyebrow="Collections" title="Shelves it’s on" />
-          <FlatList
-            horizontal
-            data={publicCols}
-            keyExtractor={(c) => c.id}
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{
-              paddingHorizontal: space.margin,
-              gap: space.gutter,
-            }}
-            renderItem={({ item: c }) => <CollectionCard collection={c} />}
-          />
-        </View>
-      ) : null}
-      {inCollections.length ? (
-        <Text variant="caption" tone="secondary" style={{ paddingHorizontal: space.margin, paddingBottom: space.x4 }}>
-          In your collections: {inCollections.map((c) => c.title).join(', ')}
-        </Text>
       ) : null}
     </View>
   );
@@ -693,6 +716,15 @@ export default function DramaHub() {
         />
       </Sheet>
       <AddToCollectionSheet dramaId={drama.id} visible={collect} onClose={() => setCollect(false)} />
+      <CoachMarks
+        id="hub"
+        when={tab === 'overview' && !menu && !collect && !create}
+        delay={1200}
+        steps={[
+          { icon: 'shield-checkmark-outline', title: 'Track it, and we protect you', body: 'Set Watching and tell us your episode. Anything past that point is veiled until you catch up.' },
+          { icon: 'chatbubbles-outline', title: 'Every episode has a room', body: 'Reactions, theories and the meter live per episode — open the Episodes tab and pick one.' },
+        ]}
+      />
       <CreateSheet
         visible={create}
         onClose={() => setCreate(false)}

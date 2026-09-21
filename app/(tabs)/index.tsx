@@ -14,6 +14,7 @@ import { UpNextRail } from '../../components/home/UpNextRail';
 import { UserCard } from '../../components/people/UserRow';
 import { Avatar } from '../../components/ui/Avatar';
 import { Button } from '../../components/ui/Button';
+import { CoachMarks } from '../../components/ui/CoachMarks';
 import { IconButton } from '../../components/ui/IconButton';
 import { useRefresh } from '../../components/ui/Refresh';
 import { Screen, useListPadding } from '../../components/ui/Screen';
@@ -228,7 +229,7 @@ function Home() {
         case 'shorts':
           return (
             <View style={styles.module}>
-              <SectionHeader eyebrow="Shorts" title="Watch in a minute" onAction={() => router.push('/shorts')} />
+              <SectionHeader weight="quiet" title="Watch in a minute" eyebrow="Shorts" onAction={() => router.push('/shorts')} />
               <ShortsRail posts={shortList} />
             </View>
           );
@@ -242,7 +243,7 @@ function Home() {
         case 'people':
           return (
             <View style={styles.module}>
-              <SectionHeader eyebrow="Community" title="People with your taste" />
+              <SectionHeader weight="quiet" title="People with your taste" />
               <FlatList
                 horizontal
                 data={people}
@@ -256,7 +257,7 @@ function Home() {
         case 'discussions':
           return (
             <View style={styles.module}>
-              <SectionHeader eyebrow="Trending" title="Conversations right now" onAction={() => router.push('/trending')} />
+              <SectionHeader weight="quiet" title="Conversations right now" eyebrow="Trending" onAction={() => router.push('/trending')} />
               {discussions.map((p) => (
                 <PostCard key={p.id} post={p} />
               ))}
@@ -287,9 +288,9 @@ function Home() {
       ) : (
         <EmptyState
           icon="people-outline"
-          title="Nothing here yet"
-          body="Follow a few dramas and people to fill this feed. Start with what you’re watching."
-          actionLabel="Find fandoms"
+          title="Your next obsession is waiting"
+          body="Follow three dramas and this feed fills with their episodes, theories and reactions — newest first."
+          actionLabel="Pick 3 dramas"
           onAction={() => router.push('/(tabs)/explore')}
           secondaryLabel="People with your taste"
           onSecondary={() => router.push('/people')}
@@ -369,6 +370,16 @@ function Home() {
           ) : null
         }
       />
+      <CoachMarks
+        id="home"
+        when={rows.length > 0 && tab === 'forYou'}
+        bottomOffset={space.x2}
+        steps={[
+          { icon: 'moon-outline', title: 'Tonight lives at the top', body: 'Dramas you follow that air today show up here with a countdown and the room where everyone’s talking.' },
+          { icon: 'film-outline', title: 'Every poster opens a hub', body: 'Synopsis, episodes, cast and community in one place — spoilers stay veiled until you’ve caught up.' },
+          { icon: 'add-circle-outline', title: 'Say something', body: 'The + button posts, reacts, reviews and recommends. Attach a drama and your words land in its room.' },
+        ]}
+      />
       {/* New posts pill */}
       <Animated.View pointerEvents={newCount > 0 ? 'auto' : 'none'} style={[styles.pillHost, { transform: [{ translateY: pillY }] }]}>
         <Pressable onPress={showNew} style={styles.pill} accessibilityRole="button" accessibilityLabel={`${newCount} new posts, scroll to top`}>
@@ -384,7 +395,7 @@ function Home() {
 
 const styles = StyleSheet.create({
   guest: { margin: space.margin, marginTop: 0, padding: space.x4, backgroundColor: colors.surface1, borderRadius: radius.lg },
-  module: { paddingVertical: space.x6, borderBottomWidth: 1, borderBottomColor: colors.borderSubtle },
+  module: { paddingVertical: space.x5, borderBottomWidth: 1, borderBottomColor: colors.borderSubtle },
   footer: { alignItems: 'center', gap: space.x2, paddingVertical: space.x8 },
   dot: { position: 'absolute', top: 8, right: 8, width: 9, height: 9, borderRadius: 5, backgroundColor: colors.accent, borderWidth: 2, borderColor: colors.canvas },
   pillHost: { position: 'absolute', top: 108, left: 0, right: 0, alignItems: 'center' },
