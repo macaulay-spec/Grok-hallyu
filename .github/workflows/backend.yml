@@ -6,7 +6,7 @@ name: Backend (Supabase)
 #   - Runs database migrations against embedded Postgres
 #   - Type-checks Edge Functions
 #
-# DEPLOY:
+# DEPLOY:..defaults:
 #   - Links to the Hallyu Supabase project
 #   - Pushes database migrations
 #   - Deploys Edge Functions
