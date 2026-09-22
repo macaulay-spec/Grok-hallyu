@@ -84,8 +84,8 @@ jobs:
     env:
       # GitHub secret references are case-insensitive; several spellings are accepted (first non-empty
       # wins), and repository *variables* count too in case they were added under "Variables" instead.
-      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACESSTOKEN || secrets.SUPABASE_ACESTOKEN || secrets.SUPABASE_ACCESS_TOKEN || secrets.SUPABASE_TOKEN || secrets.SUPABASE_ACCESS || secrets.ACCESS_TOKEN || secrets.SUPABASE_PAT || vars.SUPABASE_ACCESS_TOKEN }}
-      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DBPASSWORD || secrets.SUPABASE_DB_PASSWORD || secrets.DB_PASSWORD || secrets.DATABASE_PASSWORD || vars.SUPABASE_DB_PASSWORD }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACESSTOKEN || secrets.SUPABASE_ACCESSTOKEN || secrets.SUPABASE_ACESTOKEN || secrets.SUPABASE_ACCESS_TOKEN || secrets.SUPABASE_TOKEN || secrets.SUPABASE_ACCESS || secrets.ACCESS_TOKEN || secrets.SUPABASE_PAT || vars.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DBPASSWORD || secrets.SUPABASE_DBPASSWORD || secrets.SUPABASE_DB_PASSWORD || secrets.DB_PASSWORD || secrets.DATABASE_PASSWORD || vars.SUPABASE_DB_PASSWORD }}
       _T1: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       _T2: ${{ secrets.SUPABASE_TOKEN }}
       _T3: ${{ secrets.SUPABASE_ACCESS }}
@@ -105,6 +105,15 @@ jobs:
       _T11: ${{ secrets.EXPO_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: List configured secrets and variables
+        run: |
+          # Secret NAMES (never values) are not sensitive — pull them from the API and put them in an
+          # annotation so this run explains itself even when the raw log is unavailable.
+          s=$(curl -sS -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/secrets?per_page=100" | jq -r '[.secrets[].name] | join(",")' 2>/dev/null || echo "(api-denied)")
+          v=$(curl -sS -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/variables?per_page=100" | jq -r '[.variables[].name] | join(",")' 2>/dev/null || true)
+          echo "::error::SECRET_NAMES=[$s] VARIABLE_NAMES=[$v]"
+          echo "If that list is empty or API-denied, the audit below still checks known spellings."
 
       - name: Audit configured secrets
         run: |
