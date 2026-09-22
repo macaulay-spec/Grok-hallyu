@@ -1,0 +1,23 @@
+# Supabase CLI project config (used by .github/workflows/backend.yml). Remote settings that the CLI does not push
+# (PostgREST schemas, auth redirect URLs, SMTP) are applied by the workflow through the Management API.
+project_id = "hallyu"
+
+[api]
+enabled = true
+# The client only ever talks to schema `api` (views + RPCs). `public` stays unexposed.
+schemas = ["api", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+major_version = 17
+
+[functions.ensure-catalog]
+verify_jwt = true
+
+[functions.delete-account]
+verify_jwt = true
+
+# Called by pg_cron through pg_net with the shared `x-internal-key` header (see migration 0001), not by users.
+[functions.push-dispatch]
+verify_jwt = false

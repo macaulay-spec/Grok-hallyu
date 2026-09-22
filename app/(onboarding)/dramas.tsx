@@ -1,1 +1,176 @@
-import React,{useState}from'react';import{View,Text,StyleSheet,ScrollView,Pressable}from'react-native';import{useRouter}from'expo-router';import{colors,typography}from'../../constants/theme';import{dramas}from'../../lib/data';import{DramaCard}from'../../components/drama/DramaCard';import{Button}from'../../components/ui/Button';export default function Dramas(){const r=useRouter();const[selected,setSelected]=useState<string[]>([]);return <View style={s.root}><Text style={s.step}>01 / 02</Text><Text style={s.title}>Pick your{`\n`}comfort dramas.</Text><Text style={s.sub}>Follow a few favorites to shape your first feed.</Text><ScrollView contentContainerStyle={s.grid}>{dramas.map(d=><Pressable key={d.id} onPress={()=>setSelected(v=>v.includes(d.id)?v.filter(x=>x!==d.id):[...v,d.id])} style={[s.item,selected.includes(d.id)&&s.selected]}><DramaCard drama={d} large/><View style={s.check}><Text style={s.checkText}>{selected.includes(d.id)?'✓':'+'}</Text></View></Pressable>)}</ScrollView><Button title='Continue' onPress={()=>r.push('/(onboarding)/profile')}/></View>}const s=StyleSheet.create({root:{flex:1,backgroundColor:colors.background,padding:20,paddingTop:64},step:{...typography.caption,color:colors.accent,fontWeight:'800',letterSpacing:1},title:{...typography.h1,color:colors.text,marginTop:10},sub:{...typography.body,color:colors.secondary,marginTop:10,marginBottom:20},grid:{flexDirection:'row',flexWrap:'wrap',justifyContent:'space-between',paddingBottom:20},item:{width:'47%',marginBottom:18,padding:6,borderRadius:16,borderWidth:1,borderColor:'transparent'},selected:{borderColor:colors.accent,backgroundColor:'#17090E'},check:{position:'absolute',right:12,top:12,width:30,height:30,borderRadius:15,backgroundColor:colors.accent,alignItems:'center',justifyContent:'center'},checkText:{color:colors.text,fontWeight:'800',fontSize:17}});
+import { useRouter } from 'expo-router';
+import React, { useEffect, useMemo, useState } from 'react';
+import { FlatList, Pressable, View } from 'react-native';
+import { DramaCard } from '../../components/drama/DramaCard';
+import { OnboardingFrame } from '../../components/onboarding/OnboardingFrame';
+import { SearchField } from '../../components/search/SearchField';
+import { Chip, ChipRow } from '../../components/ui/Chip';
+import { Skeleton } from '../../components/ui/Skeleton';
+import { InlineNotice } from '../../components/ui/States';
+import { Text } from '../../components/ui/Text';
+import { sizes, space } from '../../constants/theme';
+import { catalog, friendlyCatalogCopy } from '../../lib/catalog';
+import { adoptDramas } from '../../lib/catalogSync';
+import { haptic, useCatalogHealth, useDebounced, useLayout, useLoad } from '../../lib/hooks';
+import { Drama, WatchStatus } from '../../lib/model';
+import { allDramas, useStore } from '../../lib/store';
+
+const STATUS_LABEL: Record<WatchStatus, string> = { want: 'Want to watch', watching: 'Watching', completed: 'Completed', dropped: 'Dropped' };
+
+/**
+ * Step 3 — the dramas you know. The grid is the live catalog (what's trending and popular on TMDB
+ * right now, plus all-time favourites) so it looks like the real K-drama world, not a demo. Each
+ * pick asks a one-tap status so the spoiler system works from minute one.
+ */
+export default function DramasStep() {
+  const router = useRouter();
+  const { state, dispatch } = useStore();
+  const { width, margin } = useLayout();
+  const [q, setQ] = useState('');
+  const dq = useDebounced(q.trim(), 300);
+  const [picked, setPicked] = useState<Record<string, WatchStatus>>(Object.fromEntries(Object.values(state.watchlist).map((w) => [w.dramaId, w.status])));
+  const [pending, setPending] = useState<string | null>(null);
+  const genres = useMemo(() => new Set(state.onboarding.genres), [state.onboarding.genres]);
+  const health = useCatalogHealth();
+
+  useEffect(() => {
+  }, []);
+
+  // The wall: trending + popular (2 pages) + top rated, de-duplicated and adopted into the store.
+  const wall = useLoad<Drama[]>(
+    async (signal) => {
+      const [trending, p1, p2, top] = await Promise.all([
+        catalog.trending(signal).catch(() => [] as Drama[]),
+        catalog.popular(1, signal).catch(() => [] as Drama[]),
+        catalog.popular(2, signal).catch(() => [] as Drama[]),
+        catalog.topRated(1, signal).catch(() => [] as Drama[]),
+      ]);
+      const merged = [...trending, ...p1, ...top, ...p2];
+      if (!merged.length) throw new Error('network');
+      return adoptDramas(merged);
+    },
+    [],
+    catalog.available,
+  );
+
+  // Search hits the live catalog too — anything a person has watched should be findable.
+  const found = useLoad<Drama[]>(async (signal) => adoptDramas(await catalog.searchDramas(dq, signal)), [dq], catalog.available && dq.length >= 2);
+
+  const list = useMemo(() => {
+    const live = wall.data ?? [];
+    const base = live.length ? live : allDramas(state); // offline / provider unavailable → what's saved locally
+    const rank = (d: Drama) => Number(d.genres.some((g) => genres.has(g)));
+    const ranked = [...base].sort((a, b) => rank(b) - rank(a));
+    if (!dq) return ranked;
+    const needle = dq.toLowerCase();
+    const local = ranked.filter((d) => d.title.toLowerCase().includes(needle) || d.originalTitle?.includes(dq));
+    const remote = found.data ?? [];
+    const seen = new Set(local.map((d) => d.id));
+    return [...local, ...remote.filter((d) => !seen.has(d.id))];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wall.data, found.data, dq, genres, state.importedDramas]);
+
+  const cols = Math.max(3, Math.floor((width - margin * 2 + space.gutter) / (sizes.poster.m + space.gutter)));
+  const count = Object.keys(picked).length;
+  const pendingDrama = pending ? (list.find((d) => d.id === pending) ?? allDramas(state).find((d) => d.id === pending)) : undefined;
+
+  const choose = (id: string, status: WatchStatus) => {
+    haptic.select();
+    setPicked((p) => ({ ...p, [id]: status }));
+    dispatch({ type: 'watch', dramaId: id, status });
+    // Watching a drama means you want its room: follow it so Following and Activity have a pulse from day one.
+    if (status === 'watching') dispatch({ type: 'follow', kind: 'dramas', id, on: true });
+    setPending(null);
+  };
+
+  const showSkeleton = wall.loading && !wall.data && list.length === 0;
+  const tileW = (width - margin * 2 - space.gutter * (cols - 1)) / cols;
+
+  return (
+    <OnboardingFrame
+      step={2}
+      title="Which of these have you watched?"
+      subtitle="Tap a poster, then say where you are. That’s how we keep spoilers away from you."
+      skippable={false}
+      helper={count ? `${count} added to your watchlist · anything you’re watching is followed too` : wall.loading && !wall.data ? 'Loading what’s trending…' : 'Pick a few — or none, that’s fine'}
+      onContinue={() => {
+        dispatch({ type: 'onboarding', patch: { step: 2 } });
+        router.push('/(onboarding)/people');
+      }}
+      scroll={false}
+    >
+      <SearchField value={q} onChangeText={setQ} placeholder="Search any title" style={{ marginBottom: space.x3 }} />
+      {pending && pendingDrama ? (
+        <View style={{ marginBottom: space.x3 }}>
+          <Text variant="label" style={{ marginBottom: space.x2 }}>
+            {pendingDrama.title} — where are you?
+          </Text>
+          <ChipRow>
+            <Chip label="Want to watch" onPress={() => choose(pending, 'want')} />
+            <Chip label="Watching" onPress={() => choose(pending, 'watching')} />
+            <Chip label="Completed" onPress={() => choose(pending, 'completed')} />
+            <Chip label="Dropped" onPress={() => choose(pending, 'dropped')} />
+            <Chip label="Cancel" onPress={() => setPending(null)} />
+          </ChipRow>
+        </View>
+      ) : null}
+      {wall.error && !wall.data ? (
+        <Pressable onPress={wall.reload} accessibilityRole="button" accessibilityLabel="Retry loading the catalog" style={{ marginBottom: space.x3 }}>
+          <InlineNotice tone="warning" icon="cloud-offline-outline" text={`${friendlyCatalogCopy(health).title}. ${friendlyCatalogCopy(health).body}`} />
+        </Pressable>
+      ) : null}
+      {showSkeleton ? (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.gutter }} accessibilityLabel="Loading dramas">
+          {Array.from({ length: cols * 4 }).map((_, i) => (
+            <View key={i} style={{ width: tileW, gap: space.x2 }}>
+              <Skeleton width={tileW} height={tileW * 1.5} radius={12} />
+              <Skeleton width={tileW * 0.8} height={12} />
+            </View>
+          ))}
+        </View>
+      ) : (
+        <FlatList
+          data={list}
+          key={cols}
+          numColumns={cols}
+          keyExtractor={(d) => d.id}
+          columnWrapperStyle={{ gap: space.gutter }}
+          contentContainerStyle={{ gap: space.x4, paddingBottom: space.x6 }}
+          showsVerticalScrollIndicator={false}
+          initialNumToRender={cols * 4}
+          ListFooterComponent={
+            dq && found.loading ? (
+              <Text variant="caption" tone="tertiary" align="center">
+                Searching the catalog…
+              </Text>
+            ) : null
+          }
+          ListEmptyComponent={
+            <Text variant="body" tone="secondary" align="center" style={{ paddingVertical: space.x6 }}>
+              {dq ? (found.loading ? 'Searching…' : `Nothing called “${dq}” yet.`) : 'No titles to show.'}
+            </Text>
+          }
+          renderItem={({ item }) => (
+            <DramaCard
+              drama={item}
+              size="m"
+              selected={!!picked[item.id]}
+              meta={picked[item.id] ? STATUS_LABEL[picked[item.id]!] : undefined}
+              showProgress={false}
+              onPress={() =>
+                picked[item.id]
+                  ? (setPicked((p) => {
+                      const n = { ...p };
+                      delete n[item.id];
+                      return n;
+                    }),
+                    dispatch({ type: 'watch', dramaId: item.id, status: null }))
+                  : setPending(item.id)
+              }
+            />
+          )}
+        />
+      )}
+    </OnboardingFrame>
+  );
+}

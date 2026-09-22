@@ -63,6 +63,11 @@ jobs:
       - name: Build APK (release, debug-signed → installable)
         working-directory: android
         run: ./gradlew assembleRelease --no-daemon
+        env:
+          # Catalog + Supabase client credentials are wired in constants/keys.ts. Do not inject
+          # EXPO_PUBLIC_TMDB_* from missing secrets here: an empty value would be inlined as ''.
+          # This workflow produces the demo build: show the "Preview with demo data" door.
+          EXPO_PUBLIC_SHOW_DEMO: '1'
 
       - name: Rename APK
         run: |

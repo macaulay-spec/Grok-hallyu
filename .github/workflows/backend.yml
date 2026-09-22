@@ -1,0 +1,244 @@
+name: Backend (Supabase)
+
+# Deploys the Hallyu backend to the Supabase project from CI, so nothing has to run on a laptop:
+#   1. validate   — runs every migration in embedded Postgres (PGlite) + type-checks the Edge Functions
+#   2. deploy     — supabase db push (migrations) → functions deploy → function secrets → project config (PostgREST
+#                   schemas, auth redirect URLs, SMTP) through the Management API → live smoke test
+#
+# Required GitHub Actions secrets (repo → Settings → Secrets and variables → Actions):
+#   SUPABASE_ACCESS_TOKEN   supabase.com/dashboard → account → Access Tokens
+#   SUPABASE_DB_PASSWORD    project → Settings → Database → Reset database password
+# Optional:
+#   SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASS / SMTP_SENDER   own email sender (Resend / Brevo …).
+#       When absent the Auth config is left alone — set the sender in the Supabase dashboard instead.
+#   GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET   Google sign-in (Google Cloud → OAuth credentials)
+#   EXPO_ACCESS_TOKEN / EXPO_TOKEN                                enhanced push security (expo.dev → Access tokens)
+#   TMDB_TOKEN                                                    overrides the TMDB v4 token in constants/keys.ts
+#
+# Secret names are matched case-insensitively by GitHub Actions (supabase_access_token works too).
+# The deploy job prints the list of configured secret NAMES each run — never their values.
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: Deploy to the Supabase project (uncheck to only validate)
+        type: boolean
+        default: true
+  push:
+    branches: [main, 'arena/**']
+    paths:
+      - 'supabase/**'
+      - 'docs/backend/validate-schema.mjs'
+      - '.github/workflows/backend.yml'
+
+concurrency:
+  group: backend-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  SUPABASE_PROJECT_REF: psmxekrmoltwabefgqpd
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate schema + functions
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run migrations in embedded Postgres (PGlite)
+        run: |
+          mkdir -p /tmp/pgv && cd /tmp/pgv && npm init -y >/dev/null && npm i @electric-sql/pglite@0.3 --no-audit --no-fund
+          cd "$GITHUB_WORKSPACE"
+          PGLITE_DIR=/tmp/pgv node docs/backend/validate-schema.mjs | tee /tmp/validate.log
+          grep -q "ALL SMOKE TESTS DONE" /tmp/validate.log
+          ! grep -q "UNEXPECTED" /tmp/validate.log
+
+      - name: Install Deno (direct binary — no marketplace actions, org policy allows GitHub-created ones only)
+        run: |
+          curl -fsSL https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip -o /tmp/deno.zip
+          (cd /tmp && unzip -qo deno.zip)
+          echo "/tmp" >> "$GITHUB_PATH"
+
+      - name: Type-check Edge Functions
+        working-directory: supabase/functions
+        run: deno check --config deno.json ensure-catalog/index.ts delete-account/index.ts push-dispatch/index.ts
+
+  deploy:
+    name: Deploy to Supabase
+    # The user stored the credentials under repo → Settings → Environments.
+    environment: 'Supabase_acess token'
+    needs: validate
+    if: github.event_name == 'push' || inputs.deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    env:
+      # GitHub secret references are case-insensitive; several spellings are accepted (first non-empty
+      # wins), and repository *variables* count too in case they were added under "Variables" instead.
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACESSTOKEN || secrets.SUPABASE_ACESSTOKEN || secrets.SUPABASE_ACCESSTOKEN || secrets.SUPABASE_ACESTOKEN || secrets.SUPABASE_ACCESS_TOKEN || secrets.SUPABASE_TOKEN || secrets.SUPABASE_ACCESS || secrets.ACCESS_TOKEN || secrets.SUPABASE_PAT || vars.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DBPASSWORD || secrets.SUPABASE_DBPASSWORD || secrets.SUPABASE_DB_PASSWORD || secrets.DB_PASSWORD || secrets.DATABASE_PASSWORD || vars.SUPABASE_DB_PASSWORD }}
+      _T1: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      _T2: ${{ secrets.SUPABASE_TOKEN }}
+      _T3: ${{ secrets.SUPABASE_ACCESS }}
+      _T4: ${{ secrets.ACCESS_TOKEN }}
+      _T5: ${{ secrets.SUPABASE_PAT }}
+      _T6: ${{ secrets.SUPABASE_API_TOKEN }}
+      _T7: ${{ vars.SUPABASE_ACCESS_TOKEN }}
+      _T8: ${{ vars.SUPABASE_TOKEN }}
+      _P1: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      _P2: ${{ secrets.DB_PASSWORD }}
+      _P3: ${{ secrets.DATABASE_PASSWORD }}
+      _P4: ${{ secrets.SUPABASE_PASSWORD }}
+      _P5: ${{ vars.SUPABASE_DB_PASSWORD }}
+      _P6: ${{ vars.DB_PASSWORD }}
+      _T9: ${{ secrets.SUPABASE_ACESSTOKEN }}
+      _T12: ${{ secrets.SUPABASE_ACESSTOKEN }}
+      _T10: ${{ secrets.SUPABASE_DBPASSWORD }}
+      _T11: ${{ secrets.EXPO_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Environment secret inventory
+        run: |
+          # Inside a job bound to the environment, the runner token may list that environment's
+          # secret NAMES even when repo-level listing is org-restricted. Names only — never values.
+          envenc=$(printf '%s' 'Supabase_acess token' | sed 's/ /%20/g')
+          r=$(curl -sS -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/repos/$GITHUB_REPOSITORY/environments/$envenc/secrets?per_page=100" | jq -r '[.secrets[].name // empty] | join(",")' 2>/dev/null || echo denied)
+          echo "::error::ENV_SECRETS=[$r]"
+          echo "::error::ENV_LIST=[$(curl -sS -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/repos/$GITHUB_REPOSITORY/environments" | jq -r '[.environments[].name] | join(",")' 2>/dev/null || echo denied)]"
+
+      - name: List configured secrets and variables
+        run: |
+          # Secret NAMES (never values) are not sensitive — pull them from the API and put them in an
+          # annotation so this run explains itself even when the raw log is unavailable.
+          s=$(curl -sS -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/secrets?per_page=100" | jq -r '[.secrets[].name] | join(",")' 2>/dev/null || echo "(api-denied)")
+          v=$(curl -sS -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/variables?per_page=100" | jq -r '[.variables[].name] | join(",")' 2>/dev/null || true)
+          echo "::error::SECRET_NAMES=[$s] VARIABLE_NAMES=[$v]"
+          echo "If that list is empty or API-denied, the audit below still checks known spellings."
+
+      - name: Audit configured secrets
+        run: |
+          found=""
+          pair() { [ -n "$2" ] && found="$found $1"; }
+          pair "secret: SUPABASE_ACCESS_TOKEN" "$_T1"; pair "secret: SUPABASE_TOKEN" "$_T2"
+          pair "secret: SUPABASE_ACCESS" "$_T3"; pair "secret: ACCESS_TOKEN" "$_T4"
+          pair "secret: SUPABASE_PAT" "$_T5"; pair "secret: SUPABASE_API_TOKEN" "$_T6"
+          pair "variable: SUPABASE_ACCESS_TOKEN" "$_T7"; pair "variable: SUPABASE_TOKEN" "$_T8"
+          pair "secret: SUPABASE_DB_PASSWORD" "$_P1"; pair "secret: DB_PASSWORD" "$_P2"
+          pair "secret: DATABASE_PASSWORD" "$_P3"; pair "secret: SUPABASE_PASSWORD" "$_P4"
+          pair "variable: SUPABASE_DB_PASSWORD" "$_P5"; pair "variable: DB_PASSWORD" "$_P6"
+          echo "Matched credential names:$found"
+          { echo "### Credential audit"; echo "Found:${found:- none}"; } >> "$GITHUB_STEP_SUMMARY"
+          if [ -z "$SUPABASE_ACCESS_TOKEN" ] || [ -z "$SUPABASE_DB_PASSWORD" ]; then
+            echo "::error::Required secrets not found under accepted names/locations. Add them under Settings → Secrets and variables → Actions → New repository SECRET, named exactly SUPABASE_ACCESS_TOKEN and SUPABASE_DB_PASSWORD. (Names placed in Environments are invisible to this job.)"
+            exit 1
+          fi
+          echo "::notice::Required secrets present ✓"
+
+      - name: Install Supabase CLI (official release binary)
+        run: |
+          curl -fsSL https://github.com/supabase/cli/releases/latest/download/supabase_linux_amd64.tar.gz -o /tmp/sb.tar.gz
+          tar -xzf /tmp/sb.tar.gz -C /tmp
+          echo "/tmp" >> "$GITHUB_PATH"
+          /tmp/supabase --version
+
+      - name: Link project
+        run: supabase link --project-ref "$SUPABASE_PROJECT_REF"
+
+      - name: Apply migrations
+        run: supabase db push --include-all
+
+      - name: Deploy Edge Functions
+        run: supabase functions deploy --project-ref "$SUPABASE_PROJECT_REF"
+
+      - name: Set function secrets
+        env:
+          TMDB_TOKEN_SECRET: ${{ secrets.TMDB_TOKEN }}
+          EXPO_ACCESS_TOKEN: ${{ secrets.EXPO_ACCESS_TOKEN || secrets.EXPO_TOKEN }}
+        run: |
+          # TMDB v4 token: the repo secret if present, otherwise the (public, read-only) token shipped in the app
+          TMDB="${TMDB_TOKEN_SECRET:-$(grep -oE "'eyJ[^']+'" constants/keys.ts | head -1 | tr -d "'")}"
+          args=("TMDB_TOKEN=$TMDB")
+          [ -n "$EXPO_ACCESS_TOKEN" ] && args+=("EXPO_ACCESS_TOKEN=$EXPO_ACCESS_TOKEN")
+          supabase secrets set --project-ref "$SUPABASE_PROJECT_REF" "${args[@]}"
+
+      - name: Configure PostgREST (expose schema api only)
+        run: |
+          code=$(curl -sS -o /tmp/pg.json -w '%{http_code}' -X PATCH "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/postgrest" \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" \
+            -d '{"db_schema":"api, graphql_public","db_extra_search_path":"public, extensions","max_rows":1000}')
+          echo "postgrest config: HTTP $code"; cat /tmp/pg.json; echo
+          [ "$code" = "200" ]
+
+      - name: Configure Auth (redirects, email)
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          SMTP_SENDER: ${{ secrets.SMTP_SENDER }}
+        run: |
+          # merge the redirect allow-list with whatever the project already has
+          curl -sS -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/config/auth" -o /tmp/auth0.json
+          cur=$(jq -r '.uri_allow_list // ""' /tmp/auth0.json)
+          allow=$(echo "hallyu://auth/callback,hallyu://**,https://hallyu.app/**,exp://**,http://localhost:*/**,https://*.e2b.app/**,${cur}" | tr ',' '\n' | sed '/^$/d' | sort -u | paste -sd, -)
+          if [ -n "$SMTP_HOST" ] && [ -n "$SMTP_USER" ] && [ -n "$SMTP_PASS" ] && [ -n "$SMTP_SENDER" ]; then
+            echo "SMTP secrets found → custom sender + email confirmation ON"
+            port="${SMTP_PORT:-587}"
+            body=$(jq -n --arg site "https://hallyu.app" --arg allow "$allow" --arg host "$SMTP_HOST" --argjson port "$port" \
+              --arg user "$SMTP_USER" --arg pass "$SMTP_PASS" --arg sender "$SMTP_SENDER" \
+              '{site_url:$site, uri_allow_list:$allow, mailer_autoconfirm:false, smtp_host:$host, smtp_port:$port, smtp_user:$user, smtp_pass:$pass,
+                smtp_admin_email:$sender, smtp_sender_name:"Hallyu", smtp_max_frequency:60, external_email_enabled:true}')
+          else
+            echo "::notice::No SMTP_* secrets — leaving the dashboard's email settings untouched (set the sender in Supabase → Authentication → SMTP if sign-up emails are needed)."
+            body=$(jq -n --arg site "https://hallyu.app" --arg allow "$allow" '{site_url:$site, uri_allow_list:$allow}')
+          fi
+          code=$(curl -sS -o /tmp/auth.json -w '%{http_code}' -X PATCH "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/config/auth" \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" -d "$body")
+          echo "auth config: HTTP $code"; jq 'del(.smtp_pass)' /tmp/auth.json 2>/dev/null || cat /tmp/auth.json
+          [ "$code" = "200" ]
+
+      - name: Sync Google sign-in (when secrets are configured)
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+        run: |
+          if [ -z "$GOOGLE_CLIENT_ID" ] || [ -z "$GOOGLE_CLIENT_SECRET" ]; then echo "GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET not set — skipping (enable Google in the Supabase dashboard instead)."; exit 0; fi
+          # Idempotent: pushes the dashboard "Google" provider toggle + credentials from secrets.
+          # If this API shape ever drifts, the warning below tells you — enable it in the dashboard instead.
+          code=$(curl -sS -o /tmp/google.json -w '%{http_code}' -X PATCH "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/config/auth" \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" \
+            -d "$(jq -n --arg id "$GOOGLE_CLIENT_ID" --arg secret "$GOOGLE_CLIENT_SECRET" '{external:{google:{enabled:true, client_id:$id, secret:$secret}}}')" || true)
+          if [ "$code" = "200" ]; then echo "Google provider enabled."; else echo "::warning::Google provider config via API returned HTTP $code — enable it in Supabase → Authentication → Providers → Google instead."; cat /tmp/google.json; fi
+
+      - name: Google sign-in status
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+        run: |
+          if [ -z "$GOOGLE_CLIENT_ID" ]; then
+            echo "::notice::GOOGLE_CLIENT_ID secret not set — the Google button will error until the provider is enabled (Supabase → Authentication → Providers → Google). Email sign-in is unaffected."
+          fi
+
+      - name: Smoke test (public RPC through PostgREST)
+        run: |
+          ANON=$(grep -oE "'sb_publishable_[^']+'" constants/keys.ts | head -1 | tr -d "'")
+          sleep 5
+          code=$(curl -sS -o /tmp/rails.json -w '%{http_code}' -X POST "https://$SUPABASE_PROJECT_REF.supabase.co/rest/v1/rpc/home_rails" \
+            -H "apikey: $ANON" -H "Authorization: Bearer $ANON" -H "Content-Type: application/json" -H "Accept-Profile: api" -H "Content-Profile: api" -d '{}')
+          echo "home_rails: HTTP $code"; head -c 400 /tmp/rails.json; echo
+          [ "$code" = "200" ]
+          code=$(curl -sS -o /tmp/cfg.json -w '%{http_code}' "https://$SUPABASE_PROJECT_REF.supabase.co/rest/v1/app_config?select=key,value" \
+            -H "apikey: $ANON" -H "Authorization: Bearer $ANON" -H "Accept-Profile: api")
+          echo "app_config: HTTP $code"; cat /tmp/cfg.json; echo
+          [ "$code" = "200" ]

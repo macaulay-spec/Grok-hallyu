@@ -1,0 +1,293 @@
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "$description": "Hallyu design tokens — W3C DTCG format. Source of truth for HallyuTheme (Compose) and any future platform. Semantic tokens reference primitives; only semantic tokens are used in components.",
+  "$version": "1.0.0",
+
+  "primitive": {
+    "color": {
+      "$type": "color",
+      "ink": {
+        "1000": { "$value": "#000000" },
+        "950": { "$value": "#0A0A0A" },
+        "900": { "$value": "#111113" },
+        "850": { "$value": "#161618" },
+        "800": { "$value": "#1C1C1F" },
+        "700": { "$value": "#26262B" },
+        "600": { "$value": "#34343A" },
+        "500": { "$value": "#4B4B53" },
+        "450": { "$value": "#61616B", "$description": "border.strong — 3.2:1 on canvas" },
+        "400": { "$value": "#7A7A85", "$description": "text.tertiary — 4.7:1 on canvas" },
+        "300": { "$value": "#A1A1AA", "$description": "text.secondary — 7.7:1 on canvas" },
+        "200": { "$value": "#C4C4CC" },
+        "100": { "$value": "#D6D6DC" },
+        "50": { "$value": "#F4F4F6" }
+      },
+      "white": { "$value": "#FAFAFA" },
+      "rose": {
+        "700": { "$value": "#BE123C" },
+        "600": { "$value": "#E11D48", "$description": "Brand accent. The Signal." },
+        "500": { "$value": "#F43F5E" },
+        "400": { "$value": "#FB7185", "$description": "Accent for small text (AA on canvas)." },
+        "300": { "$value": "#FDA4AF" }
+      },
+      "amber": {
+        "500": { "$value": "#E8A33D" },
+        "400": { "$value": "#F2B84B", "$description": "Warm secondary: ratings, verdicts, warm highlights." }
+      },
+      "green": { "400": { "$value": "#34D399" } },
+      "yellow": { "400": { "$value": "#FBBF24" } },
+      "red": { "400": { "$value": "#F87171" } },
+      "blue": { "400": { "$value": "#60A5FA" } }
+    },
+    "dimension": {
+      "$type": "dimension",
+      "0": { "$value": "0dp" },
+      "2": { "$value": "2dp" },
+      "4": { "$value": "4dp" },
+      "8": { "$value": "8dp" },
+      "12": { "$value": "12dp" },
+      "16": { "$value": "16dp" },
+      "20": { "$value": "20dp" },
+      "24": { "$value": "24dp" },
+      "32": { "$value": "32dp" },
+      "40": { "$value": "40dp" },
+      "48": { "$value": "48dp" },
+      "64": { "$value": "64dp" }
+    },
+    "fontFamily": {
+      "$type": "fontFamily",
+      "sans": { "$value": ["Pretendard Variable", "Inter", "Noto Sans KR", "Roboto", "sans-serif"] }
+    },
+    "duration": {
+      "$type": "duration",
+      "80": { "$value": "80ms" },
+      "160": { "$value": "160ms" },
+      "260": { "$value": "260ms" },
+      "400": { "$value": "400ms" },
+      "600": { "$value": "600ms" }
+    },
+    "cubicBezier": {
+      "$type": "cubicBezier",
+      "standard": { "$value": [0.2, 0, 0, 1] },
+      "emphasizedDecel": { "$value": [0.05, 0.7, 0.1, 1] },
+      "emphasizedAccel": { "$value": [0.3, 0, 0.8, 0.15] }
+    }
+  },
+
+  "color": {
+    "$type": "color",
+    "canvas": { "$value": "{primitive.color.ink.950}", "$description": "Screen background. True-black appearance remaps to ink.1000." },
+    "canvas.trueBlack": { "$value": "{primitive.color.ink.1000}" },
+    "surface": {
+      "1": { "$value": "{primitive.color.ink.900}", "$description": "Inputs, separated cards" },
+      "2": { "$value": "{primitive.color.ink.850}", "$description": "Sheets, menus, chips" },
+      "3": { "$value": "{primitive.color.ink.800}", "$description": "Overlay on surface.2, pressed" }
+    },
+    "border": {
+      "subtle": { "$value": "{primitive.color.ink.800}", "$description": "Hairlines, dividers (1dp)" },
+      "strong": { "$value": "{primitive.color.ink.450}", "$description": "Focused inputs, outlines, focus rings (3.2:1)" }
+    },
+    "text": {
+      "primary": { "$value": "{primitive.color.white}" },
+      "secondary": { "$value": "{primitive.color.ink.300}" },
+      "tertiary": { "$value": "{primitive.color.ink.400}", "$description": "Placeholders, reason lines (4.7:1 — the readable floor)" },
+      "disabled": { "$value": "{primitive.color.ink.500}" },
+      "onAccent": { "$value": "{primitive.color.white}" },
+      "onMedia": { "$value": "{primitive.color.white}" }
+    },
+    "accent": {
+      "default": { "$value": "{primitive.color.rose.600}", "$description": "Fills, icons, the Signal, text ≥ 18sp" },
+      "text": { "$value": "{primitive.color.rose.400}", "$description": "Accent text < 18sp, links" },
+      "pressed": { "$value": "{primitive.color.rose.700}" },
+      "soft": { "$value": "#E11D4824", "$description": "rose.600 @ 14%: selected chips, reacted backgrounds" }
+    },
+    "warm": {
+      "default": { "$value": "{primitive.color.amber.400}" },
+      "soft": { "$value": "#F2B84B24", "$description": "amber.400 @ 14%" }
+    },
+    "live": { "$value": "{primitive.color.rose.600}", "$description": "The Signal" },
+    "success": { "$value": "{primitive.color.green.400}" },
+    "warning": { "$value": "{primitive.color.yellow.400}" },
+    "danger": { "$value": "{primitive.color.red.400}" },
+    "danger.fill": { "$value": "{primitive.color.rose.700}" },
+    "info": { "$value": "{primitive.color.blue.400}" },
+    "veil": { "$value": "{primitive.color.ink.850}", "$description": "Spoiler veil surface (with border.subtle)" },
+    "scrim.end": { "$value": "#000000B8", "$description": "Bottom of image scrims (72%)" },
+    "scrim.start": { "$value": "#00000000" },
+    "overlay": { "$value": "#0000008F", "$description": "Behind sheets/dialogs (56%)" },
+    "reaction": {
+      "loved": { "$value": "{primitive.color.rose.600}" },
+      "cried": { "$value": "{primitive.color.blue.400}" },
+      "screamed": { "$value": "{primitive.color.amber.400}" },
+      "swooned": { "$value": "{primitive.color.rose.400}" },
+      "laughed": { "$value": "{primitive.color.amber.400}" },
+      "furious": { "$value": "{primitive.color.red.400}" }
+    }
+  },
+
+  "typography": {
+    "$type": "typography",
+    "$description": "Sizes in sp. Hangul-heavy runs use lineHeight ×1.07 (≈1.55 ratio) and letterSpacing 0 — applied by HallyuText.",
+    "displayLarge": { "$value": { "fontFamily": "{primitive.fontFamily.sans}", "fontSize": "40sp", "lineHeight": "44sp", "fontWeight": 800, "letterSpacing": "-0.015em" } },
+    "display": { "$value": { "fontFamily": "{primitive.fontFamily.sans}", "fontSize": "32sp", "lineHeight": "38sp", "fontWeight": 800, "letterSpacing": "-0.01em" } },
+    "headline": { "$value": { "fontFamily": "{primitive.fontFamily.sans}", "fontSize": "26sp", "lineHeight": "32sp", "fontWeight": 700, "letterSpacing": "-0.005em" } },
+    "titleLarge": { "$value": { "fontFamily": "{primitive.fontFamily.sans}", "fontSize": "22sp", "lineHeight": "28sp", "fontWeight": 700, "letterSpacing": "-0.0025em" } },
+    "title": { "$value": { "fontFamily": "{primitive.fontFamily.sans}", "fontSize": "18sp", "lineHeight": "24sp", "fontWeight": 600, "letterSpacing": "0em" } },
+    "titleSmall": { "$value": { "fontFamily": "{primitive.fontFamily.sans}", "fontSize": "16sp", "lineHeight": "22sp", "fontWeight": 600, "letterSpacing": "0em" } },
+    "bodyLarge": { "$value": { "fontFamily": "{primitive.fontFamily.sans}", "fontSize": "17sp", "lineHeight": "26sp", "fontWeight": 400, "letterSpacing": "0em" } },
+    "body": { "$value": { "fontFamily": "{primitive.fontFamily.sans}", "fontSize": "15sp", "lineHeight": "22sp", "fontWeight": 400, "letterSpacing": "0em" } },
+    "bodySmall": { "$value": { "fontFamily": "{primitive.fontFamily.sans}", "fontSize": "14sp", "lineHeight": "20sp", "fontWeight": 400, "letterSpacing": "0em" } },
+    "label": { "$value": { "fontFamily": "{primitive.fontFamily.sans}", "fontSize": "13sp", "lineHeight": "18sp", "fontWeight": 600, "letterSpacing": "0.002em" } },
+    "caption": { "$value": { "fontFamily": "{primitive.fontFamily.sans}", "fontSize": "12sp", "lineHeight": "16sp", "fontWeight": 500, "letterSpacing": "0em" } },
+    "overline": { "$value": { "fontFamily": "{primitive.fontFamily.sans}", "fontSize": "11sp", "lineHeight": "14sp", "fontWeight": 700, "letterSpacing": "0.06em", "textCase": "uppercase" } },
+    "button": { "$value": { "fontFamily": "{primitive.fontFamily.sans}", "fontSize": "15sp", "lineHeight": "20sp", "fontWeight": 600, "letterSpacing": "0em" } },
+    "tabLabel": { "$value": { "fontFamily": "{primitive.fontFamily.sans}", "fontSize": "11sp", "lineHeight": "14sp", "fontWeight": 500, "letterSpacing": "0em" } }
+  },
+
+  "fontFeature": {
+    "$type": "string",
+    "tabularNumbers": { "$value": "tnum" }
+  },
+
+  "space": {
+    "$type": "dimension",
+    "xxs": { "$value": "{primitive.dimension.2}" },
+    "xs": { "$value": "{primitive.dimension.4}" },
+    "sm": { "$value": "{primitive.dimension.8}" },
+    "md": { "$value": "{primitive.dimension.12}" },
+    "lg": { "$value": "{primitive.dimension.16}" },
+    "xl": { "$value": "{primitive.dimension.20}" },
+    "2xl": { "$value": "{primitive.dimension.24}" },
+    "3xl": { "$value": "{primitive.dimension.32}" },
+    "4xl": { "$value": "{primitive.dimension.40}" },
+    "5xl": { "$value": "{primitive.dimension.48}" },
+    "6xl": { "$value": "{primitive.dimension.64}" },
+    "screenMargin": {
+      "compact": { "$value": "16dp" },
+      "medium": { "$value": "24dp" },
+      "expanded": { "$value": "32dp" }
+    },
+    "gutter": { "$value": "12dp" },
+    "section": { "$value": "32dp" },
+    "cardPadding": { "$value": "16dp" }
+  },
+
+  "radius": {
+    "$type": "dimension",
+    "xs": { "$value": "4dp", "$description": "Tags" },
+    "sm": { "$value": "8dp", "$description": "Buttons, inputs, posters" },
+    "md": { "$value": "12dp", "$description": "Media, boxed cards, dialogs" },
+    "lg": { "$value": "16dp", "$description": "Sheet top corners, large media" },
+    "xl": { "$value": "24dp", "$description": "Create button, floating pills" },
+    "full": { "$value": "9999dp" }
+  },
+
+  "size": {
+    "$type": "dimension",
+    "touchTarget": { "$value": "48dp" },
+    "icon": { "sm": { "$value": "18dp" }, "md": { "$value": "20dp" }, "lg": { "$value": "24dp" }, "xl": { "$value": "28dp" } },
+    "avatar": { "24": { "$value": "24dp" }, "32": { "$value": "32dp" }, "40": { "$value": "40dp" }, "48": { "$value": "48dp" }, "64": { "$value": "64dp" }, "96": { "$value": "96dp" } },
+    "posterWidth": { "s": { "$value": "72dp" }, "m": { "$value": "104dp" }, "l": { "$value": "140dp" }, "xl": { "$value": "180dp" } },
+    "button": { "lg": { "$value": "52dp" }, "md": { "$value": "44dp" }, "sm": { "$value": "36dp" }, "xs": { "$value": "28dp" } },
+    "textField": { "$value": "52dp" },
+    "topBar": { "$value": "56dp" },
+    "tabBar": { "$value": "64dp" },
+    "navigationRail": { "$value": "80dp" },
+    "createButton": { "$value": "40dp" },
+    "signal": { "sm": { "$value": "6dp" }, "md": { "$value": "8dp" } },
+    "hairline": { "$value": "1dp" },
+    "readingColumnMax": { "$value": "640dp" },
+    "heroMaxHeight": { "$value": "420dp" }
+  },
+
+  "aspectRatio": {
+    "$type": "number",
+    "poster": { "$value": 0.6667, "$description": "2:3" },
+    "backdrop": { "$value": 1.7778, "$description": "16:9" },
+    "short": { "$value": 0.5625, "$description": "9:16" },
+    "postImageMin": { "$value": 0.8, "$description": "4:5" },
+    "postImageMax": { "$value": 1.91 }
+  },
+
+  "elevation": {
+    "$type": "shadow",
+    "none": { "$value": { "color": "#00000000", "offsetX": "0dp", "offsetY": "0dp", "blur": "0dp", "spread": "0dp" } },
+    "floating": { "$value": { "color": "#0000004D", "offsetX": "0dp", "offsetY": "4dp", "blur": "12dp", "spread": "0dp" }, "$description": "Create button, floating pills, dragged items only" }
+  },
+
+  "opacity": {
+    "$type": "number",
+    "disabled": { "$value": 0.38 },
+    "pressedOverlay": { "$value": 0.08 },
+    "hoverOverlay": { "$value": 0.08 },
+    "grain": { "$value": 0.04 },
+    "veilMediaDim": { "$value": 0.3 }
+  },
+
+  "blur": {
+    "$type": "dimension",
+    "veilMedia": { "$value": "24dp" }
+  },
+
+  "motion": {
+    "duration": {
+      "$type": "duration",
+      "instant": { "$value": "{primitive.duration.80}" },
+      "short": { "$value": "{primitive.duration.160}" },
+      "medium": { "$value": "{primitive.duration.260}" },
+      "long": { "$value": "{primitive.duration.400}" },
+      "slow": { "$value": "{primitive.duration.600}" }
+    },
+    "easing": {
+      "$type": "cubicBezier",
+      "standard": { "$value": "{primitive.cubicBezier.standard}" },
+      "emphasizedDecel": { "$value": "{primitive.cubicBezier.emphasizedDecel}" },
+      "emphasizedAccel": { "$value": "{primitive.cubicBezier.emphasizedAccel}" }
+    },
+    "spring": {
+      "$type": "object",
+      "snappy": { "$value": { "stiffness": 700, "dampingRatio": 0.75 } },
+      "gentle": { "$value": { "stiffness": 300, "dampingRatio": 0.85 } }
+    },
+    "livePulsePeriod": { "$type": "duration", "$value": "1600ms" },
+    "skeletonShimmerPeriod": { "$type": "duration", "$value": "1200ms" },
+    "skeletonDelay": { "$type": "duration", "$value": "150ms" }
+  },
+
+  "zIndex": {
+    "$type": "number",
+    "content": { "$value": 0 },
+    "stickyHeader": { "$value": 10 },
+    "tabBar": { "$value": 20 },
+    "floatingPill": { "$value": 30 },
+    "sheet": { "$value": 40 },
+    "dialog": { "$value": 50 },
+    "toast": { "$value": 60 }
+  },
+
+  "limits": {
+    "$type": "number",
+    "$description": "Content limits mirrored in composers (02 §1.6)",
+    "postBody": { "$value": 1000 },
+    "reactionLine": { "$value": 140 },
+    "discussionTitle": { "$value": 90 },
+    "discussionBody": { "$value": 5000 },
+    "reviewVerdict": { "$value": 120 },
+    "reviewBody": { "$value": 5000 },
+    "recommendationBody": { "$value": 500 },
+    "shortCaption": { "$value": 300 },
+    "comment": { "$value": 1000 },
+    "bio": { "$value": 160 },
+    "displayName": { "$value": 40 },
+    "collectionTitle": { "$value": 60 },
+    "collectionDescription": { "$value": 300 },
+    "collectionItemNote": { "$value": 140 },
+    "watchlistNote": { "$value": 280 },
+    "imagesPerPost": { "$value": 4 },
+    "actorsPerPost": { "$value": 3 },
+    "favoriteDramas": { "$value": 4 },
+    "favoriteGenres": { "$value": 5 },
+    "shortMaxSeconds": { "$value": 60 },
+    "shortMinSeconds": { "$value": 3 }
+  }
+}

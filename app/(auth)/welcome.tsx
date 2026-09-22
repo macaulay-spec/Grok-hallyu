@@ -1,1 +1,128 @@
-import React from'react';import{View,Text,StyleSheet,ImageBackground,Pressable}from'react-native';import{useRouter}from'expo-router';import{colors,radius,typography}from'../../constants/theme';export default function Welcome(){const r=useRouter();return <ImageBackground source={require('../../assets/onboarding/welcome.png')} style={s.bg}><View style={s.shade}/><View style={s.content}><Text style={s.brand}>HALLYU</Text><Text style={s.eyebrow}>YOUR DRAMA UNIVERSE</Text><Text style={s.title}>Every scene.{`\n`}Every feeling.</Text><Text style={s.sub}>A cinematic social home built for people who never stop talking about K-dramas.</Text><Pressable style={s.button} onPress={()=>r.push('/(auth)/signup')}><Text style={s.bt}>Create your account</Text></Pressable><Pressable onPress={()=>r.push('/(auth)/login')}><Text style={s.login}>Already here? <Text style={{color:colors.text}}>Log in</Text></Text></Pressable></View></ImageBackground>}const s=StyleSheet.create({bg:{flex:1,backgroundColor:colors.background},shade:{...StyleSheet.absoluteFillObject,backgroundColor:'rgba(0,0,0,.42)'},content:{flex:1,justifyContent:'flex-end',padding:24,paddingBottom:44},brand:{color:colors.accent,fontSize:16,fontWeight:'900',letterSpacing:5,marginBottom:70},eyebrow:{...typography.caption,color:colors.secondary,letterSpacing:2,fontWeight:'800'},title:{...typography.display,color:colors.text,marginTop:7},sub:{...typography.body,color:colors.secondary,maxWidth:340,marginTop:16,marginBottom:28},button:{height:56,borderRadius:radius.md,backgroundColor:colors.accent,alignItems:'center',justifyContent:'center'},bt:{...typography.button,color:colors.text},login:{textAlign:'center',color:colors.secondary,marginTop:18,fontSize:14}});
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Button } from '../../components/ui/Button';
+import { Text } from '../../components/ui/Text';
+import { LivingWall } from '../../components/onboarding/LivingWall';
+import { Wordmark } from '../../components/ui/TopBar';
+import { useToast } from '../../components/ui/Toast';
+import { colors, motion, space } from '../../constants/theme';
+import { useAuth } from '../../lib/auth';
+import { useLayout, useLoad } from '../../lib/hooks';
+import { catalog } from '../../lib/catalog';
+import { adoptDramas } from '../../lib/catalogSync';
+import { allDramas, useSlice } from '../../lib/store';
+
+/**
+ * Welcome: the promise, two doors (Google / email), a quiet sign-in link and "Look around first".
+ * Background is a quiet poster mosaic under a scrim — cinematic, not a gradient.
+ */
+export default function Welcome() {
+  const router = useRouter();
+  const auth = useAuth();
+  const toast = useToast();
+  const insets = useSafeAreaInsets();
+  const { width } = useLayout();
+  const [busy, setBusy] = useState<'google' | null>(null);
+  const rise = useRef(new Animated.Value(24)).current;
+  const fade = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(rise, { toValue: 0, duration: motion.slow, useNativeDriver: true }),
+      Animated.timing(fade, { toValue: 1, duration: motion.slow, useNativeDriver: true }),
+    ]).start();
+  }, [rise, fade]);
+
+  const google = async () => {
+    setBusy('google');
+    try {
+      await auth.signInWithGoogle();
+      router.replace('/');
+    } catch (e) {
+      const err = e as Error & { code?: string };
+      if (err.code !== 'cancelled') toast.show({ message: err.message, tone: 'danger' });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const importedDramas = useSlice((s) => s.importedDramas);
+  const cols = width >= 840 ? 6 : width >= 600 ? 5 : 4;
+  const posterW = Math.max(88, Math.floor((width - space.margin * 2 - space.x2 * (cols - 1)) / cols));
+  // The wall is what's trending this week (live), so the first screen is the real K-drama world;
+  // saved art fills in until it arrives or when offline.
+  const live = useLoad(
+    async (signal) => {
+      const [t, p] = await Promise.all([catalog.trending(signal), catalog.popular(1, signal).catch(() => [] as typeof importedDramas)]);
+      return adoptDramas([...t, ...p]);
+    },
+    [],
+    catalog.available,
+  );
+  // The wall draws from what's trending (plus popular, for variety); saved art fills in until it arrives or offline.
+  const mosaic = useMemo(() => {
+    const trending = (live.data ?? []).filter((d) => d.posterUrl);
+    const all = allDramas({ importedDramas });
+    const withArt = all.filter((d) => d.posterUrl || d.posterLocal);
+    const seen = new Set(trending.map((d) => d.id));
+    return [...trending, ...withArt.filter((d) => !seen.has(d.id))];
+  }, [importedDramas, live.data]);
+  const tiles = cols * 2;
+
+  return (
+    <View style={styles.root}>
+      <LivingWall key={tiles} dramas={mosaic} tiles={tiles} tileWidth={posterW} height="56%" />
+
+      <Animated.View style={[styles.content, { paddingBottom: insets.bottom + space.x6, opacity: fade, transform: [{ translateY: rise }] }]}>
+        <View style={{ alignSelf: 'flex-start' }}>
+          <Wordmark size={40} />
+        </View>
+        <Text variant="displayLarge" style={{ marginTop: space.x6 }}>
+          Your dramas.{'\n'}Your people.{'\n'}Your world.
+        </Text>
+        <Text variant="bodyLarge" tone="secondary" style={{ marginTop: space.x3 }}>
+          Where K-drama fans meet — episode by episode, spoiler-safe.
+        </Text>
+
+        <View style={{ gap: space.x3, marginTop: space.x8 }}>
+          <Button label="Continue with Google" icon="logo-google" variant="secondary" size="lg" block onPress={google} loading={busy === 'google'} />
+          <Button label="Continue with email" icon="mail-outline" size="lg" block onPress={() => router.push('/(auth)/sign-up')} />
+          <Button label="I already have an account" variant="ghost" size="md" block onPress={() => router.push('/(auth)/sign-in')} />
+        </View>
+
+        <View style={styles.guestRow}>
+          <Button
+            label="Look around first"
+            variant="ghost"
+            size="sm"
+            iconRight="arrow-forward"
+            onPress={() => {
+              auth.continueAsGuest();
+              router.replace('/(tabs)');
+            }}
+          />
+        </View>
+
+        <Text variant="caption" tone="tertiary" align="center" style={{ marginTop: space.x4 }}>
+          By continuing you agree to the Terms and acknowledge the Privacy Policy. Be kind, mark your spoilers.
+        </Text>
+        <View style={styles.tmdb}>
+          <Ionicons name="film-outline" size={12} color={colors.textDisabled} />
+          <Text variant="caption" tone="disabled">
+            Catalog data by TMDB
+          </Text>
+        </View>
+      </Animated.View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.canvas },
+  content: { flex: 1, justifyContent: 'flex-end', paddingHorizontal: space.x6, maxWidth: 560, width: '100%', alignSelf: 'center' },
+  guestRow: { flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap', gap: space.x2, marginTop: space.x3 },
+  tmdb: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, marginTop: space.x2 },
+});

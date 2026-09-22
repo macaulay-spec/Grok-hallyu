@@ -1,1 +1,30 @@
-import React from'react';import{Tabs}from'expo-router';export default function Layout(){return <Tabs screenOptions={{headerShown:false,tabBarStyle:{display:'none'}}}><Tabs.Screen name='index'/><Tabs.Screen name='search'/><Tabs.Screen name='create'/><Tabs.Screen name='notifications'/><Tabs.Screen name='profile'/></Tabs>}
+import { Tabs } from 'expo-router';
+import React from 'react';
+import { View } from 'react-native';
+import { TabBar } from '../../components/navigation/TabBar';
+import { TabBarMotionProvider } from '../../components/navigation/TabBarMotion';
+import { colors, sizes } from '../../constants/theme';
+import { useLayout } from '../../lib/hooks';
+
+export default function TabsLayout() {
+  const { wc } = useLayout();
+  const rail = wc !== 'compact';
+  return (
+    <TabBarMotionProvider>
+    <View style={{ flex: 1, backgroundColor: colors.canvas, paddingLeft: rail ? sizes.rail : 0 }}>
+      <Tabs
+        tabBar={(props) => <TabBar {...props} />}
+        screenOptions={{ headerShown: false, lazy: true }}
+        sceneContainerStyle={{ backgroundColor: colors.canvas }}
+        backBehavior="history"
+      >
+        <Tabs.Screen name="index" options={{ title: 'Home' }} />
+        <Tabs.Screen name="explore" options={{ title: 'Explore' }} />
+        <Tabs.Screen name="create" options={{ title: 'Create' }} listeners={{ tabPress: (e) => e.preventDefault() }} />
+        <Tabs.Screen name="activity" options={{ title: 'Activity' }} />
+        <Tabs.Screen name="you" options={{ title: 'You' }} />
+      </Tabs>
+    </View>
+    </TabBarMotionProvider>
+  );
+}

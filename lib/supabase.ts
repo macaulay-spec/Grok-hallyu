@@ -1,15 +1,20 @@
 import 'react-native-url-polyfill/auto';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
+import { SUPABASE_ANON_KEY, SUPABASE_URL as SUPABASE_URL_KEY } from '../constants/keys';
 
-// Env vars win (CI/local overrides); baked-in fallbacks keep every
-// release build connected. The publishable key is public-safe by
-// design — all data access is guarded by RLS policies.
-export const SUPABASE_URL =
-  process.env.EXPO_PUBLIC_SUPABASE_URL ?? 'https://psmxekrmoltwabefgqpd.supabase.co';
-export const SUPABASE_KEY =
-  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ??
-  'sb_publishable_C6xEGHQxutS_ub-1ebuUDQ_TxVa_-v0';
+// Credentials live in constants/keys.ts (wired into the app; env overrides only when non-empty).
+// The publishable key is public-safe by design — all data access is guarded by RLS policies.
+export const SUPABASE_URL = SUPABASE_URL_KEY;
+export const SUPABASE_KEY = SUPABASE_ANON_KEY;
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
-  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
+  // PostgREST exposes only the `api` schema (views + RPCs) — see docs/backend/08.
+  db: { schema: 'api' },
+  auth: {
+    storage: AsyncStorage,
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: false,
+  },
 });

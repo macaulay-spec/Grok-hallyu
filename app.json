@@ -1,1 +1,88 @@
-{"expo":{"name":"Hallyu","slug":"hallyu","version":"1.0.0","orientation":"portrait","userInterfaceStyle":"dark","scheme":"hallyu","plugins":["expo-router","expo-image-picker"],"android":{"package":"com.hallyu.app"}}}
+{
+  "expo": {
+    "name": "Hallyu",
+    "slug": "hallyu",
+    "version": "1.0.0",
+    "orientation": "default",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0A0A0A",
+    "scheme": "hallyu",
+    "icon": "./assets/branding/icon.png",
+    "splash": {
+      "image": "./assets/branding/splash-mark.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0A0A0A"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Hallyu uses your photos to attach images to posts."
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/branding/notification-icon.png",
+          "color": "#E11D48"
+        }
+      ]
+    ],
+    "android": {
+      "package": "com.hallyu.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/branding/adaptive-foreground.png",
+        "monochromeImage": "./assets/branding/adaptive-monochrome.png",
+        "backgroundColor": "#0A0A0A"
+      },
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "hallyu.app",
+              "pathPrefix": "/"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ],
+      "softwareKeyboardLayoutMode": "resize"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "app.hallyu.mobile"
+    },
+    "experiments": {
+      "typedRoutes": false
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./assets/branding/icon.png",
+      "backgroundColor": "#0A0A0A"
+    },
+    "notification": {
+      "icon": "./assets/branding/notification-icon.png",
+      "color": "#E11D48",
+      "androidMode": "default",
+      "androidCollapsedTitle": "Hallyu"
+    }
+  }
+}
