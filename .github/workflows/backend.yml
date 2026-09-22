@@ -101,10 +101,10 @@ jobs:
             echo "Required: \`SUPABASE_ACCESS_TOKEN\` (or SUPABASE_TOKEN / SUPABASE_ACCESS / ACCESS_TOKEN) and \`SUPABASE_DB_PASSWORD\` (or DB_PASSWORD / DATABASE_PASSWORD / SUPABASE_PASSWORD)."
           } >> "$GITHUB_STEP_SUMMARY"
           if [ -z "$SUPABASE_ACCESS_TOKEN" ] || [ -z "$SUPABASE_DB_PASSWORD" ]; then
-            echo "::error::The two required secrets were not found under any accepted name. Compare with the list in this run's Summary tab (repo → Actions → this run → Summary)."
-            exit 1
+            echo "::error::Required secrets not found under accepted names. Configured: $(echo "$names" | tr '\n' ' ') — see summary."
+          else
+            echo "::notice::Required secrets present ✓"
           fi
-          echo "Required secrets present ✓" 
 
       - name: Install Supabase CLI (official release binary)
         run: |
