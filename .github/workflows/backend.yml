@@ -74,6 +74,8 @@ jobs:
 
   deploy:
     name: Deploy to Supabase
+    # The user stored the credentials under repo → Settings → Environments.
+    environment: 'Supabase_acess token'
     needs: validate
     if: github.event_name == 'push' || inputs.deploy
     runs-on: ubuntu-latest

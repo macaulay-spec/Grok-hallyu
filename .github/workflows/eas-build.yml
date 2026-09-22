@@ -31,6 +31,8 @@ on:
 jobs:
   build:
     name: eas build (${{ inputs.platform }} · ${{ inputs.profile }})
+    # The user stored the credentials under repo → Settings → Environments.
+    environment: 'Supabase_acess token'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
