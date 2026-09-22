@@ -62,9 +62,11 @@ jobs:
           grep -q "ALL SMOKE TESTS DONE" /tmp/validate.log
           ! grep -q "UNEXPECTED" /tmp/validate.log
 
-      - uses: denoland/setup-deno@v2
-        with:
-          deno-version: v2.x
+      - name: Install Deno (direct binary — no marketplace actions, org policy allows GitHub-created ones only)
+        run: |
+          curl -fsSL https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip -o /tmp/deno.zip
+          (cd /tmp && unzip -qo deno.zip)
+          echo "/tmp" >> "$GITHUB_PATH"
 
       - name: Type-check Edge Functions
         working-directory: supabase/functions
@@ -101,9 +103,12 @@ jobs:
             exit 1
           fi
 
-      - uses: supabase/setup-cli@v1
-        with:
-          version: latest
+      - name: Install Supabase CLI (official release binary)
+        run: |
+          curl -fsSL https://github.com/supabase/cli/releases/latest/download/supabase_linux_amd64.tar.gz -o /tmp/sb.tar.gz
+          tar -xzf /tmp/sb.tar.gz -C /tmp
+          echo "/tmp" >> "$GITHUB_PATH"
+          supabase --version
 
       - name: Link project
         run: supabase link --project-ref "$SUPABASE_PROJECT_REF"
