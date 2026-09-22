@@ -1,17 +1,74 @@
-name: Backend (Supabase)
+name: Backend Probe A
+
+# Deploys the Hallyu backend to the Supabase project from CI, so nothing has to run on a laptop:
+#   1. validate   — runs every migration in embedded Postgres (PGlite) + type-checks the Edge Functions
+#   2. deploy     — supabase db push (migrations) → functions deploy → function secrets → project config (PostgREST
+#                   schemas, auth redirect URLs, SMTP) through the Management API → live smoke test
+#
+# Required GitHub Actions secrets (repo → Settings → Secrets and variables → Actions):
+#   SUPABASE_ACCESS_TOKEN   supabase.com/dashboard → account → Access Tokens
+#   SUPABASE_DB_PASSWORD    project → Settings → Database → Reset database password
+# Optional:
+#   SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASS / SMTP_SENDER   own email sender (Resend / Brevo …).
+#       When absent the Auth config is left alone — set the sender in the Supabase dashboard instead.
+#   GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET   Google sign-in (Google Cloud → OAuth credentials)
+#   EXPO_ACCESS_TOKEN                                             enhanced push security (expo.dev → Access tokens)
+#   TMDB_TOKEN                                                    overrides the TMDB v4 token in constants/keys.ts
+#
+# Secret names are matched case-insensitively by GitHub Actions (supabase_access_token works too).
+# The deploy job prints the list of configured secret NAMES each run — never their values.
 
 on:
-  push:
-    branches: [main, "arena/**"]
-    paths:
-      - "supabase/**"
   workflow_dispatch:
+    inputs:
+      deploy:
+        description: Deploy to the Supabase project (uncheck to only validate)
+        type: boolean
+        default: true
+  push:
+    branches: [main, 'arena/**']
+    paths:
+      - 'supabase/**'
+      - '.github/workflows/backend.yml'
+      - 'docs/backend/validate-schema.mjs'
+      - '.github/workflows/backend.yml'
+
+concurrency:
+  group: backend-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  SUPABASE_PROJECT_REF: psmxekrmoltwabefgqpd
+
+permissions:
+  contents: read
 
 jobs:
   validate:
     name: Validate schema + functions
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: Probe
-        run: echo "probe ok"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run migrations in embedded Postgres (PGlite)
+        run: |
+          mkdir -p /tmp/pgv && cd /tmp/pgv && npm init -y >/dev/null && npm i @electric-sql/pglite@0.3 --no-audit --no-fund
+          cd "$GITHUB_WORKSPACE"
+          PGLITE_DIR=/tmp/pgv node docs/backend/validate-schema.mjs | tee /tmp/validate.log
+          grep -q "ALL SMOKE TESTS DONE" /tmp/validate.log
+          ! grep -q "UNEXPECTED" /tmp/validate.log
+
+      - name: Install Deno (direct binary — no marketplace actions, org policy allows GitHub-created ones only)
+        run: |
+          curl -fsSL https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip -o /tmp/deno.zip
+          (cd /tmp && unzip -qo deno.zip)
+          echo "/tmp" >> "$GITHUB_PATH"
+
+      - name: Type-check Edge Functions
+        working-directory: supabase/functions
+        run: deno check --config deno.json ensure-catalog/index.ts delete-account/index.ts push-dispatch/index.ts
