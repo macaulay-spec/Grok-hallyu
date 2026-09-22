@@ -97,17 +97,17 @@ Deep blacks + luminous magenta. Cinematic, Apple-level restraint.
 - **Distribution**: EAS Build → APK
 
 ### Core data model
-profiles, dramas, posts, post_dramas, comments, likes, saves, follows_users, follows_dramas, notifications, reports
+profiles, catalog_* (TMDB mirror), posts, post_media, comments, reactions, saves, follows, blocks, mutes, watchlist_items, collections, notifications, push_tokens, reports, moderation_*
 
-See `supabase/schema.sql` for the full ready-to-run SQL.
+See `supabase/migrations/*.sql` (source of truth) and `docs/backend/` for the architecture.
 
 ---
 
 ## 5. How to run
 
 1. Create a free Supabase project
-2. Run `supabase/schema.sql` in the SQL editor
-3. Create public storage buckets: `avatars` and `posts`
+2. Add `SUPABASE_ACCESS_TOKEN` + `SUPABASE_DB_PASSWORD` as GitHub Actions secrets — `.github/workflows/backend.yml` applies the migrations, deploys the Edge Functions and configures the project (no local CLI needed)
+3. (Optional) add `SMTP_*` secrets so sign-up / password-reset emails go out through your own sender
 4. Copy `.env.example` → `.env` and fill in your keys
 5. `npm install`
 6. `npx expo start`
@@ -150,7 +150,9 @@ hallyu/
 │   ├── types/
 │   └── hooks/
 ├── supabase/
-│   └── schema.sql
+│   ├── config.toml
+│   ├── migrations/          # applied by GitHub Actions
+│   └── functions/           # ensure-catalog, delete-account, push-dispatch
 ├── package.json
 ├── app.json
 └── tsconfig.json

@@ -11,11 +11,11 @@ Date of research and audit: **2026‑09‑21**. All limits/prices below were che
 | 4 | `04-feasibility-and-cost-model.md` | 7 200K feasibility · 22 Cost model · 23 Zero‑dollar MVP · 24 1K→200K scaling plan |
 | 5 | `05-video-and-media.md` | 8 Video storage comparison · 13 Storage architecture · 14 Video architecture |
 | 6 | `06-architecture.md` | 9/10 Architecture options + recommendation · 11 Auth · 16 Realtime · 17 Search · 18 Notifications · 19 Moderation · 20 Security · 21 Backups · 30 Lock‑in · 31 Migration |
-| 7 | `07-database.md` + `schema.sql` | 12 Database architecture · 25 Schema (DDL, indexes, RLS policies, triggers) |
+| 7 | `07-database.md` + `supabase/migrations/*.sql` | 12 Database architecture · 25 Schema (DDL, indexes, RLS policies, triggers) |
 | 8 | `08-api-spec.md` | 15 API architecture · 26 API specification |
 | 9 | `09-implementation-roadmap.md` | 27 Repository structure · 28 Implementation roadmap · 29 Risks |
-| — | `schema.sql` | complete DDL + RLS + RPCs + triggers + cron/queues (validated in embedded Postgres 17 by `validate-schema.mjs`) |
-| — | `validate-schema.mjs` | loads `schema.sql` into PGlite with Supabase stubs and runs a functional smoke test of the API (needs `@electric-sql/pglite`) |
+| — | `../../supabase/migrations/*.sql` | the real migrations: legacy demo cleanup, core DDL + RLS + RPCs + triggers + cron/queues, Storage bucket, service RPCs (validated in embedded Postgres 17 by `validate-schema.mjs`) |
+| — | `validate-schema.mjs` | loads `supabase/migrations/*.sql` into PGlite with Supabase stubs and runs a functional smoke test of the API (needs `@electric-sql/pglite`) |
 | — | `cost-model.js` | the traffic/cost model behind every number in `04` (`node docs/backend/cost-model.js`) |
 
 ---
@@ -104,7 +104,7 @@ Data ownership rule: **Postgres holds metadata and references only** (`post_medi
 
 ## 32. Final recommendation
 
-1. Build the backend exactly as specified in `06-architecture.md`, `07-database.md`/`schema.sql`, `08-api-spec.md`, in the order given in `09-implementation-roadmap.md`. Start on Supabase Free + R2 Free + Workers Free + Resend Free + Expo Push. Total: **$0** and no credit card except Cloudflare (card required to enable R2 even on free usage) — see research.
+1. Build the backend exactly as specified in `06-architecture.md`, `07-database.md`/`supabase/migrations/*.sql`, `08-api-spec.md`, in the order given in `09-implementation-roadmap.md`. Start on Supabase Free + R2 Free + Workers Free + Resend Free + Expo Push. Total: **$0** and no credit card except Cloudflare (card required to enable R2 even on free usage) — see research.
 2. Instrument the six meters that decide when $0 ends (DB size, API egress, R2 storage, R2 Class B ops, Realtime peak connections, MAU) and alert at 70 %.
 3. Budget for **$25/month at ~5–10K MAU** (Supabase Pro). That is the single planned payment before 50K MAU. Everything else stays under $20/month until ~50K MAU.
 4. Treat video as the cost lever: keep client compression + progressive MP4 on R2 until watch‑time cost analysis (`05-video-and-media.md` §8) shows Cloudflare Stream is cheaper or ABR/HLS is a product requirement.

@@ -1,4 +1,4 @@
-// Runs docs/backend/schema.sql inside PGlite (Postgres-in-WASM) with stubs for Supabase-specific pieces,
+// Runs supabase/migrations/*.sql inside PGlite (Postgres-in-WASM) with stubs for Supabase-specific pieces,
 // then executes a functional smoke test of the RPCs. Usage:
 //   npm i -D @electric-sql/pglite   (or run from a scratch dir that has it)
 //   node docs/backend/validate-schema.mjs
@@ -10,7 +10,11 @@ const { citext } = require('@electric-sql/pglite/contrib/citext');
 const { pg_trgm } = require('@electric-sql/pglite/contrib/pg_trgm');
 const { pgcrypto } = require('@electric-sql/pglite/contrib/pgcrypto');
 
-const raw = readFileSync(new URL('./schema.sql', import.meta.url), 'utf8');
+import { readdirSync } from 'node:fs';
+const migrationsDir = new URL('../../supabase/migrations/', import.meta.url);
+const files = readdirSync(migrationsDir).filter((f) => f.endsWith('.sql')).sort();
+const raw = files.map((f) => `-- ===== ${f} =====\n` + readFileSync(new URL(f, migrationsDir), 'utf8')).join('\n');
+console.log('migrations:', files.join(', '));
 // strip supabase-only blocks
 const sql = raw.replace(/-- >>> supabase-only[\s\S]*?-- <<< supabase-only\n?/g, '');
 
@@ -47,7 +51,7 @@ const q = async (s, params) => (await db.query(s, params)).rows;
 
 await db.exec(`insert into auth.users (id, email, raw_user_meta_data) values ('${A}', 'mina@example.com', '{"displayName":"Mina"}'), ('${B}', 'joon@example.com', '{}')`);
 console.log('profiles:', await q('select id, handle, display_name from public.profiles order by handle'));
-await db.exec(`insert into public.catalog_dramas (id, tmdb_id, title, genres, status) values ('queen-of-tears', 219246, 'Queen of Tears', '{Romance,Melodrama}', 'ended')`);
+await db.exec(`insert into public.catalog_dramas (id, tmdb_id, title, genres, status) values ('queen-of-tears', 219246, 'Queen of Tears', '{Romance,Melodrama}', 'completed')`);
 await db.exec(`insert into public.catalog_episodes (drama_id, season, number, title, air_at) values ('queen-of-tears', 1, 16, 'Finale', now() + interval '30 minutes')`);
 
 await as(A);
@@ -137,4 +141,31 @@ await db.exec(`update public.posts set deleted_at = now() - interval '25 hours' 
 console.log('retention sweep:', await q(`select public.retention_sweep()`));
 console.log('media marked for purge:', await q(`select key, status from public.media_uploads order by key`));
 try { await as(A); await q(`select api.media_reserve('${A}', 'avatars/${A}/01J8Z9K2M3N4P5Q6R7S8T9V0WZ.jpg', 'avatar', 'image/jpeg', 1000)`); console.log('UNEXPECTED: user could reserve'); } catch (e) { console.log('expected 403 for non-service role:', e.message); }
+// push rendering (service role): A has notifications + a registered token
+await as(A, 'service_role');
+const pushRows = (await q(`select api.push_render((select array_agg(id) from public.notifications where user_id = '${A}')) as r`))[0].r;
+console.log('push_render rows:', pushRows.length, pushRows.slice(0, 2).map((r) => [r.to, r.title, r.channelId]));
+await q(`select api.push_mark_sent((select array_agg(id) from public.notifications where user_id = '${A}'))`);
+console.log('push_render after mark_sent:', (await q(`select api.push_render((select array_agg(id) from public.notifications where user_id = '${A}')) as r`))[0].r.length);
+await q(`select api.push_disable_tokens(array['ExponentPushToken[abc123]'])`);
+console.log('token disabled:', await q(`select disabled_at is not null as disabled from public.push_tokens where token = 'ExponentPushToken[abc123]'`));
+try { await as(A); await q(`select api.push_render(array[]::uuid[])`); console.log('UNEXPECTED: user could push_render'); } catch (e) { console.log('expected 403 push_render:', e.message); }
+// media_ready: unknown key is rejected for avatars
+try { await as(A); await db.exec(`update api.profiles set avatar_key = 'avatars/${A}/nope.jpg' where id = '${A}'`); console.log('UNEXPECTED: unknown avatar accepted'); } catch (e) { console.log('expected avatar guard:', e.message.split('\n')[0]); }
+// 0003: catalog_upsert + account_anonymise (service role only)
+await as(A, 'service_role');
+console.log('catalog_upsert:', await q(`select api.catalog_upsert($1::jsonb) as r`, [JSON.stringify({
+  drama: { id: 'tmdb-219246', tmdbId: 2192460, title: 'Queen of Tears (tmdb)', originalTitle: '눈물의 여왕', posterPath: '/x.jpg', genres: ['Romance', 'Melodrama'], status: 'completed', firstAirDate: '2024-03-09', network: 'tvN', overview: 'o', seasonCount: 1, episodeCount: 16, payload: { runtime: 80 } },
+  actors: [{ id: 'tmdb-1', tmdbId: 1, name: 'Kim Soo-hyun', profilePath: '/k.jpg' }, { id: 'tmdb-2', tmdbId: 2, name: 'Kim Ji-won' }],
+  cast: [{ actorId: 'tmdb-1', character: 'Baek Hyun-woo', ord: 0 }, { actorId: 'tmdb-2', character: 'Hong Hae-in', ord: 1 }, { actorId: 'tmdb-999', character: 'missing', ord: 2 }],
+  episodes: [{ season: 1, number: 1, title: null, airAt: '2024-03-09T13:00:00Z', runtime: 80 }, { season: 1, number: 2, airAt: '2024-03-10T13:00:00Z' }],
+})]));
+console.log('catalog_upsert again (idempotent):', await q(`select api.catalog_upsert($1::jsonb) as r`, [JSON.stringify({ drama: { id: 'tmdb-219246', tmdbId: 2192460, title: 'Queen of Tears', status: 'airing' }, episodes: [{ season: 1, number: 2, title: 'Ep 2' }] })]));
+console.log('cast rows:', await q(`select actor_id, character, ord from public.catalog_cast where drama_id = 'tmdb-219246' order by ord`));
+console.log('actor upsert:', await q(`select api.catalog_upsert($1::jsonb) as r`, [JSON.stringify({ actor: { id: 'tmdb-3', tmdbId: 3, name: 'Park Sung-hoon' } })]));
+try { await as(A); await q(`select api.catalog_upsert('{}'::jsonb)`); console.log('UNEXPECTED: user could catalog_upsert'); } catch (e) { console.log('expected 403 catalog_upsert:', e.message); }
+await as(A, 'service_role');
+console.log('account_anonymise B:', await q(`select api.account_anonymise('${B}') as r`));
+console.log('B profile after:', await q(`select handle, display_name, state from public.profiles where id = '${B}'`));
+console.log('A follower_count after B gone:', await q(`select follower_count, following_count from public.profiles where id = '${A}'`));
 console.log('ALL SMOKE TESTS DONE');

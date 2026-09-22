@@ -1,6 +1,6 @@
 # 07 — Database architecture and schema (sections 12, 25)
 
-The full DDL — tables, indexes, triggers, RLS policies, RPCs, materialised views, cron/queue wiring — is in **`schema.sql`** (≈1,470 lines). It was executed end‑to‑end in embedded Postgres 17 (PGlite) with Supabase stubs by `validate-schema.mjs`, and the functional smoke test (sign‑up trigger → handle claim → follows → watchlist → post with validation → reactions/comments/saves with counters → notifications grouping → feeds/search/profile/live‑room RPCs → rate limit 429 → blocks → RLS column protection → media ledger → retention sweep) passes. This file explains the decisions; the SQL is the source of truth.
+The full DDL — tables, indexes, triggers, RLS policies, RPCs, materialised views, cron/queue wiring — is in **`supabase/migrations/*.sql`** (≈1,750 lines; applied to the project by `.github/workflows/backend.yml`). It was executed end‑to‑end in embedded Postgres 17 (PGlite) with Supabase stubs by `validate-schema.mjs`, and the functional smoke test (sign‑up trigger → handle claim → follows → watchlist → post with validation → reactions/comments/saves with counters → notifications grouping → feeds/search/profile/live‑room RPCs → rate limit 429 → blocks → RLS column protection → media ledger → retention sweep) passes. This file explains the decisions; the SQL is the source of truth.
 
 ## 12.1 Principles
 

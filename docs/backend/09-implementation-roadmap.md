@@ -17,7 +17,7 @@ Grok-hallyu/
 ├─ lib/push.ts                                NEW  Expo push token registration + handlers (reminders.ts becomes fallback)
 ├─ supabase/
 │  ├─ config.toml                             project config (auth redirect URLs, custom SMTP env)
-│  ├─ migrations/0001_init.sql                = docs/backend/schema.sql (split into 0001_schema, 0002_rls, 0003_rpcs, 0004_cron as it grows)
+│  ├─ migrations/2026092200XXXX_*.sql          = the schema, applied by .github/workflows/backend.yml (was 0001_schema, 0002_rls, 0003_rpcs, 0004_cron as it grows)
 │  ├─ seed.sql                                reserved handles, app_config, dev fixtures
 │  └─ functions/
 │     ├─ _shared/{supabase.ts, tmdb.ts, expo.ts, moderation.ts}
@@ -41,7 +41,7 @@ Environment/secrets (never in the client): `SUPABASE_SERVICE_ROLE_KEY`, `SUPABAS
 
 | # | Step | Files to create / modify | Infra | Tests | Done when |
 |---|---|---|---|---|---|
-| 1 | **Project + schema** | `supabase/config.toml`, `supabase/migrations/0001_init.sql` (from `schema.sql`), `supabase/seed.sql`, `.github/workflows/backend.yml` (PGlite validation job only) | link existing project `psmxekrmoltwabefgqpd`; enable `pg_cron`, `pg_net`, `pgmq`; expose schema `api` (Dashboard → API); custom SMTP = Resend; redirect allow‑list | `validate-schema.mjs` green in CI; `supabase db push` applies cleanly to a scratch project | tables/RLS live; `select api.home_rails()` returns JSON via REST with the anon key |
+| 1 | **Project + schema** | `supabase/config.toml`, `supabase/migrations/20260922000100_init.sql` (from `schema.sql`), `supabase/seed.sql`, `.github/workflows/backend.yml` (PGlite validation job only) | link existing project `psmxekrmoltwabefgqpd`; enable `pg_cron`, `pg_net`, `pgmq`; expose schema `api` (Dashboard → API); custom SMTP = Resend; redirect allow‑list | `validate-schema.mjs` green in CI; `supabase db push` applies cleanly to a scratch project | tables/RLS live; `select api.home_rails()` returns JSON via REST with the anon key |
 | 2 | **Catalog function** | `supabase/functions/ensure-catalog/index.ts`, `_shared/tmdb.ts` | secret `TMDB_SERVER_KEY` | unit: slug generation, Korean slot → UTC; integration: upsert for 3 dramas | posting with a new drama id succeeds after the client calls `ensure-catalog` |
 | 3 | **Client adapter (reads)** | `lib/data/supabaseBackend.ts` (`pull`), `lib/data/projections.ts`, `lib/supabase.ts` (`db.schema='api'`), `lib/format.ts` (`uuid()` via `expo-crypto` for post/comment/collection ids), `lib/store.tsx` (no shape change; `hydrate` from `me()`), `lib/data/sync.ts` (`setBackend(supabase)` when signed in, outbox key per user) | — | jest: projections (PostCard → Post) round‑trip; jsdom crawl with `DEMO=0` against a seeded project | Home/Explore/Drama/Profile render real server data for a signed‑in test user and for a guest |
 | 4 | **Client adapter (writes)** | `supabaseBackend.ts` (`push` for every action in `02` table), error mapping to `BackendError` | — | jest: action → RPC payload table; manual: airplane‑mode outbox replay | all 22 syncable actions persist; undo on 4xx works; retries on 429/5xx |

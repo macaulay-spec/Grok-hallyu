@@ -1,9 +1,9 @@
 -- =====================================================================================
--- Hallyu backend — reference schema (design artefact; becomes supabase/migrations/0001_init.sql)
+-- Hallyu backend — migration 0001: core schema, RLS, RPCs, triggers, jobs.
 -- Target: Supabase Postgres 15+. Base tables live in schema `public` (RLS on all of them);
 -- the client talks only to schema `api` (security_invoker views + RPC functions).
--- Sections marked  -- >>> supabase-only  use pg_cron / pgmq / pg_net / vault and are skipped by the
--- local validator (docs/backend/validate-schema.mjs runs the rest in PGlite).
+-- Sections marked  -- >>> supabase-only  use pg_cron / pgmq / pg_net / vault / auth triggers and are skipped by the
+-- local validator (docs/backend/validate-schema.mjs runs everything else in PGlite).
 -- =====================================================================================
 
 create extension if not exists citext;
@@ -13,6 +13,7 @@ create extension if not exists pgcrypto;
 create extension if not exists pg_cron with schema pg_catalog;
 create extension if not exists pg_net with schema extensions;
 create extension if not exists pgmq;
+create extension if not exists supabase_vault;
 -- <<< supabase-only
 
 create schema if not exists api;
@@ -57,7 +58,7 @@ end $$;
 -- 1. Identity & profiles
 -- -------------------------------------------------------------------------------------
 create table public.profiles (
-  id                uuid primary key references auth.users (id) on delete cascade,
+  id                uuid primary key,                          -- = auth.users.id; no FK so rows survive 30 days after account deletion
   handle            citext not null unique check (handle ~ '^[a-z0-9_]{3,20}$'),
   display_name      text not null default '' check (char_length(display_name) <= 40),
   avatar_key        text,
@@ -123,7 +124,7 @@ create table public.catalog_dramas (
   poster_path     text,
   backdrop_path   text,
   genres          text[] not null default '{}',
-  status          text,                                     -- airing | ended | upcoming
+  status          text check (status in ('airing', 'completed', 'upcoming')),
   first_air_date  date,
   network         text,
   overview        text,
@@ -300,10 +301,10 @@ create index posts_fts on public.posts using gin (fts);
 create table public.post_media (
   post_id      uuid not null references public.posts (id) on delete cascade,
   ord          smallint not null check (ord between 0 and 5),
-  key          text not null references public.media_uploads (key),
+  key          text not null,                                -- Storage object name now / R2 key later (see media_ready)
   kind         text not null check (kind in ('image', 'video')),
-  thumb_key    text references public.media_uploads (key),  -- 640px variant for images
-  poster_key   text references public.media_uploads (key),  -- for video
+  thumb_key    text,                                          -- 640px variant for images
+  poster_key   text,                                          -- for video
   width        int,
   height       int,
   duration_ms  int,
@@ -898,6 +899,30 @@ begin
   else delete from public.saves where user_id = v_uid and post_id = p_post_id; end if;
 end $$;
 
+-- A media key is usable when it is a finished R2 upload owned by the user (media_uploads ledger, later)
+-- or an object the user uploaded to the Supabase Storage bucket `media` under their own folder (now).
+create or replace function public.media_ready(p_key text, p_uid uuid) returns boolean
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+declare ok boolean := false;
+begin
+  if p_key is null then return false; end if;
+  if exists (select 1 from public.media_uploads u where u.key = p_key and u.owner_id = p_uid and u.status = 'ready') then return true; end if;
+  if to_regclass('storage.objects') is not null then
+    execute 'select exists (select 1 from storage.objects o where o.bucket_id = $1 and o.name = $2 and (storage.foldername(o.name))[2] = $3)'
+      into ok using 'media', p_key, p_uid::text;
+  end if;
+  return ok;
+end $$;
+
+create or replace function public.profiles_avatar_guard() returns trigger language plpgsql as $$
+begin
+  if new.avatar_key is distinct from old.avatar_key and new.avatar_key is not null and not public.media_ready(new.avatar_key, new.id) then
+    perform public.fail(422, 'Avatar upload not found');
+  end if;
+  return new;
+end $$;
+create trigger profiles_avatar_guard before update of avatar_key on public.profiles for each row execute function public.profiles_avatar_guard();
+
 -- p: { id, type, body, title, kind, rating, verdict, spoiler, context:{dramaId, secondaryDramaId, season, episode, actorIds}, hashtags, mentionIds,
 --      media:[{key, kind, thumbKey, posterKey, width, height, durationMs}] }
 create or replace function api.create_post(p jsonb) returns jsonb
@@ -926,14 +951,13 @@ begin
           coalesce((select array_agg(x::uuid) from jsonb_array_elements_text(coalesce(p -> 'mentionIds', '[]'::jsonb)) x), '{}'));
 
   for m in select * from jsonb_array_elements(v_media) loop
-    if not exists (select 1 from public.media_uploads u where u.key = m ->> 'key' and u.owner_id = v_uid and u.status = 'ready') then
-      perform public.fail(422, 'Media is not ready');
-    end if;
+    if not public.media_ready(m ->> 'key', v_uid) then perform public.fail(422, 'Media is not ready'); end if;
+    if m ->> 'thumbKey' is not null and not public.media_ready(m ->> 'thumbKey', v_uid) then perform public.fail(422, 'Thumbnail is not ready'); end if;
     if m ->> 'kind' = 'video' then
       v_videos := v_videos + 1;
       if v_videos > 1 or jsonb_array_length(v_media) > 1 then perform public.fail(422, 'One video per post'); end if;
       if coalesce((m ->> 'durationMs')::int, 0) > v_max_ms + 1000 then perform public.fail(422, 'Video is too long'); end if;
-      if not exists (select 1 from public.media_uploads u where u.key = m ->> 'posterKey' and u.owner_id = v_uid and u.status = 'ready') then perform public.fail(422, 'Video poster missing'); end if;
+      if not public.media_ready(m ->> 'posterKey', v_uid) then perform public.fail(422, 'Video poster missing'); end if;
     end if;
     insert into public.post_media (post_id, ord, key, kind, thumb_key, poster_key, width, height, duration_ms)
     values (v_id, i, m ->> 'key', m ->> 'kind', m ->> 'thumbKey', m ->> 'posterKey', (m ->> 'width')::int, (m ->> 'height')::int, (m ->> 'durationMs')::int);
@@ -1410,6 +1434,9 @@ begin
   update public.media_uploads set status = 'deleted' where status = 'pending' and created_at < now() - interval '24 hours';
   -- hard-delete removed content after 30 days
   delete from public.posts where state in ('deleted', 'removed') and coalesce(deleted_at, created_at) < now() - interval '30 days';
+  delete from public.comments where state in ('deleted', 'removed') and created_at < now() - interval '30 days';
+  -- deleted accounts: rows kept 30 days for abuse forensics, then everything cascades away
+  delete from public.profiles where state = 'deleted' and updated_at < now() - interval '30 days';
 end $$;
 
 -- >>> supabase-only
@@ -1441,23 +1468,111 @@ begin
 end $$;
 create trigger media_enqueue_delete after update of status on public.media_uploads for each row execute function public.media_enqueue_delete();
 
--- cron (URLs/keys come from vault.decrypted_secrets: edge_url, edge_key)
+-- Vault: a random shared key lets pg_cron call our Edge Functions (they compare it via api.internal_key()).
+do $$
+begin
+  if not exists (select 1 from vault.secrets where name = 'internal_fn_key') then
+    perform vault.create_secret(encode(gen_random_bytes(32), 'hex'), 'internal_fn_key', 'pg_cron -> Edge Functions shared key');
+  end if;
+  if not exists (select 1 from vault.secrets where name = 'edge_url') then
+    perform vault.create_secret('https://psmxekrmoltwabefgqpd.supabase.co/functions/v1', 'edge_url', 'Edge Functions base URL');
+  end if;
+end $$;
+
+create or replace function api.internal_key() returns text
+language sql stable security definer set search_path = public, pg_temp as $$
+  select case when public.is_service_role() then (select decrypted_secret from vault.decrypted_secrets where name = 'internal_fn_key' limit 1) end
+$$;
+
+create or replace function public.call_edge(p_fn text) returns bigint
+language sql security definer set search_path = public, pg_temp as $$
+  select net.http_post(
+    url := (select decrypted_secret from vault.decrypted_secrets where name = 'edge_url' limit 1) || '/' || p_fn,
+    headers := jsonb_build_object('Content-Type', 'application/json', 'x-internal-key', (select decrypted_secret from vault.decrypted_secrets where name = 'internal_fn_key' limit 1)),
+    body := '{}'::jsonb,
+    timeout_milliseconds := 20000)
+$$;
+
 select cron.schedule('episode-notifications', '*/15 * * * *', $$select public.schedule_episode_notifications()$$);
 select cron.schedule('retention-sweep', '17 3 * * *', $$select public.retention_sweep()$$);
 select cron.schedule('refresh-trending', '*/5 * * * *', $$refresh materialized view concurrently public.mv_trending_posts; refresh materialized view concurrently public.mv_trending_dramas$$);
-select cron.schedule('push-dispatch', '* * * * *', $$
-  select net.http_post(
-    url := (select decrypted_secret from vault.decrypted_secrets where name = 'edge_url') || '/push-dispatch',
-    headers := jsonb_build_object('Content-Type', 'application/json', 'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'edge_key')),
-    body := '{}'::jsonb)
-$$);
-select cron.schedule('moderate', '* * * * *', $$
-  select net.http_post(
-    url := (select decrypted_secret from vault.decrypted_secrets where name = 'edge_url') || '/moderate',
-    headers := jsonb_build_object('Content-Type', 'application/json', 'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'edge_key')),
-    body := '{}'::jsonb)
-$$);
+select cron.schedule('push-dispatch', '* * * * *', $$select public.call_edge('push-dispatch')$$);
+-- 'moderate' is scheduled by a later migration once an OpenAI key exists.
+
+-- Queue access for Edge Functions (service role only)
+create or replace function api.queue_read(p_queue text, p_qty int default 100, p_vt int default 60) returns jsonb
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare out jsonb;
+begin
+  if not public.is_service_role() then perform public.fail(403, 'Forbidden'); end if;
+  select coalesce(jsonb_agg(jsonb_build_object('msgId', m.msg_id, 'readCt', m.read_ct, 'message', m.message)), '[]'::jsonb) into out
+  from pgmq.read(p_queue, p_vt, p_qty) m;
+  return out;
+end $$;
+
+create or replace function api.queue_delete(p_queue text, p_ids bigint[]) returns void
+language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if not public.is_service_role() then perform public.fail(403, 'Forbidden'); end if;
+  perform pgmq.delete(p_queue, p_ids);
+end $$;
+
+create or replace function api.queue_archive(p_queue text, p_ids bigint[]) returns void
+language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if not public.is_service_role() then perform public.fail(403, 'Forbidden'); end if;
+  perform pgmq.archive(p_queue, p_ids);
+end $$;
 -- <<< supabase-only
+
+-- -------------------------------------------------------------------------------------
+-- 17b. Push rendering: notification ids -> one row per device token with title/body/data
+-- -------------------------------------------------------------------------------------
+create or replace function api.push_render(p_ids uuid[]) returns jsonb
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+declare out jsonb;
+begin
+  if not public.is_service_role() then perform public.fail(403, 'Forbidden'); end if;
+  with n as (
+    select n.*, (select display_name from public.profiles where id = n.actor_ids[1]) as actor_name, cardinality(n.actor_ids) as actor_count,
+           (select title from public.catalog_dramas where id = n.drama_id) as drama_title
+    from public.notifications n where n.id = any (p_ids) and n.pushed_at is null
+  ), rendered as (
+    select n.id, n.user_id,
+      case n.kind
+        when 'reaction' then coalesce(n.actor_name, 'Someone') || case when n.actor_count > 1 then ' and ' || (n.actor_count - 1) || ' others' else '' end || ' reacted to your post'
+        when 'comment' then coalesce(n.actor_name, 'Someone') || case when n.actor_count > 1 then ' and ' || (n.actor_count - 1) || ' others' else '' end || ' commented on your post'
+        when 'reply' then coalesce(n.actor_name, 'Someone') || ' replied to you'
+        when 'follow' then coalesce(n.actor_name, 'Someone') || case when n.actor_count > 1 then ' and ' || (n.actor_count - 1) || ' others' else '' end || ' followed you'
+        when 'mention' then coalesce(n.actor_name, 'Someone') || ' mentioned you'
+        when 'collection_saved' then coalesce(n.actor_name, 'Someone') || ' saved your collection'
+        when 'episode_live' then coalesce(n.title, coalesce(n.drama_title, 'Your drama') || ' is about to air')
+        when 'episode_aired' then coalesce(n.title, coalesce(n.drama_title, 'Your drama') || ' — new episode')
+        when 'drama_trending' then coalesce(n.title, coalesce(n.drama_title, 'A drama') || ' is trending')
+        else coalesce(n.title, 'Hallyu') end as title,
+      coalesce(n.body, '') as body,
+      jsonb_strip_nulls(jsonb_build_object('kind', n.kind, 'notificationId', n.id, 'postId', n.post_id, 'commentId', n.comment_id, 'dramaId', n.drama_id, 'season', n.season, 'episode', n.episode, 'collectionId', n.collection_id)) as data,
+      n."group" as channel
+    from n
+  )
+  select coalesce(jsonb_agg(jsonb_build_object('notificationId', r.id, 'to', t.token, 'title', r.title, 'body', r.body, 'data', r.data, 'channelId', r.channel)), '[]'::jsonb) into out
+  from rendered r join public.push_tokens t on t.user_id = r.user_id and t.disabled_at is null;
+  return out;
+end $$;
+
+create or replace function api.push_mark_sent(p_ids uuid[]) returns void
+language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if not public.is_service_role() then perform public.fail(403, 'Forbidden'); end if;
+  update public.notifications set pushed_at = now() where id = any (p_ids);
+end $$;
+
+create or replace function api.push_disable_tokens(p_tokens text[]) returns void
+language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if not public.is_service_role() then perform public.fail(403, 'Forbidden'); end if;
+  update public.push_tokens set disabled_at = now() where token = any (p_tokens);
+end $$;
 
 -- -------------------------------------------------------------------------------------
 -- 18. Grants (views + RPCs)
@@ -1471,4 +1586,13 @@ alter default privileges in schema api grant select on tables to anon, authentic
 grant execute on all functions in schema api to anon, authenticated, service_role;
 revoke execute on function api.media_reserve(uuid, text, text, text, bigint, text) from anon, authenticated;
 revoke execute on function api.media_finalize(text, bigint, boolean, int, int, int) from anon, authenticated;
+revoke execute on function api.push_render(uuid[]) from anon, authenticated;
+revoke execute on function api.push_mark_sent(uuid[]) from anon, authenticated;
+revoke execute on function api.push_disable_tokens(text[]) from anon, authenticated;
+-- >>> supabase-only
+revoke execute on function api.internal_key() from anon, authenticated;
+revoke execute on function api.queue_read(text, int, int) from anon, authenticated;
+revoke execute on function api.queue_delete(text, bigint[]) from anon, authenticated;
+revoke execute on function api.queue_archive(text, bigint[]) from anon, authenticated;
+-- <<< supabase-only
 alter default privileges in schema api grant execute on functions to anon, authenticated, service_role;

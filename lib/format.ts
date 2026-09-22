@@ -1,9 +1,8 @@
-import { NOW } from './seed';
+import * as Crypto from 'expo-crypto';
 
-/** "now" for the app — real clock, but never earlier than the seed clock so demo content reads correctly. */
+/** "now" for the app (one seam so tests and screens agree). */
 export function now(): Date {
-  const real = new Date();
-  return real.getTime() < NOW.getTime() ? NOW : real;
+  return new Date();
 }
 
 export function timeAgo(isoDate: string, from: Date = now()): string {
@@ -84,8 +83,20 @@ export function seasonEpisodeLabel(season?: number, episode?: number, seasonCoun
   return seasonCount > 1 ? `S${season ?? 1} · Ep ${episode}` : `Ep ${episode}`;
 }
 
-export function uid(prefix = 'id'): string {
-  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+/**
+ * Client-generated ids are real UUIDs: the backend uses them as primary keys (idempotent create, offline-first).
+ * The prefix is kept only for call-site readability; it is not part of the id.
+ */
+export function uid(_prefix = 'id'): string {
+  try {
+    return Crypto.randomUUID();
+  } catch {
+    // very old web runtimes without crypto.getRandomValues
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = (Math.random() * 16) | 0;
+      return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+    });
+  }
 }
 
 export function extractHashtags(text: string): string[] {
