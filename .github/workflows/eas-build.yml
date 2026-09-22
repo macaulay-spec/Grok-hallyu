@@ -5,9 +5,9 @@ name: EAS Build (Expo)
 #   production  → Android .aab for the Play Store (and iOS when an Apple account is linked)
 #
 # Required GitHub Actions secrets:
-#   EXPO_ACCESS_TOKEN   expo.dev → Account Settings → Access tokens (scope: Full access)
+#   EXPO_TOKEN (or EXPO_ACCESS_TOKEN)   expo.dev → Account Settings → Access tokens (scope: Full access)
 # Optional (recommended — pins the build to one Expo project):
-#   EAS_PROJECT_ID      the projectId EAS created for "hallyu" (printed by the first run, or expo.dev → project settings)
+#   EXPO_PROJECTID (or EAS_PROJECT_ID)  the projectId EAS created for "hallyu" (printed by the first run, or expo.dev → project settings)
 #
 # On the first run, if EAS_PROJECT_ID is not set, the job creates the Expo project automatically
 # (needs EXPO_ACCESS_TOKEN) and prints the new projectId in the run summary — add it as a secret then.
@@ -34,8 +34,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      EXPO_TOKEN: ${{ secrets.EXPO_ACCESS_TOKEN }}
-      EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN || secrets.EXPO_ACCESS_TOKEN }}
+      EAS_PROJECT_ID: ${{ secrets.EXPO_PROJECTID || secrets.EAS_PROJECT_ID }}
       CI: 1
     steps:
       - uses: actions/checkout@v4
@@ -43,7 +43,7 @@ jobs:
       - name: Check Expo token
         run: |
           if [ -z "$EXPO_TOKEN" ]; then
-            echo "::error::EXPO_ACCESS_TOKEN secret is missing — create one at expo.dev → Account Settings → Access tokens and add it under repo Settings → Secrets and variables → Actions."
+            echo "::error::EXPO_TOKEN secret is missing — create one at expo.dev → Account Settings → Access tokens and add it under repo Settings → Secrets and variables → Actions as EXPO_TOKEN."
             exit 1
           fi
 
