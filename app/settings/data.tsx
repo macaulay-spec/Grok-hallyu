@@ -35,18 +35,6 @@ export default function DataSettings() {
             </>
           ) : null}
         </SettingsGroup>
-        <SettingsGroup title="Simulate network" footer="Developer option for this device only: makes every save behave as if the connection were slow, flaky or gone, so you can see how Hallyu copes.">
-          <SettingsChoice
-            value={state.prefs.devNetwork}
-            onChange={(v) => dispatch({ type: 'prefs', patch: { devNetwork: v } })}
-            options={[
-              { key: 'fast', label: 'Normal', detail: 'Saves round-trip in well under a second.' },
-              { key: 'slow', label: 'Slow', detail: '2–3 seconds per save. Watch the “Posting…” strip.' },
-              { key: 'flaky', label: 'Flaky', detail: 'Almost half of the saves fail once and are retried; a few are rejected outright.' },
-              { key: 'offline', label: 'Offline', detail: 'Nothing is sent; everything queues until you switch back.' },
-            ]}
-          />
-        </SettingsGroup>
         <SettingsGroup title="Storage" footer="Clearing the cache removes downloaded images. Your watchlist, drafts and posts are untouched.">
           <SettingsRow icon="trash-bin-outline" label={clearing ? 'Clearing…' : 'Clear image cache'} onPress={async () => { setClearing(true); await Image.clearDiskCache().catch(() => {}); await Image.clearMemoryCache().catch(() => {}); setClearing(false); toast.show({ message: 'Cache cleared' }); }} chevron={false} />
         </SettingsGroup>

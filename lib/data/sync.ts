@@ -12,15 +12,15 @@ import NetInfo from '@react-native-community/netinfo';
 import { useEffect } from 'react';
 import { AppState as RNAppState } from 'react-native';
 import { toast } from '../../components/ui/Toast';
-import { syncSeedCatalog } from '../catalogSync';
 import { uid } from '../format';
 import { Post } from '../model';
 import * as sel from '../selectors';
 import { Action, AppState, dispatch, dispatchLocal, getState, Mutation, setDispatchMiddleware, useSlice } from '../store';
-import { Backend, BackendError, createLocalBackend, PullScope } from './backend';
+import { Backend, BackendError, PullScope } from './backend';
+import { supabaseBackend } from './supabaseBackend';
 import { track } from '../analytics';
 
-let backend: Backend = createLocalBackend(() => getState().prefs.devNetwork);
+let backend: Backend = supabaseBackend;
 /** Swap the backend implementation (the Supabase adapter will register itself here; tests inject fakes). */
 export function setBackend(b: Backend): void {
   backend = b;
@@ -36,14 +36,15 @@ const MAX_BACKOFF = 60_000;
 // Connectivity
 // ---------------------------------------------------------------------------------------------
 let reachable = true;
-export function isOnline(s: Pick<AppState, 'prefs'> = getState()): boolean {
-  return reachable && s.prefs.devNetwork !== 'offline';
+export function isOnline(_s?: unknown): boolean {
+  return reachable;
 }
 
 // ---------------------------------------------------------------------------------------------
 // Which actions sync, how they are undone, and what a failure is called
 // ---------------------------------------------------------------------------------------------
-const LOCAL_PREFS = new Set(['devNetwork', 'reduceMotion', 'trueBlack']);
+/** Device-only prefs: changing them must not hit the network. */
+const LOCAL_PREFS = new Set(['reduceMotion', 'trueBlack']);
 
 function pick<T extends object>(obj: T, keys: string[]): Partial<T> {
   const out: Partial<T> = {};
@@ -289,13 +290,67 @@ export function mutationFor(s: Pick<AppState, 'outbox'>, target: { postId?: stri
   return s.outbox.find((m) => (target.postId && m.action.type === 'addPost' && m.action.post.id === target.postId) || (target.commentId && m.action.type === 'addComment' && m.action.comment.id === target.commentId));
 }
 
-/** Pull-to-refresh: round-trip the backend, refresh catalog art, and push anything pending. */
+/** Pull-to-refresh: push anything pending, then re-pull the screen's scope. */
 export async function refresh(scope: PullScope): Promise<{ ok: boolean }> {
   const started = Date.now();
-  const results = await Promise.allSettled([backend.pull(scope), syncSeedCatalog(), flush()]);
-  const wait = 500 - (Date.now() - started);
+  await flush().catch(() => {});
+  let ok = true;
+  try {
+    await backend.pull(scope);
+  } catch {
+    ok = false;
+  }
+  const wait = 350 - (Date.now() - started);
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-  return { ok: results[0].status === 'fulfilled' };
+  return { ok };
+}
+
+/** "Load more" for paged feeds: fetches the next page with the stored cursor. */
+export async function refreshMore(scope: PullScope): Promise<{ ok: boolean }> {
+  try {
+    await backend.pull(scope, { more: true });
+    return { ok: true };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/** How fresh a pulled scope is (0 = never). */
+export function feedAge(s: AppState, key: string): number {
+  const f = s.feeds[key];
+  if (!f) return Infinity;
+  return Date.now() - new Date(f.fetchedAt).getTime();
+}
+
+/**
+ * Pull a scope when the screen opens if the cache is older than `staleMs`. Fire-and-forget:
+ * the screen renders the cache immediately and fills in when data lands.
+ */
+export function useRemote(scope: PullScope, staleMs = 60_000, enabled = true): void {
+  const hydrated = useSlice((s) => s.hydrated);
+  useEffect(() => {
+    if (!hydrated || !enabled || !isOnline()) return;
+    const age = feedAge(getState(), feedKeyFor(scope));
+    if (age > staleMs) backend.pull(scope).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, scope, enabled]);
+}
+
+/** Map a pull scope onto the store cache key whose freshness it represents. */
+function feedKeyFor(scope: PullScope): string {
+  switch (scope) {
+    case 'home':
+    case 'feed:forYou':
+      return 'forYou';
+    case 'feed:following':
+      return 'following';
+    case 'shorts':
+      return 'shorts';
+    case 'activity':
+      return 'activity';
+    default:
+      return scope;
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -321,7 +376,7 @@ export function installSync(): () => void {
 /** Mount once at the root. Installs the middleware and the connectivity / foreground triggers. */
 export function SyncProvider(): null {
   const hydrated = useSlice((s) => s.hydrated);
-  const devNetwork = useSlice((s) => s.prefs.devNetwork);
+  const authed = useSlice((s) => s.profile.id !== 'guest' && s.profile.id !== 'local');
 
   useEffect(() => installSync(), []);
 
@@ -351,12 +406,19 @@ export function SyncProvider(): null {
     kick();
   }, [hydrated]);
 
+  // First open (and on sign-in): warm the caches. Failures are silent — the screens still render
+  // whatever is persisted, and pull-to-refresh retries.
   useEffect(() => {
-    if (devNetwork !== 'offline') {
-      backoff = 0;
-      kick();
-    }
-  }, [devNetwork]);
+    if (!hydrated) return;
+    void backend.pull('home').catch(() => {});
+    void backend.pull('activity').catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, authed]);
+
+  // reconnect → flush
+  useEffect(() => {
+    if (reachable) kick();
+  }, [reachable ? 1 : 0]);
 
   return null;
 }

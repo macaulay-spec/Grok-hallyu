@@ -9,9 +9,14 @@ name: Backend (Supabase)
 #   SUPABASE_ACCESS_TOKEN   supabase.com/dashboard → account → Access Tokens
 #   SUPABASE_DB_PASSWORD    project → Settings → Database → Reset database password
 # Optional:
-#   SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASS / SMTP_SENDER   own email sender (Resend / Brevo …)
+#   SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASS / SMTP_SENDER   own email sender (Resend / Brevo …).
+#       When absent the Auth config is left alone — set the sender in the Supabase dashboard instead.
+#   GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET   Google sign-in (Google Cloud → OAuth credentials)
 #   EXPO_ACCESS_TOKEN                                             enhanced push security (expo.dev → Access tokens)
 #   TMDB_TOKEN                                                    overrides the TMDB v4 token in constants/keys.ts
+#
+# Secret names are matched case-insensitively by GitHub Actions (supabase_access_token works too).
+# The deploy job prints the list of configured secret NAMES each run — never their values.
 
 on:
   workflow_dispatch:
@@ -33,6 +38,9 @@ concurrency:
 
 env:
   SUPABASE_PROJECT_REF: psmxekrmoltwabefgqpd
+
+permissions:
+  contents: read
 
 jobs:
   validate:
@@ -68,11 +76,20 @@ jobs:
     if: github.event_name == 'push' || inputs.deploy
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Report configured secret names
+        run: |
+          echo "Configured repository secrets (names only):"
+          curl -sS -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/secrets?per_page=100" \
+            | jq -r '.secrets[].name // empty' | sort | sed 's/^/  • /' || echo "  (could not list secrets — fine, the checks below validate what matters)"
 
       - name: Check required secrets
         run: |
@@ -124,21 +141,46 @@ jobs:
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           SMTP_SENDER: ${{ secrets.SMTP_SENDER }}
         run: |
-          allow="hallyu://auth/callback,hallyu://**,https://hallyu.app/**,exp://**,http://localhost:*/**,https://*.e2b.app/**"
+          # merge the redirect allow-list with whatever the project already has
+          curl -sS -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/config/auth" -o /tmp/auth0.json
+          cur=$(jq -r '.uri_allow_list // ""' /tmp/auth0.json)
+          allow=$(echo "hallyu://auth/callback,hallyu://**,https://hallyu.app/**,exp://**,http://localhost:*/**,https://*.e2b.app/**,${cur}" | tr ',' '\n' | sed '/^$/d' | sort -u | paste -sd, -)
           if [ -n "$SMTP_HOST" ] && [ -n "$SMTP_USER" ] && [ -n "$SMTP_PASS" ] && [ -n "$SMTP_SENDER" ]; then
             echo "SMTP secrets found → custom sender + email confirmation ON"
-            body=$(jq -n --arg site "https://hallyu.app" --arg allow "$allow" --arg host "$SMTP_HOST" --argjson port "${SMTP_PORT:-587}" \
+            port="${SMTP_PORT:-587}"
+            body=$(jq -n --arg site "https://hallyu.app" --arg allow "$allow" --arg host "$SMTP_HOST" --argjson port "$port" \
               --arg user "$SMTP_USER" --arg pass "$SMTP_PASS" --arg sender "$SMTP_SENDER" \
               '{site_url:$site, uri_allow_list:$allow, mailer_autoconfirm:false, smtp_host:$host, smtp_port:$port, smtp_user:$user, smtp_pass:$pass,
                 smtp_admin_email:$sender, smtp_sender_name:"Hallyu", smtp_max_frequency:60, external_email_enabled:true}')
           else
-            echo "::warning::No SMTP secrets — sign-ups are auto-confirmed and password-reset emails will not be delivered until SMTP_* secrets are added."
-            body=$(jq -n --arg site "https://hallyu.app" --arg allow "$allow" '{site_url:$site, uri_allow_list:$allow, mailer_autoconfirm:true, external_email_enabled:true}')
+            echo "::notice::No SMTP_* secrets — leaving the dashboard's email settings untouched (set the sender in Supabase → Authentication → SMTP if sign-up emails are needed)."
+            body=$(jq -n --arg site "https://hallyu.app" --arg allow "$allow" '{site_url:$site, uri_allow_list:$allow}')
           fi
           code=$(curl -sS -o /tmp/auth.json -w '%{http_code}' -X PATCH "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/config/auth" \
             -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" -d "$body")
           echo "auth config: HTTP $code"; jq 'del(.smtp_pass)' /tmp/auth.json 2>/dev/null || cat /tmp/auth.json
           [ "$code" = "200" ]
+
+      - name: Sync Google sign-in (when secrets are configured)
+        if: ${{ secrets.GOOGLE_CLIENT_ID != '' && secrets.GOOGLE_CLIENT_SECRET != '' }}
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+        run: |
+          # Idempotent: pushes the dashboard "Google" provider toggle + credentials from secrets.
+          # If this API shape ever drifts, the warning below tells you — enable it in the dashboard instead.
+          code=$(curl -sS -o /tmp/google.json -w '%{http_code}' -X PATCH "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/config/auth" \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" \
+            -d "$(jq -n --arg id "$GOOGLE_CLIENT_ID" --arg secret "$GOOGLE_CLIENT_SECRET" '{external:{google:{enabled:true, client_id:$id, secret:$secret}}}')" || true)
+          if [ "$code" = "200" ]; then echo "Google provider enabled."; else echo "::warning::Google provider config via API returned HTTP $code — enable it in Supabase → Authentication → Providers → Google instead."; cat /tmp/google.json; fi
+
+      - name: Google sign-in status
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+        run: |
+          if [ -z "$GOOGLE_CLIENT_ID" ]; then
+            echo "::notice::GOOGLE_CLIENT_ID secret not set — the Google button will error until the provider is enabled (Supabase → Authentication → Providers → Google). Email sign-in is unaffected."
+          fi
 
       - name: Smoke test (public RPC through PostgREST)
         run: |

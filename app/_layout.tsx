@@ -12,13 +12,10 @@ import { MilestoneWatcher } from '../components/moments/MilestoneWatcher';
 import { ToastProvider } from '../components/ui/Toast';
 import { colors } from '../constants/theme';
 import { AuthProvider, useAuth } from '../lib/auth';
-import { catalog } from '../lib/catalog';
-import { syncSeedCatalog } from '../lib/catalogSync';
 import { SyncProvider } from '../lib/data/sync';
-import { useNetwork } from '../lib/hooks';
+import { supabaseBackend } from '../lib/data/supabaseBackend';
 import { installNotificationHandler, reminderUrl, remindersSupported, syncEpisodeReminders } from '../lib/reminders';
-import { demoState, freshMemberState, getState, GUEST_ID, guestState, StoreProvider, useHallyu, useSlice, useStore } from '../lib/store';
-import { ME } from '../lib/selectors';
+import { freshMemberState, getState, GUEST_ID, guestState, StoreProvider, useHallyu, useSlice, useStore } from '../lib/store';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -42,7 +39,6 @@ export default function RootLayout() {
           <ToastProvider>
             <StatusBar style="light" backgroundColor={colors.canvas} />
             <AccountSync />
-            <CatalogSync />
             <SyncProvider />
             <ReminderSync />
             <MilestoneWatcher />
@@ -123,21 +119,19 @@ function AccountSync() {
   const segments = useSegments();
   const applied = useRef<string | null>(null);
 
-  // Guests and signed-out visitors see the public world without the demo member's personal layer.
+  // Guests and signed-out visitors browse the public world with no personal layer.
   useEffect(() => {
     if (!state.hydrated) return;
     if ((auth.status === 'guest' || auth.status === 'signedOut') && state.profile.id !== GUEST_ID) reset(guestState());
-    if (auth.status === 'signedIn' && auth.user?.provider === 'demo' && state.profile.id !== ME) reset(demoState());
-  }, [auth.status, auth.user?.provider, state.hydrated, state.profile.id, reset]);
+  }, [auth.status, state.hydrated, state.profile.id, reset]);
 
   useEffect(() => {
     if (!state.hydrated || auth.status !== 'signedIn' || !auth.user) return;
     const u = auth.user;
     if (applied.current === u.id) return;
     applied.current = u.id;
-    if (u.provider === 'demo') return;
     const key = `hallyu.account.${u.id}`;
-    AsyncStorage.getItem(key).then((seen) => {
+    AsyncStorage.getItem(key).then(async (seen) => {
       if (!seen) {
         AsyncStorage.setItem(key, '1').catch(() => {});
         reset(
@@ -154,18 +148,25 @@ function AccountSync() {
           }),
         );
       } else if (state.profile.id !== u.id) {
-        dispatch({
-          type: 'profile',
-          patch: {
+        reset(
+          freshMemberState({
             id: u.id,
             handle: u.handle,
             displayName: u.displayName,
             avatarUrl: u.avatarUrl,
-          },
-        });
+            favoriteGenres: [],
+            favoriteDramaIds: [],
+            followers: 0,
+            following: 0,
+            joinedAt: new Date().toISOString(),
+          }),
+        );
       }
+      // Pull the real account snapshot (profile, graph, watchlist…) and the feeds.
+      await supabaseBackend.pull('me').catch(() => {});
+      await supabaseBackend.pull('home').catch(() => {});
     });
-  }, [auth.status, auth.user, state.hydrated, state.profile.id, reset, dispatch]);
+  }, [auth.status, auth.user, state.hydrated, state.profile.id, reset]);
 
   useEffect(() => {
     if (auth.recoveryPending && segments[1] !== 'reset-password') router.push('/(auth)/reset-password');
@@ -174,7 +175,6 @@ function AccountSync() {
   return null;
 }
 
-/** Once hydrated and online, attach real catalog art and ids to the seeded titles (no-op without a catalog key). */
 /**
  * Keeps the OS notification queue in step with follows + per-drama alerts, and opens the episode
  * room when a reminder is tapped (warm or cold start).
@@ -210,23 +210,3 @@ function ReminderSync() {
   return null;
 }
 
-function CatalogSync() {
-  const hydrated = useSlice((s) => s.hydrated);
-  const online = useNetwork();
-  useEffect(() => {
-    if (!hydrated || !catalog.available) return;
-    // Don't gate on `online`: the request itself is the cheapest connectivity test, and a false
-    // "offline" from the OS/browser must never leave the app on placeholder art. A flip back to
-    // online (or the app returning to the foreground) simply schedules another pass.
-    const ctrl = new AbortController();
-    const kick = () => syncSeedCatalog(ctrl.signal).catch(() => {});
-    const t = setTimeout(kick, online ? 300 : 4000);
-    const sub = RNAppState.addEventListener('change', (st) => st === 'active' && kick());
-    return () => {
-      clearTimeout(t);
-      sub.remove();
-      ctrl.abort();
-    };
-  }, [hydrated, online]);
-  return null;
-}

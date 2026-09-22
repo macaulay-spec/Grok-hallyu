@@ -14,10 +14,12 @@ import { adoptDramas } from '../lib/catalogSync';
 import { useApp, useLoad } from '../lib/hooks';
 import { Drama } from '../lib/model';
 import { trendingDiscussions, trendingDramas } from '../lib/selectors';
+import { useRemote } from '../lib/data/sync';
 
 /** Trending — dramas with momentum this week (live from TMDB) and the conversations around them. */
 export default function Trending() {
   const { state } = useApp();
+  useRemote('trending');
   const padding = useListPadding(false);
   const [tab, setTab] = useState<'dramas' | 'posts'>('dramas');
   const live = useLoad<Drama[]>(async (signal) => adoptDramas(await catalog.trending(signal)), [], catalog.available);

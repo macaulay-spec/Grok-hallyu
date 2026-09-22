@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Pressable, StyleSheet, View } from 'react-native';
+import { Animated, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '../../components/ui/Button';
 import { Text } from '../../components/ui/Text';
@@ -9,14 +9,11 @@ import { LivingWall } from '../../components/onboarding/LivingWall';
 import { Wordmark } from '../../components/ui/TopBar';
 import { useToast } from '../../components/ui/Toast';
 import { colors, motion, space } from '../../constants/theme';
-import { SHOW_DEMO } from '../../constants/keys';
 import { useAuth } from '../../lib/auth';
 import { useLayout, useLoad } from '../../lib/hooks';
 import { catalog } from '../../lib/catalog';
 import { adoptDramas } from '../../lib/catalogSync';
 import { allDramas, useSlice } from '../../lib/store';
-
-/** Demo-data door: shown in demo builds (EXPO_PUBLIC_SHOW_DEMO=1); otherwise a long-press on the wordmark reveals it. */
 
 /**
  * Welcome: the promise, two doors (Google / email), a quiet sign-in link and "Look around first".
@@ -28,15 +25,7 @@ export default function Welcome() {
   const toast = useToast();
   const insets = useSafeAreaInsets();
   const { width } = useLayout();
-  const [busy, setBusy] = useState<'google' | 'demo' | null>(null);
-  const [demoVisible, setDemoVisible] = useState(SHOW_DEMO);
-  const demo = () => {
-    setBusy('demo');
-    auth
-      .signInDemo()
-      .then(() => router.replace('/'))
-      .finally(() => setBusy(null));
-  };
+  const [busy, setBusy] = useState<'google' | null>(null);
   const rise = useRef(new Animated.Value(24)).current;
   const fade = useRef(new Animated.Value(0)).current;
 
@@ -54,8 +43,7 @@ export default function Welcome() {
       router.replace('/');
     } catch (e) {
       const err = e as Error & { code?: string };
-      if (err.code === 'network') toast.show({ message: err.message, actionLabel: 'Try the demo', onAction: () => auth.signInDemo().then(() => router.replace('/')) });
-      else if (err.code !== 'cancelled') toast.show({ message: err.message, tone: 'danger' });
+      if (err.code !== 'cancelled') toast.show({ message: err.message, tone: 'danger' });
     } finally {
       setBusy(null);
     }
@@ -89,17 +77,9 @@ export default function Welcome() {
       <LivingWall key={tiles} dramas={mosaic} tiles={tiles} tileWidth={posterW} height="56%" />
 
       <Animated.View style={[styles.content, { paddingBottom: insets.bottom + space.x6, opacity: fade, transform: [{ translateY: rise }] }]}>
-        <Pressable
-          onLongPress={() => {
-            setDemoVisible(true);
-            toast.show({ message: 'Demo data unlocked', icon: 'sparkles-outline' });
-          }}
-          delayLongPress={900}
-          accessibilityLabel="Hallyu"
-          style={{ alignSelf: 'flex-start' }}
-        >
+        <View style={{ alignSelf: 'flex-start' }}>
           <Wordmark size={40} />
-        </Pressable>
+        </View>
         <Text variant="displayLarge" style={{ marginTop: space.x6 }}>
           Your dramas.{'\n'}Your people.{'\n'}Your world.
         </Text>
@@ -124,7 +104,6 @@ export default function Welcome() {
               router.replace('/(tabs)');
             }}
           />
-          {demoVisible ? <Button label="Preview with demo data" variant="ghost" size="sm" icon="sparkles-outline" onPress={demo} loading={busy === 'demo'} /> : null}
         </View>
 
         <Text variant="caption" tone="tertiary" align="center" style={{ marginTop: space.x4 }}>

@@ -89,10 +89,9 @@ export function useRequireMember() {
   );
 }
 
-/** Device connectivity, honouring the dev network simulator (Settings → Data & storage). */
+/** Device connectivity (NetInfo; on web the browser's own view). */
 export function useNetwork() {
   const [online, setOnline] = useState(true);
-  const simulatedOffline = useSlice((s) => s.prefs.devNetwork === 'offline');
   useEffect(() => {
     const sub = NetInfo.addEventListener((st) => {
       // On web NetInfo probes reachability with a cross-origin HEAD that browsers often block (CORS),
@@ -102,7 +101,7 @@ export function useNetwork() {
     });
     return () => sub();
   }, []);
-  return online && !simulatedOffline;
+  return online;
 }
 
 export function useLayout(): { width: number; height: number; wc: WindowClass; margin: number; isLandscape: boolean; columns: number } {

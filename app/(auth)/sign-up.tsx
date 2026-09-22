@@ -66,7 +66,6 @@ export default function SignUp() {
           {error ? <InlineNotice tone={error.code === 'network' ? 'warning' : 'danger'} icon={error.code === 'network' ? 'cloud-offline-outline' : 'alert-circle-outline'} text={error.message} /> : null}
           <Button label="Create account" size="lg" block onPress={submit} loading={busy} disabled={!valid} />
           {error?.code === 'exists' ? <Button label="Sign in instead" variant="secondary" block onPress={() => router.replace('/(auth)/sign-in')} /> : null}
-          {error?.code === 'network' ? <Button label="Use the demo account instead" variant="secondary" block onPress={() => auth.signInDemo().then(() => router.replace('/'))} /> : null}
         </View>
         <View style={{ marginTop: space.x6, gap: space.x2 }}>
           <Button label="Continue with Google" icon="logo-google" variant="secondary" block onPress={() => auth.signInWithGoogle().then(() => router.replace('/')).catch((e: AuthError) => e.code !== 'cancelled' && toast.show({ message: e.message, tone: 'danger' }))} />

@@ -20,6 +20,7 @@ import { colors, radius, space } from '../../constants/theme';
 import { compact, timeAgo } from '../../lib/format';
 import { useApp } from '../../lib/hooks';
 import { LIMITS } from '../../lib/model';
+import { useRemote } from '../../lib/data/sync';
 
 /** Collection detail — a shelf. Owner edits inline; visitors follow. Private shelves 404 politely. */
 export default function CollectionDetail() {
@@ -27,6 +28,7 @@ export default function CollectionDetail() {
   const toast = useToast();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { state, dispatch, getCollection, getUser, getDrama, me, watch } = useApp();
+  useRemote(`collection:${id}`);
   const padding = useListPadding(false);
   const col = getCollection(id);
   const [menu, setMenu] = useState(false);

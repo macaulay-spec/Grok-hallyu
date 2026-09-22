@@ -26,7 +26,6 @@ import { useAuth } from '../../lib/auth';
 import { extractHashtags, extractMentions, uid } from '../../lib/format';
 import { haptic, useApp } from '../../lib/hooks';
 import { DiscussionKind, Draft, LIMITS, PostType, REACTIONS, ReactionKind, SpoilerLevel } from '../../lib/model';
-import { USERS } from '../../lib/seed';
 import { allActors, newPost } from '../../lib/store';
 import { SPOILER_LABEL, suggestSpoilerLevel } from '../../lib/spoiler';
 import { track } from '../../lib/analytics';
@@ -105,7 +104,7 @@ export default function Composer() {
     return m ? m[1]!.toLowerCase() : null;
   })();
   const mentionMatches =
-    mentionQuery !== null ? USERS.filter((u) => u.id !== me.id && (u.handle.toLowerCase().startsWith(mentionQuery) || u.displayName.toLowerCase().includes(mentionQuery))).slice(0, 4) : [];
+    mentionQuery !== null ? Object.values(state.users).filter((u) => u.id !== me.id && (u.handle.toLowerCase().startsWith(mentionQuery) || u.displayName.toLowerCase().includes(mentionQuery))).slice(0, 4) : [];
 
   const problems: string[] = [];
   if (needsDrama && !drama) problems.push(`${meta.label}s need a drama.`);
@@ -202,7 +201,7 @@ export default function Composer() {
     setPosting(true);
     const hashtags = extractHashtags(`${title} ${body} ${verdict}`);
     const mentions = extractMentions(body)
-      .map((h) => USERS.find((u) => u.handle.toLowerCase() === h.toLowerCase())?.id)
+      .map((h) => Object.values(state.users).find((u) => u.handle.toLowerCase() === h.toLowerCase())?.id)
       .filter(Boolean) as string[];
     const context = { dramaId, season: ep?.season, episode: ep?.episode, actorIds: actorIds.length ? actorIds : undefined, secondaryDramaId: secondaryId };
     const common = {

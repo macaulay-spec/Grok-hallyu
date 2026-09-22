@@ -23,8 +23,7 @@ import { catalog, invalidateCatalogLists, friendlyCatalogCopy } from '../../lib/
 import { adoptActors, adoptDramas } from '../../lib/catalogSync';
 import { Loadable, useApp, useCatalogHealth, useLayout, useLoad, useNetwork } from '../../lib/hooks';
 import { Actor, Drama, GENRES } from '../../lib/model';
-import { publicCollections, shorts, trendingDiscussions } from '../../lib/selectors';
-import { TRENDING_HASHTAGS } from '../../lib/seed';
+import { publicCollections, shorts, trendingDiscussions, trendingHashtags } from '../../lib/selectors';
 
 const NETFLIX = 8; // TMDB watch-provider id
 
@@ -212,7 +211,7 @@ export default function Explore() {
         <View style={styles.section}>
           <SectionHeader eyebrow="Hashtags" title="Trending tags" />
           <View style={styles.tags}>
-            {TRENDING_HASHTAGS.map((t) => (
+            {trendingHashtags(state, 14).map(({ tag: t }) => (
               <Pressable key={t} onPress={() => router.push({ pathname: '/search', params: { q: `#${t}` } })} style={styles.tag} accessibilityRole="button" accessibilityLabel={`#${t}`}>
                 <Text variant="label" tone="accent">
                   #{t}

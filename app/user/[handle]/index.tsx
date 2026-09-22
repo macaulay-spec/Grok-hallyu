@@ -5,12 +5,14 @@ import { Screen } from '../../../components/ui/Screen';
 import { ErrorState } from '../../../components/ui/States';
 import { TopBar } from '../../../components/ui/TopBar';
 import { useApp } from '../../../lib/hooks';
+import { useRemote } from '../../../lib/data/sync';
 
 /** Public profile by handle (also the /u/{handle} deep link). Your own handle redirects to the You tab experience. */
 export default function UserProfile() {
   const router = useRouter();
   const { handle } = useLocalSearchParams<{ handle: string }>();
   const { getUserByHandle, me } = useApp();
+  useRemote(`user:${handle}`);
   const clean = (handle ?? '').replace(/^@/, '');
   const user = clean.toLowerCase() === me.handle.toLowerCase() ? me : getUserByHandle(clean);
   if (!user) {

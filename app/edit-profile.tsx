@@ -16,7 +16,6 @@ import { TopBar } from '../components/ui/TopBar';
 import { colors, radius, sizes, space } from '../constants/theme';
 import { haptic, useApp } from '../lib/hooks';
 import { GENRES, LIMITS } from '../lib/model';
-import { USERS } from '../lib/seed';
 
 /** Edit profile — name, handle, bio, avatar, favourite genres, four favourite dramas, private toggle. */
 export default function EditProfile() {
@@ -33,7 +32,7 @@ export default function EditProfile() {
   const [picker, setPicker] = useState(false);
 
   const handleClean = handle.trim().toLowerCase().replace(/^@/, '');
-  const handleError = handleClean.length < 3 ? 'At least 3 characters.' : !/^[a-z0-9_.]+$/.test(handleClean) ? 'Letters, numbers, dots and underscores only.' : USERS.some((u) => u.id !== me.id && u.handle.toLowerCase() === handleClean) ? 'That handle is taken.' : null;
+  const handleError = handleClean.length < 3 ? 'At least 3 characters.' : handleClean.length > 20 ? 'Keep it under 20 characters.' : !/^[a-z0-9_]+$/.test(handleClean) ? 'Lowercase letters, numbers and underscores only.' : null;
   const nameError = displayName.trim().length < 2 ? 'Add a display name.' : null;
   const valid = !handleError && !nameError;
 

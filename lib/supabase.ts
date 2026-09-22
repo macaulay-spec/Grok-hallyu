@@ -9,6 +9,8 @@ export const SUPABASE_URL = SUPABASE_URL_KEY;
 export const SUPABASE_KEY = SUPABASE_ANON_KEY;
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+  // PostgREST exposes only the `api` schema (views + RPCs) — see docs/backend/08.
+  db: { schema: 'api' },
   auth: {
     storage: AsyncStorage,
     persistSession: true,

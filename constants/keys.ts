@@ -24,6 +24,3 @@ export const TMDB_API_KEY = env(process.env.EXPO_PUBLIC_TMDB_API_KEY) ?? 'ff01f2
 /** Supabase project (auth only in this pass — no app tables yet). */
 export const SUPABASE_URL = env(process.env.EXPO_PUBLIC_SUPABASE_URL) ?? 'https://psmxekrmoltwabefgqpd.supabase.co';
 export const SUPABASE_ANON_KEY = env(process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY) ?? 'sb_publishable_C6xEGHQxutS_ub-1ebuUDQ_TxVa_-v0';
-
-/** Show the "Preview with demo data" door on the welcome screen (demo/QA builds). */
-export const SHOW_DEMO = env(process.env.EXPO_PUBLIC_SHOW_DEMO) === '1';

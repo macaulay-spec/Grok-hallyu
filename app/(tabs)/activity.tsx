@@ -17,6 +17,7 @@ import { colors, space } from '../../constants/theme';
 import { useAuth } from '../../lib/auth';
 import { dayLabel, timeAgo } from '../../lib/format';
 import { useApp } from '../../lib/hooks';
+import { useRemote } from '../../lib/data/sync';
 import { Notification, NotificationGroup } from '../../lib/model';
 
 type Tab = 'all' | NotificationGroup;
@@ -30,6 +31,7 @@ export default function Activity() {
   const refresh = useRefresh('activity');
   const auth = useAuth();
   const { state, dispatch, getUser, getDrama, getPost, getCollection } = useApp();
+  useRemote('activity', 30_000);
   const [tab, setTab] = useState<Tab>('all');
   const padding = useListPadding();
   const guest = auth.status !== 'signedIn';

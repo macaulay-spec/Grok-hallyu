@@ -4,10 +4,8 @@ import { create } from 'zustand';
 import { useStoreWithEqualityFn } from 'zustand/traditional';
 import { uid } from './format';
 import { Actor, Collection, Comment, Draft, Drama, Notification, NotificationGroup, Post, ReactionCounts, ReactionKind, SpoilerProtection, User, WatchStatus, WatchlistItem } from './model';
-import * as seed from './seed';
 
-const STORAGE_KEY = 'hallyu.state.v3';
-const SEED_VERSION = 3;
+const STORAGE_KEY = 'hallyu.state.v4';
 
 export type Intent = 'discuss' | 'track' | 'discover' | 'reactions' | 'people' | 'actors';
 
@@ -38,15 +36,21 @@ export interface Prefs {
   language: 'en' | 'ko';
   guidelinesAccepted: boolean;
   dataSaver: boolean;
-  /** Dev-only network simulation for the local backend: exercises async states before the real backend exists. */
-  devNetwork: 'fast' | 'slow' | 'flaky' | 'offline';
   /** Version of the Terms/Guidelines the member accepted (Play UGC policy); 0 = not yet. */
   termsVersion: number;
 }
 
+/** One remote feed page: server order for a scope, plus its paging cursor. See lib/data. */
+export interface FeedPage {
+  ids: string[];
+  reasons?: Record<string, string>;
+  cursor?: { before?: string; score?: number; id?: string };
+  exhausted: boolean;
+  fetchedAt: string;
+}
+
 export interface AppState {
   hydrated: boolean;
-  seedVersion: number;
   onboarding: { done: boolean; step: number; intent?: Intent; genres: string[] };
   prefs: Prefs;
   profile: User;
@@ -56,16 +60,22 @@ export interface AppState {
   reactions: Record<string, ReactionKind>;
   saves: string[];
   revealed: Record<string, true>;
+  /** Content pulled from the backend (plus anything locally created and not yet confirmed). */
   posts: Post[];
   comments: Comment[];
   collections: Collection[];
   notifications: Notification[];
+  /** Public profile cards seen in feeds/threads (id → User). */
+  users: Record<string, User>;
+  /** Server-ordered lists by scope key: home feeds, drama tabs, profiles, search… */
+  feeds: Record<string, FeedPage>;
   drafts: Draft[];
   blockedUsers: string[];
   mutedUsers: string[];
   mutedDramas: string[];
   reported: string[];
   recentSearches: string[];
+  /** Live catalog records (TMDB-backed). This is the drama/actor catalog in full. */
   importedDramas: Drama[];
   importedActors: Actor[];
   lastSeenActivity: string;
@@ -87,33 +97,34 @@ const defaultPrefs: Prefs = {
   guidelinesAccepted: false,
   dataSaver: false,
   language: 'en',
-  devNetwork: 'fast',
   termsVersion: 0,
 };
 
-function initialState(): AppState {
+/** An anonymous visitor: empty until the public feeds land. */
+export function initialState(): AppState {
   return {
     hydrated: false,
-    seedVersion: SEED_VERSION,
-    onboarding: { done: true, step: 0, intent: 'discuss', genres: ['Romance', 'Slice of life', 'Fantasy'] },
+    onboarding: { done: false, step: 0, genres: [] },
     prefs: defaultPrefs,
-    profile: seed.USERS[0]!,
-    follows: { users: [...seed.FOLLOWED_USERS], dramas: [...seed.FOLLOWED_DRAMAS], actors: [...seed.FOLLOWED_ACTORS], collections: [...seed.FOLLOWED_COLLECTIONS] },
-    dramaNotify: { 'a-love-other-than-yours': true, 'made-in-korea': true },
-    watchlist: Object.fromEntries(seed.WATCHLIST.map((w) => [w.dramaId, w])),
-    reactions: { ...seed.MY_REACTIONS },
-    saves: [...seed.SAVED_POSTS],
+    profile: emptyProfile(),
+    follows: { users: [], dramas: [], actors: [], collections: [] },
+    dramaNotify: {},
+    watchlist: {},
+    reactions: {},
+    saves: [],
     revealed: {},
-    posts: seed.POSTS,
-    comments: seed.COMMENTS,
-    collections: seed.COLLECTIONS,
-    notifications: seed.NOTIFICATIONS,
+    posts: [],
+    comments: [],
+    collections: [],
+    notifications: [],
+    users: {},
+    feeds: {},
     drafts: [],
     blockedUsers: [],
     mutedUsers: [],
     mutedDramas: [],
     reported: [],
-    recentSearches: ['Kim Tae-ri', 'enemies to lovers'],
+    recentSearches: [],
     importedDramas: [],
     importedActors: [],
     lastSeenActivity: new Date(0).toISOString(),
@@ -122,21 +133,13 @@ function initialState(): AppState {
   };
 }
 
+function emptyProfile(): User {
+  return { id: 'local', handle: 'you', displayName: 'You', favoriteGenres: [], favoriteDramaIds: [], followers: 0, following: 0, joinedAt: new Date().toISOString() };
+}
+
 /** A brand-new member (after sign-up) starts empty: this is what the first-run states are designed for. */
 export function freshMemberState(profile: User): AppState {
-  return {
-    ...initialState(),
-    hydrated: true,
-    onboarding: { done: false, step: 0, genres: [] },
-    profile,
-    follows: { users: [], dramas: [], actors: [], collections: [] },
-    dramaNotify: {},
-    watchlist: {},
-    reactions: {},
-    saves: [],
-    notifications: seed.NOTIFICATIONS.filter((n) => n.group === 'system'),
-    recentSearches: [],
-  };
+  return { ...initialState(), hydrated: true, profile, onboarding: { done: false, step: 0, genres: [] } };
 }
 
 export const GUEST_ID = 'guest';
@@ -144,15 +147,9 @@ export const GUEST_ID = 'guest';
 /** Guests browse the public world with no personal layer: nothing followed, nothing tracked, nothing unread. */
 export function guestState(): AppState {
   return {
-    ...freshMemberState({ id: GUEST_ID, handle: 'guest', displayName: 'Guest', favoriteGenres: [], favoriteDramaIds: [], followers: 0, following: 0, joinedAt: new Date().toISOString() }),
+    ...freshMemberState({ ...emptyProfile(), id: GUEST_ID, handle: 'guest', displayName: 'Guest' }),
     onboarding: { done: true, step: 0, genres: [] },
-    notifications: [],
   };
-}
-
-/** The demo member's rich, seeded world. */
-export function demoState(): AppState {
-  return { ...initialState(), hydrated: true };
 }
 
 export type Action =
@@ -184,19 +181,43 @@ export type Action =
   | { type: 'block'; userId: string; on: boolean }
   | { type: 'muteUser'; userId: string; on: boolean }
   | { type: 'muteDrama'; dramaId: string; on: boolean }
-  | { type: 'report'; id: string }
+  | { type: 'report'; id: string; targetType?: 'post' | 'comment' | 'user' | 'drama' | 'collection'; reason?: string; detail?: string }
   | { type: 'recentSearch'; q?: string; clear?: boolean }
   | { type: 'import'; dramas?: Drama[]; actors?: Actor[] }
   | { type: 'seenActivity' }
   | { type: 'outbox.add'; mutation: Mutation }
   | { type: 'outbox.update'; id: string; patch: Partial<Mutation> }
   | { type: 'outbox.remove'; id: string }
-  // sync bookkeeping (local-only; never enqueued)
+  // remote-sync bookkeeping (applied by the sync layer / pull; never enqueued as mutations)
   | { type: 'postState'; id: string; state: NonNullable<Post['state']> }
   | { type: 'removePost'; id: string }
   | { type: 'commentState'; id: string; state: NonNullable<Comment['state']> }
   | { type: 'removeComment'; id: string }
-  | { type: 'restoreKey'; slice: 'watchlist' | 'reactions' | 'dramaNotify'; key: string; value?: unknown };
+  | { type: 'restoreKey'; slice: 'watchlist' | 'reactions' | 'dramaNotify'; key: string; value?: unknown }
+  | { type: 'mergePosts'; posts: Post[] }
+  | { type: 'mergeComments'; postId: string; comments: Comment[] }
+  | { type: 'mergeUsers'; users: Partial<User>[] }
+  | { type: 'mergeNotifications'; notifications: Notification[]; append?: boolean }
+  | { type: 'mergeCollections'; collections: Collection[] }
+  | { type: 'setFeed'; key: string; ids: string[]; reasons?: Record<string, string>; cursor?: FeedPage['cursor']; append?: boolean; exhausted?: boolean }
+  | { type: 'viewerSync'; reactions: Record<string, ReactionKind | null>; saved: Record<string, boolean> }
+  | { type: 'me'; payload: MePayload };
+
+/** The `api.me()` snapshot, already mapped to store shapes (see lib/data/supabaseBackend.ts). */
+export interface MePayload {
+  profile?: Partial<User>;
+  prefs?: Partial<Prefs>;
+  onboarding?: Partial<AppState['onboarding']>;
+  follows?: AppState['follows'];
+  dramaNotify?: string[];
+  watchlist?: Record<string, WatchlistItem>;
+  reactions?: Record<string, ReactionKind>;
+  saves?: string[];
+  collections?: Collection[];
+  blockedUsers?: string[];
+  mutedUsers?: string[];
+  mutedDramas?: string[];
+}
 
 function toggle(list: string[], id: string, on?: boolean): string[] {
   const has = list.includes(id);
@@ -208,6 +229,17 @@ function toggle(list: string[], id: string, on?: boolean): string[] {
 
 function bump(counts: ReactionCounts, kind: ReactionKind, delta: number): ReactionCounts {
   return { ...counts, [kind]: Math.max(0, counts[kind] + delta) };
+}
+
+const stamp = (x: { createdAt?: string; updatedAt?: string }) => x.createdAt ?? x.updatedAt ?? '';
+const byNewest = (a: { createdAt?: string; updatedAt?: string }, b: { createdAt?: string; updatedAt?: string }) => stamp(b).localeCompare(stamp(a));
+
+/** Upsert by id, newest first; used for everything the feeds pull. */
+function upsert<T extends { id: string; createdAt?: string; updatedAt?: string }>(prev: T[], next: T[], cap = 400): T[] {
+  if (!next.length) return prev;
+  const byId = new Map(prev.map((x) => [x.id, x]));
+  for (const x of next) byId.set(x.id, { ...(byId.get(x.id) ?? ({} as T)), ...x });
+  return [...byId.values()].sort(byNewest).slice(0, cap);
 }
 
 function reducer(s: AppState, a: Action): AppState {
@@ -240,14 +272,96 @@ function reducer(s: AppState, a: Action): AppState {
       else next[a.key] = a.value;
       return { ...s, [a.slice]: next };
     }
+    case 'mergePosts':
+      return { ...s, posts: upsert(s.posts, a.posts, 600) };
+    case 'mergeComments': {
+      // Server pages are authoritative for a thread, but anything I just sent (pending/failed) must survive the merge.
+      const mine = s.comments.filter((c) => c.postId === a.postId && (c.state === 'pending' || c.state === 'failed'));
+      const others = s.comments.filter((c) => c.postId !== a.postId);
+      const merged = new Map<string, Comment>();
+      for (const c of [...others, ...a.comments, ...mine]) merged.set(c.id, { ...(merged.get(c.id) ?? {}), ...c } as Comment);
+      return { ...s, comments: [...merged.values()].sort(byNewest).slice(0, 1200) };
+    }
+    case 'mergeUsers': {
+      const users = { ...s.users };
+      for (const u of a.users) {
+        if (!u.id) continue;
+        users[u.id] = { ...(users[u.id] ?? { id: u.id, handle: '', displayName: '', favoriteGenres: [], favoriteDramaIds: [], followers: 0, following: 0, joinedAt: new Date().toISOString() }), ...u } as User;
+      }
+      // keep the map bounded: drop the least-referenced entries
+      const MAX = 500;
+      const ids = Object.keys(users);
+      if (ids.length > MAX) {
+        for (const id of ids.slice(0, ids.length - MAX)) delete users[id];
+      }
+      return { ...s, users };
+    }
+    case 'mergeNotifications': {
+      const notifications = a.append ? [...a.notifications, ...s.notifications].filter(uniq).sort(byNewest).slice(0, 150) : a.notifications.slice(0, 150);
+      return { ...s, notifications };
+    }
+    case 'mergeCollections':
+      return { ...s, collections: upsert(s.collections, a.collections, 100) };
+    case 'setFeed': {
+      const prev = s.feeds[a.key];
+      return {
+        ...s,
+        feeds: {
+          ...s.feeds,
+          [a.key]: {
+            ids: a.append ? [...new Set([...(prev?.ids ?? []), ...a.ids])] : a.ids,
+            reasons: { ...(prev?.reasons ?? {}), ...(a.reasons ?? {}) },
+            cursor: a.cursor,
+            exhausted: a.exhausted ?? false,
+            fetchedAt: new Date().toISOString(),
+          },
+        },
+      };
+    }
+    case 'viewerSync': {
+      const reactions = { ...s.reactions };
+      for (const [id, kind] of Object.entries(a.reactions)) {
+        if (kind) reactions[id] = kind;
+        else delete reactions[id];
+      }
+      let saves = s.saves;
+      const touched = Object.keys(a.saved);
+      if (touched.length) {
+        const set = new Set(saves);
+        for (const id of touched) {
+          if (a.saved[id]) set.add(id);
+          else set.delete(id);
+        }
+        saves = [...set];
+      }
+      return { ...s, reactions, saves };
+    }
+    case 'me': {
+      const p = a.payload;
+      return {
+        ...s,
+        profile: p.profile ? { ...s.profile, ...p.profile } : s.profile,
+        prefs: p.prefs ? { ...s.prefs, ...p.prefs } : s.prefs,
+        onboarding: p.onboarding ? { ...s.onboarding, ...p.onboarding } : s.onboarding,
+        follows: p.follows ?? s.follows,
+        dramaNotify: p.dramaNotify ? Object.fromEntries(p.dramaNotify.map((id) => [id, true])) : s.dramaNotify,
+        watchlist: p.watchlist ?? s.watchlist,
+        reactions: p.reactions ?? s.reactions,
+        saves: p.saves ?? s.saves,
+        blockedUsers: p.blockedUsers ?? s.blockedUsers,
+        mutedUsers: p.mutedUsers ?? s.mutedUsers,
+        mutedDramas: p.mutedDramas ?? s.mutedDramas,
+        collections: p.collections ? upsert(p.collections, s.collections.filter((c) => !p.collections!.some((x) => x.id === c.id)), 100) : s.collections,
+      };
+    }
     case 'replace':
-      // The catalog cache (real art, TMDB ids, headshots) is device-level, not account-level: keep it
-      // across guest ↔ member ↔ demo switches so posters never fall back to placeholders mid-session.
+      // Caches that are not account-specific (catalog art, public profiles) survive guest ↔ member switches.
       return {
         ...a.state,
         hydrated: true,
         importedDramas: a.state.importedDramas.length ? a.state.importedDramas : s.importedDramas,
         importedActors: a.state.importedActors.length ? a.state.importedActors : s.importedActors,
+        users: { ...s.users, ...a.state.users },
       };
     case 'onboarding':
       return { ...s, onboarding: { ...s.onboarding, ...a.patch } };
@@ -331,18 +445,23 @@ function reducer(s: AppState, a: Action): AppState {
       return { ...s, revealed: { ...s.revealed, [a.id]: true } };
     case 'seen':
       return s.seen[a.id] ? s : { ...s, seen: { ...s.seen, [a.id]: new Date().toISOString() } };
-    case 'addPost':
-      return { ...s, posts: [a.post, ...s.posts] };
+    case 'addPost': {
+      // upsert: the backend returns the same client-generated id, so a refetch merges instead of duplicating
+      const exists = s.posts.some((p) => p.id === a.post.id);
+      return { ...s, posts: exists ? s.posts.map((p) => (p.id === a.post.id ? { ...p, ...a.post } : p)) : [a.post, ...s.posts] };
+    }
     case 'editPost':
       return { ...s, posts: s.posts.map((p) => (p.id === a.id ? { ...p, ...a.patch, editedAt: new Date().toISOString() } : p)) };
     case 'deletePost':
       return { ...s, posts: s.posts.map((p) => (p.id === a.id ? { ...p, state: 'deleted' } : p)) };
-    case 'addComment':
+    case 'addComment': {
+      const exists = s.comments.some((c) => c.id === a.comment.id);
       return {
         ...s,
-        comments: [...s.comments, a.comment],
-        posts: s.posts.map((p) => (p.id === a.comment.postId ? { ...p, commentCount: p.commentCount + 1 } : p)),
+        comments: exists ? s.comments.map((c) => (c.id === a.comment.id ? { ...c, ...a.comment } : c)) : [...s.comments, a.comment],
+        posts: exists ? s.posts : s.posts.map((p) => (p.id === a.comment.postId ? { ...p, commentCount: p.commentCount + 1 } : p)),
       };
+    }
     case 'deleteComment': {
       const c = s.comments.find((x) => x.id === a.id);
       return {
@@ -421,8 +540,8 @@ function reducer(s: AppState, a: Action): AppState {
         // Keep the persisted cache bounded: evict the oldest thin records nobody tracks or follows.
         const MAX = 400;
         if (dramas.length > MAX) {
-          const pinned = new Set([...Object.keys(s.watchlist), ...s.follows.dramas]);
-          const evictable = dramas.filter((d) => !pinned.has(d.id) && d.episodes.length === 0 && d.cast.length === 0 && !d.id.startsWith('seed:'));
+          const pinned = new Set([...Object.keys(s.watchlist), ...s.follows.dramas, ...s.users[s.profile.id]?.favoriteDramaIds ?? []]);
+          const evictable = dramas.filter((d) => !pinned.has(d.id) && d.episodes.length === 0 && d.cast.length === 0);
           const drop = new Set(evictable.slice(0, dramas.length - MAX).map((d) => d.id));
           dramas = dramas.filter((d) => !drop.has(d.id));
         }
@@ -441,32 +560,17 @@ function reducer(s: AppState, a: Action): AppState {
   }
 }
 
+const uniq = <T extends { id: string }>(x: T, i: number, all: T[]) => all.findIndex((y) => y.id === x.id) === i;
+
 /**
- * Catalog view: imported records extend the seed, and an imported record with a seed id *overrides* it
- * (that is how real art, TMDB ids and refreshed metadata get attached to seeded titles).
- * Memoised per `importedDramas` array identity — getDrama() is called by every card on every render.
+ * Catalog view: every drama/actor the app knows about comes from TMDB (through `ensure-catalog`
+ * on the server, or the client catalog cache). Screens treat these lists as the whole catalog.
  */
-const dramaCache = new WeakMap<Drama[], Drama[]>();
-const actorCache = new WeakMap<Actor[], Actor[]>();
 export function allDramas(s: Pick<AppState, 'importedDramas'>): Drama[] {
-  if (!s.importedDramas.length) return seed.DRAMAS;
-  let out = dramaCache.get(s.importedDramas);
-  if (!out) {
-    const byId = new Map(s.importedDramas.map((d) => [d.id, d]));
-    out = [...seed.DRAMAS.map((d) => byId.get(d.id) ?? d), ...s.importedDramas.filter((d) => !seed.DRAMAS.some((x) => x.id === d.id))];
-    dramaCache.set(s.importedDramas, out);
-  }
-  return out;
+  return s.importedDramas;
 }
 export function allActors(s: Pick<AppState, 'importedActors'>): Actor[] {
-  if (!s.importedActors.length) return seed.ACTORS;
-  let out = actorCache.get(s.importedActors);
-  if (!out) {
-    const byId = new Map(s.importedActors.map((a) => [a.id, a]));
-    out = [...seed.ACTORS.map((a) => byId.get(a.id) ?? a), ...s.importedActors.filter((a) => !seed.ACTORS.some((x) => x.id === a.id))];
-    actorCache.set(s.importedActors, out);
-  }
-  return out;
+  return s.importedActors;
 }
 
 export interface StoreValue {
@@ -478,7 +582,6 @@ export interface StoreValue {
 }
 
 const PERSISTED_KEYS: (keyof AppState)[] = [
-  'seedVersion',
   'onboarding',
   'prefs',
   'profile',
@@ -492,6 +595,8 @@ const PERSISTED_KEYS: (keyof AppState)[] = [
   'comments',
   'collections',
   'notifications',
+  'users',
+  'feeds',
   'drafts',
   'blockedUsers',
   'mutedUsers',
@@ -505,44 +610,20 @@ const PERSISTED_KEYS: (keyof AppState)[] = [
   'seen',
 ];
 
-/** Posts with local `require()` images cannot be serialised; keep seed posts by reference and only persist user-made content. */
 function serialise(s: AppState): string {
-  const seedPostIds = new Set(seed.POSTS.map((p) => p.id));
   const out: Record<string, unknown> = {};
   for (const k of PERSISTED_KEYS) out[k] = s[k];
-  out.posts = s.posts.filter((p) => !seedPostIds.has(p.id) || p.state === 'deleted' || p.editedAt).map((p) => ({ ...p, images: p.images?.filter((i) => typeof i === 'string') }));
-  out.postCounters = Object.fromEntries(s.posts.filter((p) => seedPostIds.has(p.id)).map((p) => [p.id, { reactions: p.reactions, commentCount: p.commentCount, saveCount: p.saveCount }]));
-  const seedCommentIds = new Set(seed.COMMENTS.map((c) => c.id));
-  out.comments = s.comments.filter((c) => !seedCommentIds.has(c.id) || c.state === 'deleted');
-  out.commentCounters = Object.fromEntries(s.comments.filter((c) => seedCommentIds.has(c.id)).map((c) => [c.id, c.reactions]));
+  // keep the payload small: freshest content only
+  out.posts = (s.posts as Post[]).slice(0, 250);
+  out.comments = (s.comments as Comment[]).slice(0, 500);
   return JSON.stringify(out);
 }
 
 function deserialise(raw: string): Partial<AppState> | null {
   try {
-    const data = JSON.parse(raw) as Record<string, any>;
-    if (data.seedVersion !== SEED_VERSION) return null;
-    const userPosts = (data.posts ?? []) as Post[];
-    const counters = (data.postCounters ?? {}) as Record<string, Partial<Post>>;
-    const deleted = new Set(userPosts.filter((p) => p.state === 'deleted').map((p) => p.id));
-    const edited = new Map(userPosts.filter((p) => p.editedAt).map((p) => [p.id, p]));
-    const seedPosts = seed.POSTS.map((p) => ({
-      ...p,
-      ...(counters[p.id] ?? {}),
-      ...(edited.get(p.id) ? { body: edited.get(p.id)!.body, title: edited.get(p.id)!.title, editedAt: edited.get(p.id)!.editedAt, spoiler: edited.get(p.id)!.spoiler } : {}),
-      ...(deleted.has(p.id) ? { state: 'deleted' as const } : {}),
-    }));
-    const fresh = userPosts.filter((p) => !seed.POSTS.some((sp) => sp.id === p.id));
-    const posts = [...fresh, ...seedPosts].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    const userComments = (data.comments ?? []) as Comment[];
-    const cCounters = (data.commentCounters ?? {}) as Record<string, ReactionCounts>;
-    const deletedC = new Set(userComments.filter((c) => c.state === 'deleted').map((c) => c.id));
-    const comments = [
-      ...seed.COMMENTS.map((c) => ({ ...c, reactions: cCounters[c.id] ?? c.reactions, ...(deletedC.has(c.id) ? { state: 'deleted' as const } : {}) })),
-      ...userComments.filter((c) => !seed.COMMENTS.some((sc) => sc.id === c.id)),
-    ];
-    const { postCounters: _pc, commentCounters: _cc, ...rest } = data;
-    return { ...rest, posts, comments } as Partial<AppState>;
+    const data = JSON.parse(raw) as Partial<AppState>;
+    if (!data || typeof data !== 'object') return null;
+    return data;
   } catch {
     return null;
   }
@@ -624,7 +705,7 @@ export function useStore(): StoreValue {
   return { state, dispatch, reset, clearPersisted };
 }
 
-/** Convenience: a fresh Post skeleton authored by me. */
+/** Convenience: a fresh Post skeleton authored by me (the id is the client-generated UUID the backend keys on). */
 export function newPost(authorId: string, partial: Partial<Post> & Pick<Post, 'type' | 'body'>): Post {
   return {
     id: uid('p'),
@@ -642,4 +723,4 @@ export function newPost(authorId: string, partial: Partial<Post> & Pick<Post, 't
   };
 }
 
-export { initialState, reducer };
+export { initialState as emptyInitialState };

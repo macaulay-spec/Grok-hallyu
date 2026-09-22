@@ -32,6 +32,7 @@ import { airingEpisodes, forYou, following, getDrama, recommendedDramas, recomme
 import { getState } from '../../lib/store';
 import { catalog } from '../../lib/catalog';
 import { adoptDramas } from '../../lib/catalogSync';
+import { useRemote } from '../../lib/data/sync';
 
 type Row =
   | { key: string; kind: 'post'; post: Post; reason?: string }
@@ -67,6 +68,7 @@ function Home() {
   const auth = useAuth();
   const { state, me, unread } = useApp();
   const [tab, setTab] = useState<'forYou' | 'following'>('forYou');
+  useRemote(tab === 'following' ? 'feed:following' : 'feed:forYou', 45_000);
   const listRef = useRef<FlatList<Row>>(null);
   const viewport = useViewabilityTracker<Row>((r) => (r.kind === 'post' && r.post.video ? r.post.id : null));
   const { control: refreshControl, onRefresh: pull, refreshing } = useRefresh('home');

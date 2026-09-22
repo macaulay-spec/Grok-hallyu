@@ -11,12 +11,14 @@ import { space } from '../constants/theme';
 import { useAuth } from '../lib/auth';
 import { useApp, useLayout } from '../lib/hooks';
 import { myCollections, publicCollections } from '../lib/selectors';
+import { useRemote } from '../lib/data/sync';
 
 /** Collections index — Community shelves, yours, and the ones you follow. */
 export default function Collections() {
   const router = useRouter();
   const auth = useAuth();
   const { state } = useApp();
+  useRemote('collections');
   const { wc } = useLayout();
   const padding = useListPadding(false);
   const [tab, setTab] = useState<'community' | 'mine' | 'following'>('community');

@@ -1,23 +1,21 @@
 import { now } from './format';
 import { Actor, Collection, Comment, Drama, Episode, Post, ReactionKind, User, WatchlistItem } from './model';
-import * as seed from './seed';
 import { isVeiled, Viewer } from './spoiler';
-import { AppState, allActors, allDramas } from './store';
-
-export const ME = seed.ME_ID;
+import { AppState, FeedPage, allActors, allDramas } from './store';
 
 const score = (p: Post) => Object.values(p.reactions).reduce((a, b) => a + b, 0) + p.commentCount * 3 + p.saveCount * 2;
 const ageHours = (iso: string) => (now().getTime() - new Date(iso).getTime()) / 3_600_000;
-/** Hot ranking: engagement decays with age. */
+/** Hot ranking: engagement decays with age (the mirror of the server's trending velocity). */
 const hot = (p: Post) => score(p) / Math.pow(ageHours(p.createdAt) + 2, 1.4);
 
 export function getUser(s: AppState, id: string): User | undefined {
-  if (id === s.profile.id || id === ME) return s.profile;
-  return seed.USERS.find((u) => u.id === id);
+  if (id === s.profile.id) return s.profile;
+  return s.users[id];
 }
 export function getUserByHandle(s: AppState, handle: string): User | undefined {
   if (handle.toLowerCase() === s.profile.handle.toLowerCase()) return s.profile;
-  return seed.USERS.find((u) => u.handle.toLowerCase() === handle.toLowerCase());
+  const needle = handle.toLowerCase();
+  return Object.values(s.users).find((u) => u.handle.toLowerCase() === needle);
 }
 export function getDrama(s: AppState, id?: string): Drama | undefined {
   return id ? allDramas(s).find((d) => d.id === id) : undefined;
@@ -66,13 +64,63 @@ export function visiblePosts(s: AppState, posts: Post[] = s.posts): Post[] {
   );
 }
 
+// ---------------------------------------------------------------------------------------------
+// Feed ordering
+// ---------------------------------------------------------------------------------------------
+
 export interface Ranked {
   post: Post;
   reason?: string;
 }
 
+/**
+ * Order by the server's feed page when we have one (the backend scores/paginates For You exactly like
+ * this client used to); anything I posted that the page doesn't know about yet rides at the top; when
+ * nothing has been pulled (offline first run) fall back to local ranking over the cached posts.
+ */
+function byFeed(s: AppState, key: string, fallback: () => Ranked[]): Ranked[] {
+  const feed: FeedPage | undefined = s.feeds[key];
+  if (!feed?.ids.length) return fallback();
+  const byId = new Map(visiblePosts(s).map((p) => [p.id, p]));
+  const out: Ranked[] = [];
+  for (const id of feed.ids) {
+    const post = byId.get(id);
+    if (post) out.push({ post, reason: feed.reasons?.[id] });
+  }
+  const known = new Set(feed.ids);
+  const mine = visiblePosts(s)
+    .filter((p) => p.authorId === s.profile.id && p.state !== 'active' && !known.has(p.id))
+    .map((post) => ({ post, reason: undefined }));
+  return [...mine, ...out];
+}
+
 export function forYou(s: AppState): Ranked[] {
-  // Shorts ride in the timeline as inline video (like X); the vertical player is one tap away.
+  return byFeed(s, 'forYou', () => localForYou(s));
+}
+
+export function following(s: AppState): Ranked[] {
+  return byFeed(s, 'following', () =>
+    visiblePosts(s)
+      .filter((p) => s.follows.users.includes(p.authorId) || (p.context.dramaId && s.follows.dramas.includes(p.context.dramaId)) || p.context.actorIds?.some((a) => s.follows.actors.includes(a)))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map((post) => ({
+        post,
+        reason: s.follows.users.includes(post.authorId)
+          ? undefined
+          : post.context.dramaId && s.follows.dramas.includes(post.context.dramaId)
+            ? `${getDrama(s, post.context.dramaId)?.title} fandom`
+            : `${
+                getActor(
+                  s,
+                  post.context.actorIds?.find((a) => s.follows.actors.includes(a)),
+                )?.name
+              } fandom`,
+      })),
+  );
+}
+
+/** Offline fallback ranking — the old heuristic, kept so the feed still reads well before the first pull. */
+function localForYou(s: AppState): Ranked[] {
   const posts = visiblePosts(s);
   const genres = new Set([...s.onboarding.genres, ...s.profile.favoriteGenres]);
   return posts
@@ -117,37 +165,37 @@ export function forYou(s: AppState): Ranked[] {
     .map(({ post, reason }) => ({ post, reason }));
 }
 
-export function following(s: AppState): Ranked[] {
-  return visiblePosts(s)
-    .filter((p) => s.follows.users.includes(p.authorId) || (p.context.dramaId && s.follows.dramas.includes(p.context.dramaId)) || p.context.actorIds?.some((a) => s.follows.actors.includes(a)))
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    .map((post) => ({
-      post,
-      reason: s.follows.users.includes(post.authorId)
-        ? undefined
-        : post.context.dramaId && s.follows.dramas.includes(post.context.dramaId)
-          ? `${getDrama(s, post.context.dramaId)?.title} fandom`
-          : `${
-              getActor(
-                s,
-                post.context.actorIds?.find((a) => s.follows.actors.includes(a)),
-              )?.name
-            } fandom`,
-    }));
-}
-
 export function shorts(s: AppState): Post[] {
-  return visiblePosts(s)
-    .filter((p) => p.type === 'short')
-    .sort((a, b) => hot(b) - hot(a));
+  const feed = s.feeds['shorts'];
+  const list = visiblePosts(s).filter((p) => p.type === 'short');
+  if (!feed?.ids.length) return list.sort((a, b) => hot(b) - hot(a));
+  const byId = new Map(list.map((p) => [p.id, p]));
+  const out = feed.ids.map((id) => byId.get(id)).filter((p): p is Post => !!p);
+  const known = new Set(feed.ids);
+  return [...list.filter((p) => p.authorId === s.profile.id && p.state !== 'active' && !known.has(p.id)), ...out];
 }
 
 export function postsForDrama(s: AppState, dramaId: string, sort: 'top' | 'latest' = 'top'): Post[] {
+  const feed = s.feeds[`drama:${dramaId}:${sort}`];
+  if (feed?.ids.length) {
+    const byId = new Map(visiblePosts(s).filter((p) => p.context.dramaId === dramaId || p.context.secondaryDramaId === dramaId).map((p) => [p.id, p]));
+    const out = feed.ids.map((id) => byId.get(id)).filter((p): p is Post => !!p);
+    const known = new Set(feed.ids);
+    return [...visiblePosts(s).filter((p) => p.authorId === s.profile.id && p.state !== 'active' && !known.has(p.id) && (p.context.dramaId === dramaId || p.context.secondaryDramaId === dramaId)), ...out];
+  }
   const list = visiblePosts(s).filter((p) => p.context.dramaId === dramaId || p.context.secondaryDramaId === dramaId);
   return sort === 'top' ? list.sort((a, b) => hot(b) - hot(a)) : list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 export function postsForEpisode(s: AppState, dramaId: string, season: number, episode: number): Post[] {
+  const feed = s.feeds[`episode:${dramaId}:${season}:${episode}`];
+  const mine = (ids: Set<string>) =>
+    visiblePosts(s).filter((p) => p.authorId === s.profile.id && p.state !== 'active' && !ids.has(p.id) && p.context.dramaId === dramaId && (p.context.season ?? 1) === season && p.context.episode === episode);
+  if (feed?.ids.length) {
+    const byId = new Map(visiblePosts(s).map((p) => [p.id, p]));
+    const out = feed.ids.map((id) => byId.get(id)).filter((p): p is Post => !!p);
+    return [...mine(new Set(feed.ids)), ...out];
+  }
   return visiblePosts(s)
     .filter((p) => p.context.dramaId === dramaId && (p.context.season ?? 1) === season && p.context.episode === episode)
     .sort((a, b) => hot(b) - hot(a));
@@ -164,6 +212,13 @@ export function postsForActor(s: AppState, actorId: string): Post[] {
 }
 
 export function postsByUser(s: AppState, userId: string): Post[] {
+  const feed = s.feeds[`user:${userId}`];
+  if (feed?.ids.length) {
+    const byId = new Map(s.posts.filter((p) => p.authorId === userId && isLive(s, p)).map((p) => [p.id, p]));
+    const out = feed.ids.map((id) => byId.get(id)).filter((p): p is Post => !!p);
+    const known = new Set(feed.ids);
+    return [...s.posts.filter((p) => p.authorId === userId && p.state !== 'active' && !known.has(p.id)), ...out];
+  }
   return s.posts.filter((p) => p.authorId === userId && isLive(s, p)).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
@@ -182,7 +237,7 @@ export function topReactions(p: { reactions: Record<ReactionKind, number> }, n =
     .map(([k]) => k);
 }
 
-/** Episodes airing within the given window (default: today ±). */
+/** Episodes airing within the given window (default: today ±). Backed by `home_rails().airingToday`. */
 export function airingEpisodes(s: AppState, fromHours = -30, toHours = 30): { drama: Drama; episode: Episode }[] {
   const t = now().getTime();
   const out: { drama: Drama; episode: Episode }[] = [];
@@ -208,9 +263,15 @@ export function scheduleByDay(s: AppState, days = 7): { day: string; items: { dr
 }
 
 export function trendingDramas(s: AppState, n = 10): Drama[] {
+  const feed = s.feeds['trendingDramas'];
+  const all = allDramas(s);
+  if (feed?.ids.length) {
+    const out = feed.ids.map((id) => all.find((d) => d.id === id)).filter((d): d is Drama => !!d);
+    if (out.length) return out.slice(0, n);
+  }
   const activity = new Map<string, number>();
   for (const p of visiblePosts(s)) if (p.context.dramaId) activity.set(p.context.dramaId, (activity.get(p.context.dramaId) ?? 0) + hot(p));
-  return allDramas(s)
+  return all
     .map((d) => ({ d, w: (activity.get(d.id) ?? 0) * 1000 + d.followerCount / 10_000 + (d.status === 'airing' ? 50 : 0) }))
     .sort((a, b) => b.w - a.w)
     .slice(0, n)
@@ -218,10 +279,43 @@ export function trendingDramas(s: AppState, n = 10): Drama[] {
 }
 
 export function trendingDiscussions(s: AppState, n = 6): Post[] {
+  const feed = s.feeds['trendingDiscussions'];
+  if (feed?.ids.length) {
+    const byId = new Map(visiblePosts(s).map((p) => [p.id, p]));
+    const out = feed.ids.map((id) => byId.get(id)).filter((p): p is Post => !!p);
+    if (out.length) return out.slice(0, n);
+  }
   return visiblePosts(s)
     .filter((p) => p.type === 'discussion')
     .sort((a, b) => hot(b) - hot(a))
     .slice(0, n);
+}
+
+export function trendingPosts(s: AppState, n = 20): Post[] {
+  const feed = s.feeds['trendingPosts'];
+  if (feed?.ids.length) {
+    const byId = new Map(visiblePosts(s).map((p) => [p.id, p]));
+    const out = feed.ids.map((id) => byId.get(id)).filter((p): p is Post => !!p);
+    if (out.length) return out.slice(0, n);
+  }
+  return visiblePosts(s)
+    .filter((p) => ageHours(p.createdAt) < 48)
+    .sort((a, b) => hot(b) - hot(a))
+    .slice(0, n);
+}
+
+/** Hashtags ranked by recent engagement across the loaded posts (replaces the old seeded list). */
+export function trendingHashtags(s: AppState, n = 12): { tag: string; weight: number }[] {
+  const m = new Map<string, { tag: string; weight: number }>();
+  for (const p of visiblePosts(s)) {
+    if (ageHours(p.createdAt) > 96) continue;
+    for (const t of p.hashtags) {
+      const cur = m.get(t) ?? { tag: t, weight: 0 };
+      cur.weight += score(p) / Math.pow(ageHours(p.createdAt) + 6, 1.2);
+      m.set(t, cur);
+    }
+  }
+  return [...m.values()].sort((a, b) => b.weight - a.weight).slice(0, n);
 }
 
 export function recommendedDramas(s: AppState, n = 10): { drama: Drama; reason: string }[] {
@@ -243,7 +337,14 @@ export function recommendedDramas(s: AppState, n = 10): { drama: Drama; reason: 
 export function recommendedPeople(s: AppState, n = 6): { user: User; reason: string }[] {
   const myGenres = new Set([...s.onboarding.genres, ...s.profile.favoriteGenres]);
   const myDramas = new Set([...Object.keys(s.watchlist), ...s.follows.dramas]);
-  return seed.USERS.filter((u) => u.id !== s.profile.id && !s.follows.users.includes(u.id) && !s.blockedUsers.includes(u.id) && !u.isPrivate)
+  const feed = s.feeds['suggestedPeople'];
+  const pool = Object.values(s.users).filter((u) => u.id !== s.profile.id && !s.follows.users.includes(u.id) && !s.blockedUsers.includes(u.id) && !u.isPrivate);
+  if (feed?.ids.length) {
+    const byId = new Map(pool.map((u) => [u.id, u]));
+    const out = feed.ids.map((id) => byId.get(id)).filter((u): u is User => !!u);
+    if (out.length) return out.slice(0, n).map((user) => ({ user, reason: 'Active in the community' }));
+  }
+  return pool
     .map((u) => {
       const shared = u.favoriteDramaIds.filter((d) => myDramas.has(d));
       const g = u.favoriteGenres.find((x) => myGenres.has(x));
@@ -319,11 +420,20 @@ export function collectionsContaining(s: AppState, dramaId: string): Collection[
 }
 
 export function myCollections(s: AppState): Collection[] {
-  return s.collections.filter((c) => c.ownerId === s.profile.id).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return s.collections
+    .filter((c) => c.ownerId === s.profile.id)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
 export function publicCollections(s: AppState): Collection[] {
-  return s.collections.filter((c) => c.visibility === 'public' && !s.blockedUsers.includes(c.ownerId)).sort((a, b) => b.followerCount - a.followerCount);
+  const feed = s.feeds['collections:community'];
+  const pool = s.collections.filter((c) => c.visibility === 'public' && !s.blockedUsers.includes(c.ownerId));
+  if (feed?.ids.length) {
+    const byId = new Map(pool.map((c) => [c.id, c]));
+    const out = feed.ids.map((id) => byId.get(id)).filter((c): c is Collection => !!c);
+    if (out.length) return out;
+  }
+  return pool.sort((a, b) => b.followerCount - a.followerCount);
 }
 
 export function currentlyWatching(s: AppState, userId: string): Drama[] {
@@ -347,12 +457,37 @@ export interface SearchResults {
   collections: Collection[];
 }
 
+/**
+ * Instant local pass over everything cached on the device. The search screen layers live server
+ * results (`search_posts`, `search_people`) on top of this.
+ */
 export function searchLocal(s: AppState, q: string): SearchResults {
   const needle = q.trim().toLowerCase();
   const empty: SearchResults = { dramas: [], actors: [], people: [], posts: [], episodes: [], collections: [] };
   if (!needle) return empty;
   const has = (...fields: (string | undefined)[]) => fields.some((f) => f?.toLowerCase().includes(needle));
   const tag = needle.startsWith('#') ? needle.slice(1) : undefined;
+  const feed = s.feeds[`search:${needle}`];
+  const postHits = (() => {
+    if (feed?.ids.length) {
+      const byId = new Map(visiblePosts(s).map((p) => [p.id, p]));
+      const out = feed.ids.map((id) => byId.get(id)).filter((p): p is Post => !!p);
+      if (out.length) return out.slice(0, 20);
+    }
+    return visiblePosts(s)
+      .filter((p) => (tag ? p.hashtags.some((h) => h.toLowerCase() === tag) : has(p.title, p.body, p.verdict, ...p.hashtags.map((h) => `#${h}`))))
+      .slice(0, 20);
+  })();
+  const peopleFeed = s.feeds[`searchPeople:${needle}`];
+  const people = (() => {
+    if (peopleFeed?.ids.length) {
+      const out = peopleFeed.ids.map((id) => s.users[id]).filter((u): u is User => !!u);
+      if (out.length) return out.slice(0, 12);
+    }
+    return Object.values(s.users)
+      .filter((u) => u.id !== s.profile.id && has(u.displayName, u.handle, u.bio))
+      .slice(0, 12);
+  })();
   return {
     dramas: allDramas(s)
       .filter((d) => has(d.title, d.originalTitle, ...d.genres, ...(d.tags ?? []), d.network))
@@ -360,10 +495,8 @@ export function searchLocal(s: AppState, q: string): SearchResults {
     actors: allActors(s)
       .filter((a) => has(a.name, a.koreanName))
       .slice(0, 12),
-    people: seed.USERS.filter((u) => !u.isPrivate && u.id !== s.profile.id && has(u.displayName, u.handle, u.bio)).slice(0, 12),
-    posts: visiblePosts(s)
-      .filter((p) => (tag ? p.hashtags.some((h) => h.toLowerCase() === tag) : has(p.title, p.body, p.verdict, ...p.hashtags.map((h) => `#${h}`))))
-      .slice(0, 20),
+    people,
+    posts: postHits,
     episodes: allDramas(s)
       .flatMap((d) => d.episodes.filter((e) => e.title && has(e.title)).map((episode) => ({ drama: d, episode })))
       .slice(0, 8),
@@ -377,4 +510,9 @@ export function dramasByGenre(s: AppState, genre: string): Drama[] {
   return allDramas(s)
     .filter((d) => d.genres.some((g) => g.toLowerCase() === genre.toLowerCase()))
     .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
+}
+
+/** Does this viewer follow whoever authored the post (for the Following-tab empty state). */
+export function followsAnyone(s: AppState): boolean {
+  return s.follows.users.length + s.follows.dramas.length + s.follows.actors.length > 0;
 }

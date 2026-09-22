@@ -9,7 +9,7 @@ import { track } from './analytics';
 WebBrowser.maybeCompleteAuthSession();
 
 export type AuthStatus = 'loading' | 'signedOut' | 'guest' | 'signedIn';
-export type AuthProviderName = 'email' | 'google' | 'demo';
+export type AuthProviderName = 'email' | 'google';
 
 export interface AuthUser {
   id: string;
@@ -34,11 +34,9 @@ interface AuthValue {
   user: AuthUser | null;
   pendingEmail: string | null;
   recoveryPending: boolean;
-  isDemo: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, displayName: string) => Promise<'signedIn' | 'verify'>;
   signInWithGoogle: () => Promise<void>;
-  signInDemo: () => Promise<void>;
   sendReset: (email: string) => Promise<void>;
   updatePassword: (password: string) => Promise<void>;
   resendVerification: (email: string) => Promise<void>;
@@ -49,10 +47,7 @@ interface AuthValue {
 }
 
 const Ctx = createContext<AuthValue | null>(null);
-const DEMO_KEY = 'hallyu.auth.demo';
 const GUEST_KEY = 'hallyu.auth.guest';
-
-const DEMO_USER: AuthUser = { id: 'me', displayName: 'Mina Park', handle: 'minapark', avatarUrl: 'https://i.pravatar.cc/240?img=47', provider: 'demo', emailVerified: true };
 
 function handleFrom(email?: string, name?: string): string {
   const base = (name ?? email?.split('@')[0] ?? 'member').toLowerCase().replace(/[^a-z0-9_.]/g, '').slice(0, 20) || 'member';
@@ -92,20 +87,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [pendingEmail, setPendingEmail] = useState<string | null>(null);
   const [recoveryPending, setRecoveryPending] = useState(false);
-  const isDemo = user?.provider === 'demo';
   const booted = useRef(false);
 
-  // Boot: demo flag → guest flag → Supabase session
+  // Boot: guest flag → Supabase session
   useEffect(() => {
     if (booted.current) return;
     booted.current = true;
     (async () => {
       try {
-        if ((await AsyncStorage.getItem(DEMO_KEY)) === '1') {
-          setUser(DEMO_USER);
-          setStatus('signedIn');
-          return;
-        }
         const { data } = await supabase.auth.getSession();
         if (data.session) {
           setUser(fromSession(data.session));
@@ -123,8 +112,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(fromSession(session));
         setStatus('signedIn');
       } else if (event === 'SIGNED_OUT') {
-        setUser((u) => (u?.provider === 'demo' ? u : null));
-        setStatus((s) => (s === 'signedIn' && user?.provider === 'demo' ? s : 'signedOut'));
+        setUser(null);
+        setStatus('signedOut');
       }
     });
     return () => sub.subscription.unsubscribe();
@@ -199,14 +188,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const signInDemo = useCallback(async () => {
-    await AsyncStorage.setItem(DEMO_KEY, '1');
-    await AsyncStorage.removeItem(GUEST_KEY);
-    setUser(DEMO_USER);
-    setStatus('signedIn');
-    track('auth.signin', { provider: 'demo' });
-  }, []);
-
   const sendReset = useCallback(async (email: string) => {
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: Linking.createURL('/auth/callback') });
@@ -242,7 +223,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
-    await AsyncStorage.multiRemove([DEMO_KEY, GUEST_KEY]);
+    await AsyncStorage.removeItem(GUEST_KEY);
     setUser(null);
     setStatus('signedOut');
     try {
@@ -255,7 +236,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const deleteAccount = useCallback(async () => {
     // The real deletion runs server-side (Edge Function `delete-account`); the client only requests it and signs out.
     try {
-      if (user && user.provider !== 'demo') await supabase.functions.invoke('delete-account').catch(() => {});
+      if (user) await supabase.functions.invoke('delete-account').catch(() => {});
     } finally {
       await signOut();
     }
@@ -267,11 +248,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user,
       pendingEmail,
       recoveryPending,
-      isDemo,
       signIn,
       signUp,
       signInWithGoogle,
-      signInDemo,
       sendReset,
       updatePassword,
       resendVerification,
@@ -280,7 +259,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       deleteAccount,
       clearRecovery: () => setRecoveryPending(false),
     }),
-    [status, user, pendingEmail, recoveryPending, isDemo, signIn, signUp, signInWithGoogle, signInDemo, sendReset, updatePassword, resendVerification, continueAsGuest, signOut, deleteAccount],
+    [status, user, pendingEmail, recoveryPending, signIn, signUp, signInWithGoogle, sendReset, updatePassword, resendVerification, continueAsGuest, signOut, deleteAccount],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

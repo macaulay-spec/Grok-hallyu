@@ -20,6 +20,7 @@ import { haptic, useApp, useReduceMotion, useRequireMember } from '../lib/hooks'
 import { Post } from '../lib/model';
 import { shorts as selectShorts } from '../lib/selectors';
 import { veilCopy } from '../lib/spoiler';
+import { useRemote } from '../lib/data/sync';
 
 /**
  * Shorts — vertical, full-bleed, one at a time. Spoiler-veiled shorts stay covered until you choose.
@@ -31,6 +32,7 @@ export default function Shorts() {
   const { height, width } = useWindowDimensions();
   const params = useLocalSearchParams<{ id?: string; dramaId?: string }>();
   const { state } = useApp();
+  useRemote('shorts');
   const reduce = useReduceMotion(state.prefs.reduceMotion);
   const all = useMemo(() => selectShorts(state), [state]);
   const list = useMemo(() => {

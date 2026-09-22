@@ -23,8 +23,8 @@ import { haptic, useApp, useRequireMember } from '../../lib/hooks';
 import { Comment, emptyReactions, LIMITS, SpoilerLevel } from '../../lib/model';
 import { commentsFor } from '../../lib/selectors';
 import { SPOILER_LABEL } from '../../lib/spoiler';
-import { USERS } from '../../lib/seed';
 import { track } from '../../lib/analytics';
+import { useRemote } from '../../lib/data/sync';
 
 type Sort = 'top' | 'newest' | 'oldest';
 type Row = { key: string; comment: Comment; isReply: boolean; replyCount: number };
@@ -38,6 +38,7 @@ export default function PostDetail() {
   const column = useColumn();
   const { id, commentId, focus } = useLocalSearchParams<{ id: string; commentId?: string; focus?: string }>();
   const { state, dispatch, getPost, getUser, me } = useApp();
+  useRemote(`post:${id}`);
   const require = useRequireMember();
   const post = getPost(id);
   const [sort, setSort] = useState<Sort>('top');
@@ -94,13 +95,13 @@ export default function PostDetail() {
     const m = /(?:^|\s)@(\w*)$/.exec(text);
     return m ? m[1]!.toLowerCase() : null;
   })();
-  const mentionMatches = mentionQuery !== null ? USERS.filter((u) => u.id !== me.id && (u.handle.toLowerCase().startsWith(mentionQuery) || u.displayName.toLowerCase().includes(mentionQuery))).slice(0, 4) : [];
+  const mentionMatches = mentionQuery !== null ? Object.values(state.users).filter((u) => u.id !== me.id && (u.handle.toLowerCase().startsWith(mentionQuery) || u.displayName.toLowerCase().includes(mentionQuery))).slice(0, 4) : [];
 
   const submit = () =>
     require('comment', () => {
       const body = text.trim();
       if (!body) return;
-      const mentions = extractMentions(body).map((h) => USERS.find((u) => u.handle.toLowerCase() === h.toLowerCase())?.id).filter(Boolean) as string[];
+      const mentions = extractMentions(body).map((h) => Object.values(state.users).find((u) => u.handle.toLowerCase() === h.toLowerCase())?.id).filter(Boolean) as string[];
       const comment: Comment = { id: uid('c'), postId: post.id, authorId: me.id, parentId: replyTo ? replyTo.parentId ?? replyTo.id : undefined, replyToUserId: replyTo?.authorId, body, createdAt: new Date().toISOString(), spoiler, reactions: emptyReactions(), state: 'active' };
       void mentions;
       dispatch({ type: 'addComment', comment });

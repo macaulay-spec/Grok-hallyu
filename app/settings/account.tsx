@@ -36,9 +36,9 @@ export default function AccountSettings() {
         <SettingsGroup title="Identity">
           <SettingsRow icon="person-outline" label="Profile" value={`@${me.handle}`} onPress={() => router.push('/edit-profile')} />
           <SettingsRow icon="mail-outline" label="Email" value={auth.user?.email ?? '—'} />
-          <SettingsRow icon="logo-google" label="Sign-in method" value={auth.user?.provider === 'google' ? 'Google' : auth.isDemo ? 'Demo' : 'Email & password'} />
+          <SettingsRow icon="logo-google" label="Sign-in method" value={auth.user?.provider === 'google' ? 'Google' : 'Email & password'} />
         </SettingsGroup>
-        {auth.user?.provider !== 'google' && !auth.isDemo ? (
+        {auth.user?.provider !== 'google' ? (
           <SettingsGroup title="Password" footer="At least 8 characters with a number. Changing it signs out other devices.">
             <TextField value={pw} onChangeText={setPw} password placeholder="New password" containerStyle={{ padding: space.x4 }} autoComplete="new-password" />
             <Button label="Change password" variant="secondary" size="sm" disabled={pw.length < 8} loading={busy} onPress={changePw} style={{ marginHorizontal: space.x4, marginBottom: space.x4, alignSelf: 'flex-start' }} />

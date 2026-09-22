@@ -10,7 +10,7 @@ import { InlineNotice } from '../../components/ui/States';
 import { Text } from '../../components/ui/Text';
 import { sizes, space } from '../../constants/theme';
 import { catalog, friendlyCatalogCopy } from '../../lib/catalog';
-import { adoptDramas, syncSeedCatalog } from '../../lib/catalogSync';
+import { adoptDramas } from '../../lib/catalogSync';
 import { haptic, useCatalogHealth, useDebounced, useLayout, useLoad } from '../../lib/hooks';
 import { Drama, WatchStatus } from '../../lib/model';
 import { allDramas, useStore } from '../../lib/store';
@@ -34,7 +34,6 @@ export default function DramasStep() {
   const health = useCatalogHealth();
 
   useEffect(() => {
-    syncSeedCatalog().catch(() => {});
   }, []);
 
   // The wall: trending + popular (2 pages) + top rated, de-duplicated and adopted into the store.

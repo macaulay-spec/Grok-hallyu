@@ -20,9 +20,9 @@ import { colors, space } from '../constants/theme';
 import { catalog } from '../lib/catalog';
 import { useApp, useDebounced, useLoad, useNetwork } from '../lib/hooks';
 import { Actor, Drama } from '../lib/model';
-import { searchLocal, trendingDramas } from '../lib/selectors';
-import { TRENDING_HASHTAGS } from '../lib/seed';
+import { searchLocal, trendingDramas, trendingHashtags } from '../lib/selectors';
 import { track } from '../lib/analytics';
+import { useRemote } from '../lib/data/sync';
 
 type Scope = 'all' | 'dramas' | 'actors' | 'people' | 'posts' | 'collections';
 
@@ -40,6 +40,7 @@ export default function Search() {
   const [q, setQ] = useState(params.q ?? '');
   const [scope, setScope] = useState<Scope>(params.scope ?? (params.q?.startsWith('#') ? 'posts' : 'all'));
   const debounced = useDebounced(q.trim(), 250);
+  useRemote(debounced.length > 1 ? `search:${encodeURIComponent(debounced)}` : 'noop', 15_000);
   const local = useMemo(() => searchLocal(state, debounced), [state, debounced]);
   const isTag = debounced.startsWith('#');
 
@@ -141,7 +142,7 @@ export default function Search() {
               Trending tags
             </Text>
             <ChipRow style={{ paddingHorizontal: space.margin }}>
-              {TRENDING_HASHTAGS.map((t) => (
+              {trendingHashtags(state, 12).map(({ tag: t }) => (
                 <Chip key={t} label={`#${t}`} onPress={() => { setQ(`#${t}`); setScope('posts'); }} />
               ))}
             </ChipRow>

@@ -38,6 +38,7 @@ import { haptic, useApp, useLayout, useLoad, useRequireMember } from '../../lib/
 import { heroInterpolations, useArrive, useHeroSettle, useScrollY, withAlpha } from '../../lib/motion';
 import { CastCredit, emptyReactions, Episode, Post, PostType } from '../../lib/model';
 import { collectionsContaining, isPostVeiled as postVeiled, postsForDrama, relatedDramas } from '../../lib/selectors';
+import { useRemote } from '../../lib/data/sync';
 
 type Tab = 'overview' | 'episodes' | 'community' | 'cast';
 /** Old deep links used six tabs; Media now lives in Overview and Activity is Community sorted by Latest. */
@@ -53,6 +54,8 @@ export default function DramaHub() {
   const toast = useToast();
   const params = useLocalSearchParams<{ id: string; tab?: string }>();
   const { state, dispatch, getDrama, getActor, watch, isFollowing } = useApp();
+  // Fresh posts for this hub whenever it opens (server-ordered, newest first).
+  useRemote(`drama:${params.id}`);
   const require = useRequireMember();
   const { width, wc } = useLayout();
   const insets = useSafeAreaInsets();

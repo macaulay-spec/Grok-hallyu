@@ -50,7 +50,6 @@ export default function SignIn() {
           <TextField ref={passRef} label="Password" value={password} onChangeText={setPassword} password autoComplete="password" textContentType="password" returnKeyType="go" onSubmitEditing={submit} leading="lock-closed-outline" />
           {error ? <InlineNotice tone={error.code === 'network' ? 'warning' : 'danger'} icon={error.code === 'network' ? 'cloud-offline-outline' : 'alert-circle-outline'} text={error.message} /> : null}
           <Button label="Sign in" size="lg" block onPress={submit} loading={busy} disabled={!emailOk || !password} />
-          {error?.code === 'network' ? <Button label="Use the demo account instead" variant="secondary" block onPress={() => auth.signInDemo().then(() => router.replace('/'))} /> : null}
           {error?.code === 'unverified' ? <Button label="Resend verification email" variant="secondary" block onPress={() => auth.resendVerification(email).then(() => toast.show('Verification email sent')).catch((e: AuthError) => toast.show({ message: e.message, tone: 'danger' }))} /> : null}
         </View>
         <View style={{ marginTop: space.x6, gap: space.x2 }}>
