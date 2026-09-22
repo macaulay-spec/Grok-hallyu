@@ -86,7 +86,7 @@ jobs:
     env:
       # GitHub secret references are case-insensitive; several spellings are accepted (first non-empty
       # wins), and repository *variables* count too in case they were added under "Variables" instead.
-      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACESSTOKEN || secrets.SUPABASE_ACCESSTOKEN || secrets.SUPABASE_ACESTOKEN || secrets.SUPABASE_ACCESS_TOKEN || secrets.SUPABASE_TOKEN || secrets.SUPABASE_ACCESS || secrets.ACCESS_TOKEN || secrets.SUPABASE_PAT || vars.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACESSTOKEN || secrets.SUPABASE_ACESSTOKEN || secrets.SUPABASE_ACCESSTOKEN || secrets.SUPABASE_ACESTOKEN || secrets.SUPABASE_ACCESS_TOKEN || secrets.SUPABASE_TOKEN || secrets.SUPABASE_ACCESS || secrets.ACCESS_TOKEN || secrets.SUPABASE_PAT || vars.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DBPASSWORD || secrets.SUPABASE_DBPASSWORD || secrets.SUPABASE_DB_PASSWORD || secrets.DB_PASSWORD || secrets.DATABASE_PASSWORD || vars.SUPABASE_DB_PASSWORD }}
       _T1: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       _T2: ${{ secrets.SUPABASE_TOKEN }}
@@ -103,6 +103,7 @@ jobs:
       _P5: ${{ vars.SUPABASE_DB_PASSWORD }}
       _P6: ${{ vars.DB_PASSWORD }}
       _T9: ${{ secrets.SUPABASE_ACESSTOKEN }}
+      _T12: ${{ secrets.SUPABASE_ACESSTOKEN }}
       _T10: ${{ secrets.SUPABASE_DBPASSWORD }}
       _T11: ${{ secrets.EXPO_TOKEN }}
     steps:
