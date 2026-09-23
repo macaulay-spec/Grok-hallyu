@@ -119,54 +119,47 @@ function AccountSync() {
   const segments = useSegments();
   const applied = useRef<string | null>(null);
 
-  // Guests and signed-out visitors browse the public world with no personal layer.
+  // Guests and signed-out visitors browse the public world with no personal layer. Device-only
+  // prefs (reduceMotion / trueBlack) are the viewer's, not the account's — carry them over.
   useEffect(() => {
     if (!state.hydrated) return;
-    if ((auth.status === 'guest' || auth.status === 'signedOut') && state.profile.id !== GUEST_ID) reset(guestState());
-  }, [auth.status, state.hydrated, state.profile.id, reset]);
+    if ((auth.status === 'guest' || auth.status === 'signedOut') && state.profile.id !== GUEST_ID) {
+      const device = { reduceMotion: state.prefs.reduceMotion, trueBlack: state.prefs.trueBlack };
+      reset(guestState());
+      dispatch({ type: 'prefs', patch: device });
+    }
+  }, [auth.status, state.hydrated, state.profile.id, reset, state.prefs.reduceMotion, state.prefs.trueBlack, dispatch]);
 
   useEffect(() => {
     if (!state.hydrated || auth.status !== 'signedIn' || !auth.user) return;
     const u = auth.user;
-    if (applied.current === u.id) return;
+    // Re-run after a sign-out/sign-in of the same account (the store was reset to guest in between),
+    // and whenever the signed-in account differs from the loaded profile.
+    if (applied.current === u.id && state.profile.id === u.id) return;
     applied.current = u.id;
+    const device = { reduceMotion: state.prefs.reduceMotion, trueBlack: state.prefs.trueBlack };
     const key = `hallyu.account.${u.id}`;
     AsyncStorage.getItem(key).then(async (seen) => {
-      if (!seen) {
-        AsyncStorage.setItem(key, '1').catch(() => {});
-        reset(
-          freshMemberState({
-            id: u.id,
-            handle: u.handle,
-            displayName: u.displayName,
-            avatarUrl: u.avatarUrl,
-            favoriteGenres: [],
-            favoriteDramaIds: [],
-            followers: 0,
-            following: 0,
-            joinedAt: new Date().toISOString(),
-          }),
-        );
-      } else if (state.profile.id !== u.id) {
-        reset(
-          freshMemberState({
-            id: u.id,
-            handle: u.handle,
-            displayName: u.displayName,
-            avatarUrl: u.avatarUrl,
-            favoriteGenres: [],
-            favoriteDramaIds: [],
-            followers: 0,
-            following: 0,
-            joinedAt: new Date().toISOString(),
-          }),
-        );
-      }
+      if (!seen) AsyncStorage.setItem(key, '1').catch(() => {});
+      reset(
+        freshMemberState({
+          id: u.id,
+          handle: u.handle,
+          displayName: u.displayName,
+          avatarUrl: u.avatarUrl,
+          favoriteGenres: [],
+          favoriteDramaIds: [],
+          followers: 0,
+          following: 0,
+          joinedAt: new Date().toISOString(),
+        }),
+      );
+      dispatch({ type: 'prefs', patch: device });
       // Pull the real account snapshot (profile, graph, watchlist…) and the feeds.
       await supabaseBackend.pull('me').catch(() => {});
       await supabaseBackend.pull('home').catch(() => {});
     });
-  }, [auth.status, auth.user, state.hydrated, state.profile.id, reset]);
+  }, [auth.status, auth.user, state.hydrated, state.profile.id, reset, state.prefs.reduceMotion, state.prefs.trueBlack, dispatch]);
 
   useEffect(() => {
     if (auth.recoveryPending && segments[1] !== 'reset-password') router.push('/(auth)/reset-password');

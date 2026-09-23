@@ -46,3 +46,17 @@ deterministically from the post id, so sync-engine retries re-upload to the same
 The image bucket stays on the Hallyu project (8 MB images are cheap). Video egress is the
 expensive part, so bytes are isolated on a project that can be scaled/rescued independently,
 while identity, quotas and moderation stay in one place (this database).
+
+## Watermarking (Hallyu brand mark)
+
+The mark is burned into **real bytes**, never painted over the player:
+
+- **Posters** — every video post requires a poster; `lib/media.ts makePoster()` composites the brand
+  PNG into the first frame on-device (pure JS compositor, unit-tested in `scripts/test-watermark.mjs`)
+  *before* upload, so the stored object carries the mark and every feed / share / preview shows it.
+- **Saved images** — `saveImage()` burns the mark before writing to the gallery.
+- **Videos** — are saved/downloaded as-is and land in the `Hallyu` album beside their watermarked
+  poster. The video track is **not** re-encoded: the Edge Runtime has no transcoder (2 s CPU / 256 MB,
+  no subprocess, no ffmpeg binary) and the one maintained on-device option is an unvetted 0.x native
+  module we will not bolt onto the verified upload path. `media_uploads.watermarked` therefore records
+  burn-in truth per object; nothing in the product claims a mark that was not applied.

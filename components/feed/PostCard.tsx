@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, Share, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 import { aspect, colors, radius, space } from '../../constants/theme';
 import { compact, seasonEpisodeLabel, timeAgo } from '../../lib/format';
@@ -18,7 +18,9 @@ import { ImageCarousel } from '../media/ImageCarousel';
 import { SpoilerBlock, SpoilerTag } from './SpoilerBlock';
 import { SyncStrip } from './SyncStrip';
 import { RichText } from './RichText';
-import { downloadVideo, saveImageToLibrary, videoUrl } from '../../lib/video';
+import * as Clipboard from 'expo-clipboard';
+import { localDone, saveImage, saveVideo } from '../../lib/media';
+import { videoUrl } from '../../lib/video';
 import { BackendError } from '../../lib/data/backend';
 
 export const KIND_LABEL: Record<DiscussionKind, string> = { general: 'Discussion', theory: 'Theory', ending: 'Ending talk', character: 'Character', scene: 'Scene', question: 'Question' };
@@ -45,6 +47,9 @@ function PostCardBase({ post, reason, detail, hideContext, style, onOpenComments
   const toast = useToast();
   const { width, margin } = useLayout();
   const [menu, setMenu] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [savePct, setSavePct] = useState(0);
+  const [toDevice, setToDevice] = useState(false);
   const author = getUser(post.authorId);
   const drama = getDrama(post.context.dramaId);
   const secondary = getDrama(post.context.secondaryDramaId);
@@ -64,19 +69,37 @@ function PostCardBase({ post, reason, detail, hideContext, style, onOpenComments
       toast.show({ message: saved ? 'Removed from Saved' : 'Saved', icon: saved ? 'bookmark-outline' : 'bookmark', actionLabel: saved ? undefined : 'View', onAction: () => router.push('/saved') });
     });
 
+  const mediaKey = post.video?.key ?? (typeof post.images?.[0] === 'string' ? (post.images[0] as string) : undefined);
+
+  // Reflect whether this member already has the media on this device.
+  useEffect(() => {
+    if (!mediaKey) return;
+    localDone(mediaKey).then(setToDevice).catch(() => {});
+  }, [mediaKey]);
+
   const download = async () => {
     require('download media', async () => {
       haptic.light();
+      if (saving) return;
+      setSaving(true);
+      setSavePct(0);
       try {
-        if (post.video) {
+        if (post.video && post.video.key) {
           const url = post.video.url.startsWith('http') ? post.video.url : videoUrl(post.video.url);
-          await downloadVideo({ uri: url, filename: `hallyu_${post.id}.mp4` });
-          toast.show({ message: 'Video saved to your device', icon: 'download-outline', tone: 'success' });
+          const res = await saveVideo({ key: post.video.key, url, postId: post.id, onProgress: (p) => setSavePct(p.percent) });
+          setToDevice(true);
+          toast.show({ message: res.already ? 'Already on your device' : 'Video saved to your device', icon: 'download-outline', tone: 'success' });
+        } else if (post.video) {
+          // Remote URL with no ledger key: still downloadable, deduped by URL.
+          const res = await saveVideo({ key: post.video.url, url: post.video.url, postId: post.id, onProgress: (p) => setSavePct(p.percent) });
+          setToDevice(true);
+          toast.show({ message: res.already ? 'Already on your device' : 'Video saved to your device', icon: 'download-outline', tone: 'success' });
         } else if (post.images?.length) {
           const first = post.images.find((i): i is string => typeof i === 'string');
           if (first) {
-            await saveImageToLibrary({ uri: first, filename: `hallyu_${post.id}.jpg` });
-            toast.show({ message: 'Image saved to your photos', icon: 'download-outline', tone: 'success' });
+            const res = await saveImage(first, first);
+            setToDevice(true);
+            toast.show({ message: res.already ? 'Already in your photos' : 'Image saved to your photos', icon: 'download-outline', tone: 'success' });
           }
         }
       } catch (e) {
@@ -85,6 +108,8 @@ function PostCardBase({ post, reason, detail, hideContext, style, onOpenComments
         } else {
           toast.show({ message: 'Download failed — try again', icon: 'cloud-offline-outline', tone: 'danger' });
         }
+      } finally {
+        setSaving(false);
       }
     });
   };
@@ -265,8 +290,14 @@ function PostCardBase({ post, reason, detail, hideContext, style, onOpenComments
             <Ionicons name={saved ? 'bookmark' : 'bookmark-outline'} size={20} color={saved ? colors.accentText : colors.textSecondary} />
           </Pressable>
           {(post.video || post.images?.length) ? (
-            <Pressable onPress={download} hitSlop={6} style={styles.action} accessibilityRole="button" accessibilityLabel="Download">
-              <Ionicons name="download-outline" size={20} color={colors.textSecondary} />
+            <Pressable onPress={download} hitSlop={6} style={styles.action} accessibilityRole="button" accessibilityLabel={toDevice ? 'Saved to device' : 'Download'} accessibilityState={{ busy: saving }}>
+              {saving ? (
+                <Text variant="label" tone="accent" numeric>
+                  {savePct > 0 ? `${savePct}%` : '…'}
+                </Text>
+              ) : (
+                <Ionicons name={toDevice ? 'download' : 'download-outline'} size={20} color={toDevice ? colors.accentText : colors.textSecondary} />
+              )}
             </Pressable>
           ) : null}
           <Pressable onPress={share} hitSlop={6} style={styles.action} accessibilityRole="button" accessibilityLabel="Share">
@@ -308,8 +339,9 @@ function PostCardBase({ post, reason, detail, hideContext, style, onOpenComments
         <SheetRow
           icon="link-outline"
           label="Copy link"
-          onPress={() => {
+          onPress={async () => {
             setMenu(false);
+            await Clipboard.setStringAsync(`https://hallyu.app/p/${post.id}`).catch(() => {});
             toast.show('Link copied');
           }}
         />

@@ -2,7 +2,7 @@
 // Drains the `push_outbox` queue: renders one message per device token (api.push_render), sends to Expo in batches of 100,
 // disables dead tokens (DeviceNotRegistered), marks notifications as pushed and deletes the queue messages.
 import { fail, json, serve } from '../_shared/http.ts';
-import { admin, rpc } from '../_shared/supabase.ts';
+import { admin, rpc, timingSafeEqual } from '../_shared/supabase.ts';
 
 const EXPO_URL = 'https://exp.host/--/api/v2/push/send';
 const EXPO_TOKEN = Deno.env.get('EXPO_ACCESS_TOKEN') ?? '';
@@ -33,7 +33,7 @@ serve(async (req) => {
   const db = admin();
   const expected = await rpc<string | null>(db, 'internal_key');
   const got = req.headers.get('x-internal-key') ?? '';
-  if (!expected || got.length !== expected.length || !timingSafeEqual(got, expected)) return fail(401, 'Unauthorized', { retryable: false });
+  if (!expected || !timingSafeEqual(got, expected)) return fail(401, 'Unauthorized', { retryable: false });
 
   const msgs = await rpc<QueueMsg[]>(db, 'queue_read', { p_queue: 'push_outbox', p_qty: MAX_MESSAGES, p_vt: 90 });
   if (!msgs.length) return json({ sent: 0, failed: 0, drained: 0 });
@@ -87,8 +87,3 @@ serve(async (req) => {
   return json({ sent, failed, drained: msgIds.length, tokens: rows.length, disabled: dead.size });
 });
 
-function timingSafeEqual(a: string, b: string): boolean {
-  let out = 0;
-  for (let i = 0; i < a.length; i++) out |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return out === 0;
-}

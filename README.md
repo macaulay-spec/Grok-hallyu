@@ -6,9 +6,9 @@ Full Expo + React Native + TypeScript rebuild of Hallyu, following the approved 
 npm install
 npx expo start
 
-The demo app runs without Supabase. Add the values from `.env.example` for backend integration.
+Client credentials (Supabase + TMDB) ship in `constants/keys.ts`; set `.env` values only to override them.
 
 ## Android
 npx expo run:android
 
-The included `assets/` folder contains the local visual assets used by the demo screens.
+The included `assets/` folder contains the brand, font and on-device visual assets.

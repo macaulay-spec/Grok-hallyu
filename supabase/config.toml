@@ -21,12 +21,13 @@ verify_jwt = true
 [functions.video-upload]
 verify_jwt = true
 
-[functions.mint-upload-url]
-verify_jwt = true
-
-[functions.watermark-video]
-verify_jwt = false
-
 # Called by pg_cron through pg_net with the shared `x-internal-key` header (see migration 0001), not by users.
 [functions.push-dispatch]
 verify_jwt = false
+
+[functions.orphan-media-sweep]
+verify_jwt = false
+
+# NOTE: `video-upload` is NOT deployed to this project. It is the broker for the video-storage
+# project (the one that owns the public `videos` bucket) and lives there — see docs/backend/10-video-storage.md.
+# Deploying it here would mint URLs into a bucket this project does not have.

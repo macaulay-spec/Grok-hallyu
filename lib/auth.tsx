@@ -234,12 +234,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const deleteAccount = useCallback(async () => {
-    // The real deletion runs server-side (Edge Function `delete-account`); the client only requests it and signs out.
-    try {
-      if (user) await supabase.functions.invoke('delete-account').catch(() => {});
-    } finally {
-      await signOut();
+    // The real deletion runs server-side (Edge Function `delete-account`). If it fails we surface it
+    // and keep the session so the member can retry — we never report a deletion that didn't happen.
+    if (user) {
+      const { error } = await supabase.functions.invoke('delete-account');
+      if (error) throw new AuthError('unknown', error.message || 'Deletion failed — try again, or email privacy@hallyu.app.');
     }
+    await signOut();
   }, [user, signOut]);
 
   const value = useMemo<AuthValue>(

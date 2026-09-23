@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
-import * as VideoThumbnails from 'expo-video-thumbnails';
+import { makePoster } from '../../lib/media';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
@@ -197,13 +197,8 @@ export default function Composer() {
       setImages([]);
       toast.show({ message: 'A post carries images or one video — images removed.' });
     }
-    // Poster first frame, generated locally so publish never waits on it.
-    let poster: string | undefined;
-    try {
-      poster = (await VideoThumbnails.getThumbnailAsync(a.uri, { time: 500 })).uri;
-    } catch {
-      poster = undefined;
-    }
+    // Poster first frame with the Hallyu mark burned in, generated locally so publish never waits on it.
+    const poster = await makePoster(a.uri);
     setVideo({ uri: a.uri, duration: secs || 15, poster, width: a.width, height: a.height });
   };
 
