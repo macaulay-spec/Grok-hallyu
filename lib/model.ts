@@ -125,7 +125,7 @@ export interface Post {
   rating?: number; // review 1–10
   verdict?: string; // review one-liner
   images?: (string | number)[];
-  video?: { url: string; poster?: string | number; duration: number };
+  video?: { url: string; poster?: string | number; duration: number; width?: number; height?: number };
   spoiler: SpoilerLevel;
   context: PostContext;
   hashtags: string[];

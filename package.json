@@ -33,6 +33,7 @@
     "expo-splash-screen": "^0.27.7",
     "expo-status-bar": "~1.12.1",
     "expo-system-ui": "~3.0.7",
+    "expo-video-thumbnails": "~8.0.0",
     "expo-web-browser": "~13.0.3",
     "react": "18.2.0",
     "react-dom": "^18.2.0",
@@ -44,6 +45,7 @@
     "zustand": "^4.5.7"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@types/react": "~18.2.79",
     "eslint": "^8.57.0",
     "eslint-config-expo": "~7.1.2",

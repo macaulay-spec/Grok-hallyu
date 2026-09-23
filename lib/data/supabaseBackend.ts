@@ -14,6 +14,7 @@ import { now } from '../format';
 import { Collection, Comment, Drama, Notification, Post, ReactionKind, User, WatchlistItem } from '../model';
 import { Action, MePayload, getState, dispatchLocal } from '../store';
 import { Backend, BackendError, PullOptions, PullScope } from './backend';
+import { uploadVideo, videoUrl } from '../video';
 
 
 // ---------------------------------------------------------------------------------------------
@@ -40,10 +41,11 @@ async function rpc<T = any>(name: string, args?: Json): Promise<T> {
   return data as T;
 }
 
-/** Storage keys are relative; URLs are assembled from the public bucket. (R2 later: same keys, new base.) */
+/** Storage keys are relative; URLs are assembled from the public bucket. Video keys resolve on the video-storage project. */
 function fileUrl(key?: string | null): string | undefined {
   if (!key) return undefined;
   if (key.startsWith('http')) return key;
+  if (key.startsWith('video/')) return videoUrl(key);
   return supabase.storage.from('media').getPublicUrl(key).data.publicUrl;
 }
 
@@ -539,7 +541,18 @@ async function uploadImages(uris: string[], ownerId: string): Promise<{ key: str
 }
 
 async function uploadAvatar(uri: string, ownerId: string): Promise<string> {
-  const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+  // Avatars share the 8 MB image bucket limit — downscale first so a gallery pick never fails.
+  let file = uri;
+  try {
+    const info = await FileSystem.getInfoAsync(uri);
+    if (info.exists && (info.size ?? 0) > 1024 * 1024) {
+      const resized = await ImageManipulator.manipulateAsync(uri, [{ resize: { width: 512 } }], { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG });
+      file = resized.uri;
+    }
+  } catch {
+    // keep the original if probing/resizing fails
+  }
+  const base64 = await FileSystem.readAsStringAsync(file, { encoding: FileSystem.EncodingType.Base64 });
   const { data, error } = await supabase.storage.from('media').upload(`avatars/${ownerId}/${ulid()}.jpg`, decodeBase64(base64), { contentType: 'image/jpeg', upsert: false });
   if (error) throw new BackendError(error.message, false);
   return data.path;
@@ -586,9 +599,16 @@ async function pushAddPost(a: Extract<Action, { type: 'addPost' }>) {
     const uploaded = await uploadImages(localImages, uidMe);
     media = uploaded.map((u) => ({ key: u.key, kind: 'image', width: u.width, height: u.height }));
   }
-  if (p.video) {
-    const { data: cfg } = await supabase.from('app_config').select('value').eq('key', 'video_uploads').maybeSingle();
-    if (!(cfg?.value === true || cfg?.value === 'true')) throw new BackendError('Video posting is coming soon — images and text are ready now', false);
+  if (p.video && !/^https?:/.test(p.video.url)) {
+    // Bytes go to the video-storage project (Rork cloud); this DB only ledgers the key.
+    const uploaded = await uploadVideo({ uri: p.video.url, duration: p.video.duration, width: p.video.width, height: p.video.height }, p.id);
+    const posterUri = typeof p.video.poster === 'string' && !/^https?:/.test(p.video.poster) ? p.video.poster : undefined;
+    if (!posterUri) throw new BackendError('Video poster could not be uploaded — will retry', true);
+    const posters = await uploadImages([posterUri], uidMe).catch(() => [] as { key: string }[]);
+    if (!posters[0]?.key) throw new BackendError('Video poster could not be uploaded — will retry', true);
+    media = [{ key: uploaded.key, kind: 'video', posterKey: posters[0].key, width: p.video.width, height: p.video.height, durationMs: Math.round(p.video.duration * 1000) }];
+  } else if (p.video) {
+    media = [{ key: p.video.url, kind: 'video', durationMs: Math.round(p.video.duration * 1000) }];
   }
   const body = {
     id: p.id,

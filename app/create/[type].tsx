@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
+import * as VideoThumbnails from 'expo-video-thumbnails';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
@@ -27,6 +28,7 @@ import { extractHashtags, extractMentions, uid } from '../../lib/format';
 import { haptic, useApp } from '../../lib/hooks';
 import { DiscussionKind, Draft, LIMITS, PostType, REACTIONS, ReactionKind, SpoilerLevel } from '../../lib/model';
 import { allActors, newPost } from '../../lib/store';
+import { videoUploadsAvailable } from '../../lib/video';
 import { SPOILER_LABEL, suggestSpoilerLevel } from '../../lib/spoiler';
 import { track } from '../../lib/analytics';
 
@@ -68,7 +70,9 @@ export default function Composer() {
   const [actorIds, setActorIds] = useState<string[]>(draft?.context.actorIds ?? editing?.context.actorIds ?? (params.actorId ? [params.actorId] : []));
   const [spoiler, setSpoiler] = useState<SpoilerLevel>(draft?.spoiler ?? editing?.spoiler ?? (params.episode ? 'episode' : 'none'));
   const [images, setImages] = useState<string[]>(draft?.images ?? editing?.images?.filter((i): i is string => typeof i === 'string') ?? []);
-  const [video, setVideo] = useState<{ uri: string; duration: number } | null>(editing?.video ? { uri: editing.video.url, duration: editing.video.duration } : null);
+  const [video, setVideo] = useState<{ uri: string; duration: number; poster?: string; width?: number; height?: number } | null>(
+    editing?.video ? { uri: editing.video.url, duration: editing.video.duration, poster: typeof editing.video.poster === 'string' ? editing.video.poster : undefined } : null,
+  );
   const [reactionKind, setReactionKind] = useState<ReactionKind>('loved');
   const [sheet, setSheet] = useState<null | 'drama' | 'secondary' | 'episode' | 'actors' | 'spoiler'>(null);
   // Progressive disclosure: a plain post starts as a clean page; drama/episode/actors/spoiler
@@ -179,6 +183,7 @@ export default function Composer() {
     }
   };
   const pickVideo = async () => {
+    if (!videoUploadsAvailable()) return toast.show({ message: 'Video posting isn’t available on this build yet.', tone: 'danger' });
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) return toast.show({ message: 'Allow photo access in Settings to attach a video.', tone: 'danger' });
     const max = type === 'short' ? LIMITS.shortVideo : LIMITS.postVideo;
@@ -192,7 +197,14 @@ export default function Composer() {
       setImages([]);
       toast.show({ message: 'A post carries images or one video — images removed.' });
     }
-    setVideo({ uri: a.uri, duration: secs || 15 });
+    // Poster first frame, generated locally so publish never waits on it.
+    let poster: string | undefined;
+    try {
+      poster = (await VideoThumbnails.getThumbnailAsync(a.uri, { time: 500 })).uri;
+    } catch {
+      poster = undefined;
+    }
+    setVideo({ uri: a.uri, duration: secs || 15, poster, width: a.width, height: a.height });
   };
 
   const publish = () => {
@@ -215,7 +227,7 @@ export default function Composer() {
       hashtags,
       mentions,
       images: images.length ? images : undefined,
-      video: video ? { url: video.uri, duration: video.duration } : undefined,
+      video: video ? { url: video.uri, duration: video.duration, poster: video.poster, width: video.width, height: video.height } : undefined,
     };
     if (editing) {
       dispatch({ type: 'editPost', id: editing.id, patch: { ...common, editedAt: new Date().toISOString() } });
@@ -231,7 +243,7 @@ export default function Composer() {
     if (draft) dispatch({ type: 'deleteDraft', id: draft.id });
     haptic.success();
     toast.show({
-      message: type === 'review' ? 'Review published' : type === 'short' ? 'Short posted' : 'Posted',
+      message: video ? 'Posted — your video is uploading' : type === 'review' ? 'Review published' : type === 'short' ? 'Short posted' : 'Posted',
       icon: 'checkmark-circle',
       tone: 'success',
       actionLabel: 'View',
@@ -531,11 +543,19 @@ export default function Composer() {
           {type === 'short' ? (
             <View style={{ paddingHorizontal: space.margin, marginBottom: space.x3 }}>
               <Pressable onPress={pickVideo} style={styles.videoBox} accessibilityRole="button" accessibilityLabel={video ? 'Replace video' : 'Add a video'}>
+                {video?.poster ? (
+                  <>
+                    <Image source={{ uri: video.poster }} style={styles.videoPoster} contentFit="cover" accessibilityLabel="Video preview" />
+                    <View style={styles.videoScrim} />
+                  </>
+                ) : null}
                 {video ? (
                   <>
-                    <Ionicons name="videocam" size={28} color={colors.textPrimary} />
-                    <Text variant="label">{video.duration}s · vertical</Text>
-                    <Text variant="caption" tone="secondary">
+                    <Ionicons name="videocam" size={28} color={colors.onMedia} />
+                    <Text variant="label" tone="onMedia">
+                      {video.duration}s · vertical
+                    </Text>
+                    <Text variant="caption" tone="onMedia">
                       Tap to replace
                     </Text>
                   </>
@@ -821,7 +841,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 4,
+    overflow: 'hidden',
   },
+  videoPoster: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%' },
+  videoScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(10,10,10,0.45)' },
   thumbWrap: { width: 96, height: 120, borderRadius: radius.sm, overflow: 'hidden' },
   thumb: { width: '100%', height: '100%' },
   thumbRemove: { position: 'absolute', top: 4, right: 4, width: 22, height: 22, borderRadius: 11, backgroundColor: 'rgba(10,10,10,0.7)', alignItems: 'center', justifyContent: 'center' },

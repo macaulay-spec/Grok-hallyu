@@ -21,6 +21,9 @@ export const TMDB_ACCESS_TOKEN =
 /** TMDB v3 API key (used as `?api_key=` when no v4 token is available). */
 export const TMDB_API_KEY = env(process.env.EXPO_PUBLIC_TMDB_API_KEY) ?? 'ff01f28fc5c47791e28038349445bf58';
 
-/** Supabase project (auth only in this pass — no app tables yet). */
-export const SUPABASE_URL = env(process.env.EXPO_PUBLIC_SUPABASE_URL) ?? 'https://psmxekrmoltwabefgqpd.supabase.co';
-export const SUPABASE_ANON_KEY = env(process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY) ?? 'sb_publishable_C6xEGHQxutS_ub-1ebuUDQ_TxVa_-v0';
+/** Hallyu backend (auth + Postgres). The HALYU_ prefix keeps these distinct from the video-storage project's generic EXPO_PUBLIC_SUPABASE_* names. */
+export const SUPABASE_URL = env(process.env.EXPO_PUBLIC_HALYU_SUPABASE_URL) ?? 'https://psmxekrmoltwabefgqpd.supabase.co';
+export const SUPABASE_ANON_KEY = env(process.env.EXPO_PUBLIC_HALYU_SUPABASE_ANON_KEY) ?? 'sb_publishable_C6xEGHQxutS_ub-1ebuUDQ_TxVa_-v0';
+
+/** Video-storage project (Rork cloud): owns the public `videos` bucket + video-upload broker. Bytes only — no tables, no auth. */
+export const VIDEO_STORAGE_URL = env(process.env.EXPO_PUBLIC_SUPABASE_URL) ?? 'https://smijjihlnuushnlkbktm.supabase.co';
