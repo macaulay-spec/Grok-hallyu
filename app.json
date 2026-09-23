@@ -26,6 +26,14 @@
         }
       ],
       [
+        "expo-media-library",
+        {
+          "photosPermission": "Hallyu uses your photos to save images and videos to your device.",
+          "savePhotosPermission": "Hallyu uses your photos to save images and videos to your device.",
+          "isAccessMediaLocationEnabled": false
+        }
+      ],
+      [
         "expo-av",
         {
           "microphonePermission": false

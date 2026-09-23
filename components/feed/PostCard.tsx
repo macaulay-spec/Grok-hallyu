@@ -18,6 +18,8 @@ import { ImageCarousel } from '../media/ImageCarousel';
 import { SpoilerBlock, SpoilerTag } from './SpoilerBlock';
 import { SyncStrip } from './SyncStrip';
 import { RichText } from './RichText';
+import { saveMediaToDevice } from '../../lib/mediaDownload';
+import { videoUrl } from '../../lib/video';
 
 export const KIND_LABEL: Record<DiscussionKind, string> = { general: 'Discussion', theory: 'Theory', ending: 'Ending talk', character: 'Character', scene: 'Scene', question: 'Question' };
 export const TYPE_LABEL: Record<Post['type'], string> = { post: 'Post', reaction: 'Reaction', discussion: 'Discussion', review: 'Review', recommendation: 'Recommendation', short: 'Short' };
@@ -61,6 +63,19 @@ function PostCardBase({ post, reason, detail, hideContext, style, onOpenComments
       dispatch({ type: 'save', postId: post.id });
       toast.show({ message: saved ? 'Removed from Saved' : 'Saved', icon: saved ? 'bookmark-outline' : 'bookmark', actionLabel: saved ? undefined : 'View', onAction: () => router.push('/saved') });
     });
+  const download = async () => {
+    const media = post.video?.url ?? post.images?.[0];
+    if (!media || typeof media !== 'string') {
+      toast.show({ message: 'This image cannot be saved on this device' });
+      return;
+    }
+    try {
+      const result = await saveMediaToDevice(post.video ? videoUrl(media) : media, `hallyu-${post.id}.${post.video ? 'mp4' : 'jpg'}`);
+      toast.show({ message: result === 'already_saved' ? 'Already saved to your device' : 'Saved to your device' });
+    } catch (error) {
+      toast.show({ message: error instanceof Error ? error.message : 'Couldn’t save this file' });
+    }
+  };
 
   const actors = useMemo(() => (post.context.actorIds ?? []).map((a) => getActor(a)).filter(Boolean), [post.context.actorIds, getActor]);
 
@@ -254,6 +269,16 @@ function PostCardBase({ post, reason, detail, hideContext, style, onOpenComments
             save();
           }}
         />
+        {post.video || post.images?.length ? (
+          <SheetRow
+            icon="download-outline"
+            label={post.video ? 'Download video' : 'Save image'}
+            onPress={() => {
+              setMenu(false);
+              void download();
+            }}
+          />
+        ) : null}
         <SheetRow
           icon="share-outline"
           label="Share"
