@@ -25,7 +25,6 @@ type Json = Record<string, any>;
 
 function mapError(e: { code?: string; message?: string; details?: string }): BackendError {
   const msg = e.message || 'The server refused the request';
-  const code = String(e.code ?? '');
   // contract: SQLSTATE P0001 raised via public.fail(status, msg) → PostgREST passes status through `details`/message;
   // we classify by message and by the HTTP status PostgREST produced (stored in code for fetch errors).
   if (/network|fetch failed|Failed to connect|timeout|Abort/i.test(msg)) return new BackendError(msg, true);
@@ -48,8 +47,6 @@ function fileUrl(key?: string | null): string | undefined {
   if (key.startsWith('video/')) return videoUrl(key);
   return supabase.storage.from('media').getPublicUrl(key).data.publicUrl;
 }
-
-const mediaUrl = fileUrl;
 
 async function authed(): Promise<string | null> {
   const { data } = await supabase.auth.getSession();
@@ -136,7 +133,6 @@ function ingestCards(key: string | null, cards: Json[], opts: { append?: boolean
   const posts: Post[] = [];
   const users: Partial<User>[] = [];
   const dramas: Drama[] = [];
-  const reasons: Record<string, string> = {};
   const reactions: Record<string, ReactionKind | null> = {};
   const saved: Record<string, boolean> = {};
   for (const c of cards) {
@@ -533,7 +529,7 @@ async function uploadImages(uris: string[], ownerId: string): Promise<{ key: str
     const key = `posts/${ownerId}/${ulid()}.${isJpg ? 'jpg' : file.endsWith('.webp') ? 'webp' : 'png'}`;
     const base64 = await FileSystem.readAsStringAsync(file, { encoding: FileSystem.EncodingType.Base64 });
     const bytes = decodeBase64(base64);
-    const { data, error } = await supabase.storage.from('media').upload(key, bytes, { contentType: isJpg ? 'image/jpeg' : file.endsWith('.webp') ? 'image/webp' : 'image/png', upsert: false });
+    const { error } = await supabase.storage.from('media').upload(key, bytes, { contentType: isJpg ? 'image/jpeg' : file.endsWith('.webp') ? 'image/webp' : 'image/png', upsert: false });
     if (error) throw new BackendError(error.message.includes('duplicate') ? 'That file was already uploaded' : error.message, false);
     out.push({ key, width, height });
   }

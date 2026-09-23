@@ -114,7 +114,7 @@ export default function RootLayout() {
  */
 function AccountSync() {
   const auth = useAuth();
-  const { state, reset, dispatch } = useStore();
+  const { state, reset } = useStore();
   const router = useRouter();
   const segments = useSegments();
   const applied = useRef<string | null>(null);

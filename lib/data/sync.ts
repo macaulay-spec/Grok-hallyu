@@ -416,9 +416,10 @@ export function SyncProvider(): null {
   }, [hydrated, authed]);
 
   // reconnect → flush
+  const onlineKey = reachable ? 1 : 0;
   useEffect(() => {
     if (reachable) kick();
-  }, [reachable ? 1 : 0]);
+  }, [onlineKey]);
 
   return null;
 }

@@ -71,7 +71,7 @@ function Home() {
   useRemote(tab === 'following' ? 'feed:following' : 'feed:forYou', 45_000);
   const listRef = useRef<FlatList<Row>>(null);
   const viewport = useViewabilityTracker<Row>((r) => (r.kind === 'post' && r.post.video ? r.post.id : null));
-  const { control: refreshControl, onRefresh: pull, refreshing } = useRefresh('home');
+  const { control: refreshControl, onRefresh: pull } = useRefresh('home');
   const reduceMotion = useReduceMotion(state.prefs.reduceMotion);
   const padding = useListPadding();
   const guest = auth.status !== 'signedIn';
