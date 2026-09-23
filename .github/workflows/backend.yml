@@ -644,7 +644,8 @@ jobs:
           echo
 
           if [ "$code" != "200" ]; then
-            echo "::error::home_rails smoke test failed."
+            echo "::error::home_rails smoke test failed (HTTP $code)."
+            head -c 600 /tmp/rails.json | tr '\n' ' ' | sed 's/^/::error::/'
             exit 1
           fi
 

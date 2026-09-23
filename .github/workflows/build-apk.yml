@@ -63,7 +63,7 @@ jobs:
         working-directory: android
         run: |
           ./gradlew assembleRelease --no-daemon 2>&1 | tee /tmp/gradle.log || {
-            grep -B2 -A6 -E "FAILURE|error:|Could not" /tmp/gradle.log | tail -n 40 | sed 's/^/::error::/' || true
+            tail -n 80 /tmp/gradle.log | sed 's/^/::error::/'
             exit 1
           }
         # Catalog + Supabase client credentials are wired in constants/keys.ts. Do not inject
