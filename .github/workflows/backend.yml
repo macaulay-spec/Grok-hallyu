@@ -169,7 +169,10 @@ jobs:
             --config deno.json \
             ensure-catalog/index.ts \
             delete-account/index.ts \
-            push-dispatch/index.ts
+            push-dispatch/index.ts \
+            video-upload/index.ts \
+            mint-upload-url/index.ts \
+            watermark-video/index.ts
 
           echo "Edge Function type-check passed."
 

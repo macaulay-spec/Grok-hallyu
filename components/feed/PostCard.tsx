@@ -18,6 +18,8 @@ import { ImageCarousel } from '../media/ImageCarousel';
 import { SpoilerBlock, SpoilerTag } from './SpoilerBlock';
 import { SyncStrip } from './SyncStrip';
 import { RichText } from './RichText';
+import { downloadVideo, saveImageToLibrary, videoUrl } from '../../lib/video';
+import { BackendError } from '../../lib/data/backend';
 
 export const KIND_LABEL: Record<DiscussionKind, string> = { general: 'Discussion', theory: 'Theory', ending: 'Ending talk', character: 'Character', scene: 'Scene', question: 'Question' };
 export const TYPE_LABEL: Record<Post['type'], string> = { post: 'Post', reaction: 'Reaction', discussion: 'Discussion', review: 'Review', recommendation: 'Recommendation', short: 'Short' };
@@ -61,6 +63,31 @@ function PostCardBase({ post, reason, detail, hideContext, style, onOpenComments
       dispatch({ type: 'save', postId: post.id });
       toast.show({ message: saved ? 'Removed from Saved' : 'Saved', icon: saved ? 'bookmark-outline' : 'bookmark', actionLabel: saved ? undefined : 'View', onAction: () => router.push('/saved') });
     });
+
+  const download = async () => {
+    require('download media', async () => {
+      haptic.light();
+      try {
+        if (post.video) {
+          const url = post.video.url.startsWith('http') ? post.video.url : videoUrl(post.video.url);
+          await downloadVideo({ uri: url, filename: `hallyu_${post.id}.mp4` });
+          toast.show({ message: 'Video saved to your device', icon: 'download-outline', tone: 'success' });
+        } else if (post.images?.length) {
+          const first = post.images.find((i): i is string => typeof i === 'string');
+          if (first) {
+            await saveImageToLibrary({ uri: first, filename: `hallyu_${post.id}.jpg` });
+            toast.show({ message: 'Image saved to your photos', icon: 'download-outline', tone: 'success' });
+          }
+        }
+      } catch (e) {
+        if (e instanceof BackendError && e.message.toLowerCase().includes('permission')) {
+          toast.show({ message: 'Storage permission denied', icon: 'lock-closed-outline', tone: 'danger' });
+        } else {
+          toast.show({ message: 'Download failed — try again', icon: 'cloud-offline-outline', tone: 'danger' });
+        }
+      }
+    });
+  };
 
   const actors = useMemo(() => (post.context.actorIds ?? []).map((a) => getActor(a)).filter(Boolean), [post.context.actorIds, getActor]);
 
@@ -237,6 +264,11 @@ function PostCardBase({ post, reason, detail, hideContext, style, onOpenComments
           <Pressable onPress={save} hitSlop={6} style={styles.action} accessibilityRole="button" accessibilityLabel={saved ? 'Unsave' : 'Save'}>
             <Ionicons name={saved ? 'bookmark' : 'bookmark-outline'} size={20} color={saved ? colors.accentText : colors.textSecondary} />
           </Pressable>
+          {(post.video || post.images?.length) ? (
+            <Pressable onPress={download} hitSlop={6} style={styles.action} accessibilityRole="button" accessibilityLabel="Download">
+              <Ionicons name="download-outline" size={20} color={colors.textSecondary} />
+            </Pressable>
+          ) : null}
           <Pressable onPress={share} hitSlop={6} style={styles.action} accessibilityRole="button" accessibilityLabel="Share">
             <Ionicons name="share-outline" size={20} color={colors.textSecondary} />
           </Pressable>
@@ -262,6 +294,17 @@ function PostCardBase({ post, reason, detail, hideContext, style, onOpenComments
             share();
           }}
         />
+        {(post.video || post.images?.length) ? (
+          <SheetRow
+            icon="download-outline"
+            label="Download"
+            detail={post.video ? 'Video to your device' : 'Image to your photos'}
+            onPress={() => {
+              setMenu(false);
+              download();
+            }}
+          />
+        ) : null}
         <SheetRow
           icon="link-outline"
           label="Copy link"

@@ -179,7 +179,7 @@ export default function Composer() {
     });
     if (!res.canceled) {
       if (video) setVideo(null);
-      setImages((prev) => [...prev, ...res.assets.map((a) => a.uri)].slice(0, LIMITS.images));
+      setImages((prev) => [...prev, ...res.assets.map((a: { uri: string }) => a.uri)].slice(0, LIMITS.images));
     }
   };
   const pickVideo = async () => {

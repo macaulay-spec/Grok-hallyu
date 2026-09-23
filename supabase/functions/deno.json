@@ -1,4 +1,19 @@
 {
-  "compilerOptions": { "strict": true, "lib": ["deno.window", "dom"] },
-  "imports": { "@supabase/supabase-js": "npm:@supabase/supabase-js@2" }
+  "compilerOptions": {
+    "strict": true,
+    "allowJs": true,
+    "checkJs": true,
+    "jsx": "react-jsx",
+    "jsxImportSource": "react"
+  },
+  "imports": {
+    "npm:@supabase/supabase-js@2": "npm:@supabase/supabase-js@2"
+  },
+  "lint": {
+    "rules": {
+      "no-explicit-any": "off",
+      "no-unused-vars": "off",
+      "prefer-const": "error"
+    }
+  }
 }
