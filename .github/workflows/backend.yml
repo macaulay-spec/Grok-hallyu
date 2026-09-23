@@ -691,6 +691,4 @@ jobs:
           echo "Edge Functions:       SUCCESS"
           echo "PostgREST config:     SUCCESS"
           echo "Auth config:          SUCCESS"
-          echo "Smoke tests:          SUCCESS"
-          echo ""
-          echo "=================================================="
+          e
