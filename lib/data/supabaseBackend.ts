@@ -49,8 +49,6 @@ function fileUrl(key?: string | null): string | undefined {
   return supabase.storage.from('media').getPublicUrl(key).data.publicUrl;
 }
 
-const mediaUrl = fileUrl;
-
 async function authed(): Promise<string | null> {
   const { data } = await supabase.auth.getSession();
   return data.session?.user.id ?? null;
@@ -111,7 +109,7 @@ function mapPost(card: Json): { post: Post; author?: Partial<User> & { id: strin
     rating: card.rating ?? undefined,
     verdict: card.verdict ?? undefined,
     images: images.length ? images : undefined,
-    video: video ? { url: fileUrl(video.key) ?? '', poster: fileUrl(video.posterKey), duration: Math.round((video.durationMs ?? 0) / 1000) } : undefined,
+    video: video ? { url: fileUrl(video.key) ?? '', key: video.key ?? undefined, poster: fileUrl(video.posterKey), duration: Math.round((video.durationMs ?? 0) / 1000) } : undefined,
     spoiler: card.spoiler ?? 'none',
     context: {
       dramaId: card.context?.dramaId ?? undefined,
@@ -599,15 +597,18 @@ async function pushAddPost(a: Extract<Action, { type: 'addPost' }>) {
     const uploaded = await uploadImages(localImages, uidMe);
     media = uploaded.map((u) => ({ key: u.key, kind: 'image', width: u.width, height: u.height }));
   }
+  let videoKey: string | undefined;
   if (p.video && !/^https?:/.test(p.video.url)) {
     // Bytes go to the video-storage project (Rork cloud); this DB only ledgers the key.
     const uploaded = await uploadVideo({ uri: p.video.url, duration: p.video.duration, width: p.video.width, height: p.video.height }, p.id);
+    videoKey = uploaded.key;
     const posterUri = typeof p.video.poster === 'string' && !/^https?:/.test(p.video.poster) ? p.video.poster : undefined;
     if (!posterUri) throw new BackendError('Video poster could not be uploaded — will retry', true);
     const posters = await uploadImages([posterUri], uidMe).catch(() => [] as { key: string }[]);
     if (!posters[0]?.key) throw new BackendError('Video poster could not be uploaded — will retry', true);
     media = [{ key: uploaded.key, kind: 'video', posterKey: posters[0].key, width: p.video.width, height: p.video.height, durationMs: Math.round(p.video.duration * 1000) }];
   } else if (p.video) {
+    videoKey = p.video.url;
     media = [{ key: p.video.url, kind: 'video', durationMs: Math.round(p.video.duration * 1000) }];
   }
   const body = {
@@ -625,7 +626,9 @@ async function pushAddPost(a: Extract<Action, { type: 'addPost' }>) {
     media,
   };
   await rpc('create_post', { p: body });
-  dispatchLocal({ type: 'mergePosts', posts: [{ ...p, id: p.id, state: 'active' } as Post] });
+  const merged: Post = { ...p, id: p.id, state: 'active' } as Post;
+  if (videoKey && merged.video) merged.video = { ...merged.video, key: videoKey };
+  dispatchLocal({ type: 'mergePosts', posts: [merged] });
 }
 
 async function push(m: Parameters<Backend['push']>[0]) {

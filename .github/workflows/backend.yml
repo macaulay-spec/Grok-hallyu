@@ -167,12 +167,14 @@ jobs:
 
           deno check \
             --config deno.json \
+            _shared/http.ts \
+            _shared/supabase.ts \
+            _shared/tmdb.ts \
             ensure-catalog/index.ts \
             delete-account/index.ts \
             push-dispatch/index.ts \
-            video-upload/index.ts \
-            mint-upload-url/index.ts \
-            watermark-video/index.ts
+            orphan-media-sweep/index.ts \
+            video-upload/index.ts
 
           echo "Edge Function type-check passed."
 
@@ -317,8 +319,13 @@ jobs:
         run: |
           set -e
 
+          # video-upload belongs on the video-storage project, not here (supabase/config.toml).
           supabase functions deploy \
-            --project-ref "$SUPABASE_PROJECT_REF"
+            --project-ref "$SUPABASE_PROJECT_REF" \
+            ensure-catalog \
+            delete-account \
+            push-dispatch \
+            orphan-media-sweep
 
 
       # --------------------------------------------------------

@@ -152,6 +152,53 @@ console.log('token disabled:', await q(`select disabled_at is not null as disabl
 try { await as(A); await q(`select api.push_render(array[]::uuid[])`); console.log('UNEXPECTED: user could push_render'); } catch (e) { console.log('expected 403 push_render:', e.message); }
 // media_ready: unknown key is rejected for avatars
 try { await as(A); await db.exec(`update api.profiles set avatar_key = 'avatars/${A}/nope.jpg' where id = '${A}'`); console.log('UNEXPECTED: unknown avatar accepted'); } catch (e) { console.log('expected avatar guard:', e.message.split('\n')[0]); }
+// -------------------------------------------------------------------------------------
+// 0006 / 0007: download ledger, orphan sweep, account-deletion cleanup
+// -------------------------------------------------------------------------------------
+const ID26 = (c) => ('01J9' + c.repeat(22)).slice(0, 26);
+const dlVideo = `video/${A}/${ID26('A')}.mp4`;
+const dlPoster = `posts/${A}/${ID26('B')}_p.jpg`;
+const dlOrphan = `video/${A}/${ID26('C')}.mp4`;
+const dlPost = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+// A is a brand-new account here (2 videos / 5 uploads a day); age it past 24 h so the download
+// fixtures are not blocked by the new-account quota that the earlier media test already used up.
+await db.exec(`update public.profiles set created_at = now() - interval '30 days' where id = '${A}'`);
+await as(A, 'service_role');
+await q(`select api.media_reserve('${A}', '${dlVideo}', 'video', 'video/mp4', 20000000, 'mp-2')`);
+await q(`select api.media_reserve('${A}', '${dlPoster}', 'poster', 'image/jpeg', 50000)`);
+await q(`select api.media_reserve('${A}', '${dlOrphan}', 'video', 'video/mp4', 1000, 'mp-3')`);
+await q(`select api.media_finalize('${dlVideo}', 19999000, true, 720, 1280, 44000)`);
+await q(`select api.media_finalize('${dlPoster}', 49000, true, 640, 1136)`);
+await q(`select api.media_finalize('${dlOrphan}', 900, true, 720, 1280, 1000)`);
+// the orphan must be older than the 24 h grace window to be eligible
+await db.exec(`update public.media_uploads set created_at = now() - interval '3 days' where key = '${dlOrphan}'`);
+
+await as(A);
+await q(`select api.create_post($1::jsonb)`, [JSON.stringify({ id: dlPost, type: 'short', body: 'clip', media: [{ key: dlVideo, kind: 'video', posterKey: dlPoster, durationMs: 44000, width: 720, height: 1280 }] })]);
+console.log('record_download:', await q(`select api.record_download('${dlVideo}', '${dlPost}'::uuid) as r`));
+console.log('record_download again (idempotent):', await q(`select api.record_download('${dlVideo}', '${dlPost}'::uuid) as r`));
+console.log('post_media.download_count:', await q(`select download_count from public.post_media where post_id = '${dlPost}'`));
+console.log('download_state:', await q(`select api.download_state(array['${dlVideo}', 'video/${A}/${ID26('Z')}.mp4']) as s`));
+await as(B);
+console.log('another member download_state:', await q(`select api.download_state(array['${dlVideo}']) as s`));
+try { await q(`select api.record_download('video/${A}/${ID26('Z')}.mp4', null)`); console.log('UNEXPECTED: unknown media key accepted'); } catch (e) { console.log('expected 404 for unknown key:', e.message); }
+await as(A);
+try { await q(`select api.record_download('${dlPoster}', '${dlPost}'::uuid)`); } catch (e) { console.log('poster download (counts against the same post):', e.message); }
+console.log('poster download counted:', await q(`select api.record_download('${dlPoster}', '${dlPost}'::uuid) as r`));
+
+// orphan sweep must keep the poster of a live post and drop the unreferenced clip
+await as(A, 'service_role');
+console.log('orphan dry run:', await q(`select api.orphan_media_sweep(true) as r`));
+console.log('orphan sweep:', await q(`select api.orphan_media_sweep(false) as r`));
+console.log('media statuses after sweep:', await q(`select key, status from public.media_uploads where key in ('${dlVideo}', '${dlPoster}', '${dlOrphan}') order by key`));
+try { await as(A); await q(`select api.orphan_media_sweep(false)`); console.log('UNEXPECTED: user could orphan_media_sweep'); } catch (e) { console.log('expected 403 orphan_media_sweep:', e.message); }
+
+// a member who downloads then deletes their account leaves no download history behind
+await as(B);
+await q(`select api.record_download('${dlVideo}', '${dlPost}'::uuid)`);
+console.log('B downloads before deletion:', await q(`select count(*)::int n from public.downloads where user_id = '${B}'`));
+
 // 0003: catalog_upsert + account_anonymise (service role only)
 await as(A, 'service_role');
 console.log('catalog_upsert:', await q(`select api.catalog_upsert($1::jsonb) as r`, [JSON.stringify({
@@ -168,4 +215,5 @@ await as(A, 'service_role');
 console.log('account_anonymise B:', await q(`select api.account_anonymise('${B}') as r`));
 console.log('B profile after:', await q(`select handle, display_name, state from public.profiles where id = '${B}'`));
 console.log('A follower_count after B gone:', await q(`select follower_count, following_count from public.profiles where id = '${A}'`));
+console.log('B downloads after account_anonymise:', await q(`select count(*)::int n from public.downloads where user_id = '${B}'`));
 console.log('ALL SMOKE TESTS DONE');

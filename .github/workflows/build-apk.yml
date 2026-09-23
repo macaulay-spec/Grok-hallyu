@@ -1,8 +1,7 @@
-name: Build demo APK
+name: Build APK
 
-# Frontend-only demo build: no Supabase env vars are provided, so the app
-# auto-detects DEMO_MODE (see src/lib/demo.ts) and runs entirely offline
-# against in-memory demo data. No backend is contacted.
+# Installable Android APK. Client credentials (Supabase + TMDB) are wired in
+# constants/keys.ts, so the build talks to the real backend with no extra env.
 
 on:
   workflow_dispatch:
@@ -66,8 +65,6 @@ jobs:
         env:
           # Catalog + Supabase client credentials are wired in constants/keys.ts. Do not inject
           # EXPO_PUBLIC_TMDB_* from missing secrets here: an empty value would be inlined as ''.
-          # This workflow produces the demo build: show the "Preview with demo data" door.
-          EXPO_PUBLIC_SHOW_DEMO: '1'
 
       - name: Rename APK
         run: |
@@ -87,7 +84,7 @@ jobs:
         run: |
           TAG="apk-${{ github.run_number }}"
           gh release create "$TAG" hallyu-demo.apk \
-            --title "Hallyu demo APK #${{ github.run_number }}" \
-            --notes "Frontend-only demo build (${APK_SIZE}). No Supabase backend — runs fully offline in demo mode.
+            --title "Hallyu APK #${{ github.run_number }}" \
+            --notes "Installable build (${APK_SIZE}), wired to the live backend via constants/keys.ts.
 
           Install: download the APK on your Android phone, allow 'install unknown apps' for your browser, then open it."

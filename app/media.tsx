@@ -7,8 +7,11 @@ import { Animated, FlatList, PanResponder, Pressable, Share, StyleSheet, useWind
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { IconButton } from '../components/ui/IconButton';
 import { Text } from '../components/ui/Text';
+import { useToast } from '../components/ui/Toast';
 import { colors, space } from '../constants/theme';
 import { useApp } from '../lib/hooks';
+import { saveImage, saveVideo } from '../lib/media';
+import { videoUrl } from '../lib/video';
 
 type Slide = { kind: 'image'; source: string | number } | { kind: 'video'; uri: string; poster?: string | number };
 
@@ -46,6 +49,28 @@ export default function MediaViewer() {
   const opacity = y.interpolate({ inputRange: [-300, 0, 300], outputRange: [0.3, 1, 0.3], extrapolate: 'clamp' });
   const current = slides[index];
   const shareUrl = current?.kind === 'video' ? current.uri : current?.kind === 'image' && typeof current.source === 'string' ? current.source : post ? `https://hallyu.app/p/${post.id}` : undefined;
+  const toast = useToast();
+  const [saving, setSaving] = useState(false);
+
+  const downloadCurrent = async () => {
+    if (saving || !current) return;
+    setSaving(true);
+    try {
+      if (current.kind === 'video' && post?.video) {
+        const url = post.video.url.startsWith('http') ? post.video.url : videoUrl(post.video.url);
+        const res = await saveVideo({ key: post.video.key ?? post.video.url, url, postId: post.id });
+        toast.show({ message: res.already ? 'Already on your device' : 'Video saved to your device', icon: 'download-outline', tone: 'success' });
+      } else if (current.kind === 'image' && typeof current.source === 'string') {
+        const res = await saveImage(current.source, current.source);
+        toast.show({ message: res.already ? 'Already in your photos' : 'Image saved to your photos', icon: 'download-outline', tone: 'success' });
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Download failed';
+      toast.show({ message: /permission/i.test(msg) ? 'Storage permission denied' : 'Download failed — try again', icon: 'cloud-offline-outline', tone: 'danger' });
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <Animated.View style={[styles.root, { opacity }]} {...pan.panHandlers}>
@@ -98,6 +123,7 @@ export default function MediaViewer() {
             {title}
             {slides.length > 1 ? `  ${index + 1}/${slides.length}` : ''}
           </Text>
+          {current ? <IconButton icon={saving ? 'cloud-download' : 'download-outline'} label={saving ? 'Saving…' : 'Save to device'} tone="onMedia" disabled={saving} onPress={downloadCurrent} /> : null}
           {shareUrl ? <IconButton icon="share-social-outline" label="Share" tone="onMedia" onPress={() => Share.share({ url: shareUrl, message: shareUrl }).catch(() => {})} /> : null}
         </View>
       ) : null}
