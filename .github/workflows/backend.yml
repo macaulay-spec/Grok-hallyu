@@ -60,25 +60,41 @@ jobs:
         run: npm run typecheck
 
       - name: Expo prebuild
-        run: npx expo prebuild --platform android --clean --no-install
+        run: |
+          set -euo pipefail
 
-      - name: Prepare Android Gradle
-        working-directory: android
-        run: chmod +x gradlew
+          npx expo prebuild \
+            --platform android \
+            --clean \
+            --no-install
+
+          echo "===== Android directory ====="
+          test -d android
+          find android -maxdepth 2 -type f | head -100
 
       - name: Verify generated Android project
         run: |
-          test -x android/gradlew
+          set -euo pipefail
+
+          test -d android
+          test -f android/gradlew
           test -f android/settings.gradle
           test -f android/build.gradle
           test -f android/app/build.gradle
 
+          chmod +x android/gradlew
+
       - name: Show Android tool versions
-        working-directory: android
         run: |
+          set -euo pipefail
+
+          cd android
+
           ./gradlew --version
+
           echo "ANDROID_HOME=${ANDROID_HOME}"
           echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT}"
+
           ls -la "$ANDROID_SDK_ROOT/ndk" || true
 
       - name: Cache Gradle
@@ -92,14 +108,10 @@ jobs:
             gradle-${{ runner.os }}-
 
       - name: Build release APK
-        working-directory: android
-        env:
-          GRADLE_OPTS: >-
-            -Dorg.gradle.jvmargs=-Xmx4g
-            -Dorg.gradle.daemon=false
-            -Dfile.encoding=UTF-8
         run: |
           set -euo pipefail
+
+          cd android
 
           ./gradlew :app:assembleRelease \
             --no-daemon \
@@ -111,31 +123,46 @@ jobs:
 
       - name: Print Gradle diagnostics on failure
         if: failure()
-        working-directory: android
         run: |
-          echo "===== Gradle ====="
-          ./gradlew --version || true
+          set +e
 
-          echo "===== Android configuration ====="
-          grep -RInE \
-            "compileSdk|targetSdk|minSdk|ndkVersion|buildToolsVersion|namespace|applicationId" \
-            . \
-            --exclude-dir=.gradle \
-            --exclude='*.lock' || true
+          echo "===== Repository ====="
+          pwd
+          ls -la
 
-          echo "===== Installed Android SDK packages ====="
+          echo "===== Android directory ====="
+          if [ -d android ]; then
+            find android -maxdepth 3 -type f | head -200
+
+            cd android
+
+            echo "===== Gradle ====="
+            ./gradlew --version || true
+
+            echo "===== Android configuration ====="
+            grep -RInE \
+              "compileSdk|targetSdk|minSdk|ndkVersion|buildToolsVersion|namespace|applicationId" \
+              . \
+              --exclude-dir=.gradle \
+              --exclude='*.lock' || true
+          else
+            echo "ERROR: android directory does not exist."
+          fi
+
+          echo "===== Installed Android SDK ====="
           sdkmanager --list_installed || true
 
           echo "===== APK outputs ====="
-          find app/build/outputs -maxdepth 4 -type f -print 2>/dev/null || true
+          find . -path "*/build/outputs/*" -type f -print 2>/dev/null || true
 
       - name: Prepare artifact
         run: |
           set -euo pipefail
 
+          test -s android/app/build/outputs/apk/release/app-release.apk
+
           cp android/app/build/outputs/apk/release/app-release.apk hallyu.apk
 
-          test -s hallyu.apk
           ls -lh hallyu.apk
 
           echo "APK_SIZE=$(du -h hallyu.apk | cut -f1)" >> "$GITHUB_ENV"
