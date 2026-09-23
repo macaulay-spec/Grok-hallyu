@@ -155,7 +155,10 @@ const otherMode = (m: AuthMode): AuthMode | null => (m === 'key' ? (TMDB_TOKEN ?
 async function tmdb<T>(path: string, params: Record<string, string>, signal?: AbortSignal, retried = false): Promise<T> {
   const url = new URL(`https://api.themoviedb.org/3${path}`);
   const mode = authMode;
-  if (mode === 'key') url.searchParams.set('api_key', TMDB_KEY);
+  if (mode === 'key') {
+    if (!TMDB_KEY) throw new Error('TMDB credentials are not configured');
+    url.searchParams.set('api_key', TMDB_KEY);
+  }
   url.searchParams.set('language', 'en-US');
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
   const headers: Record<string, string> = {};
@@ -406,7 +409,7 @@ async function discover(params: Record<string, string>, signal?: AbortSignal): P
 
 export const tmdbProvider: CatalogProvider = {
   name: 'TMDB',
-  available: TMDB_TOKEN.length > 0 || TMDB_KEY.length > 0,
+  available: Boolean(TMDB_TOKEN || TMDB_KEY),
 
   async searchDramas(query, signal) {
     const data = await tmdb<{ results: TmdbTv[] }>('/search/tv', { query, include_adult: 'false' }, signal);

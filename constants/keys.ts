@@ -14,12 +14,10 @@ const env = (v: string | undefined): string | undefined => {
 };
 
 /** TMDB v4 read access token (preferred — sent as `Authorization: Bearer`). */
-export const TMDB_ACCESS_TOKEN =
-  env(process.env.EXPO_PUBLIC_TMDB_ACCESS_TOKEN) ??
-  'eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJmZjAxZjI4ZmM1YzQ3NzkxZTI4MDM4MzQ5NDQ1YmY1OCIsIm5iZiI6MTc4OTAyMDA1Ny43NzksInN1YiI6IjZhYTI0Nzk5OGQ1YWFjZTczMzY2ODJkMyIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.ETon7kqWQjj7jtJJOXyRgAWme9Sh9B7OUrdAI61uuH8';
+export const TMDB_ACCESS_TOKEN = env(process.env.EXPO_PUBLIC_TMDB_ACCESS_TOKEN);
 
 /** TMDB v3 API key (used as `?api_key=` when no v4 token is available). */
-export const TMDB_API_KEY = env(process.env.EXPO_PUBLIC_TMDB_API_KEY) ?? 'ff01f28fc5c47791e28038349445bf58';
+export const TMDB_API_KEY = env(process.env.EXPO_PUBLIC_TMDB_API_KEY);
 
 /** Hallyu backend (auth + Postgres). The HALYU_ prefix keeps these distinct from the video-storage project's generic EXPO_PUBLIC_SUPABASE_* names. */
 export const SUPABASE_URL = env(process.env.EXPO_PUBLIC_HALYU_SUPABASE_URL) ?? 'https://psmxekrmoltwabefgqpd.supabase.co';

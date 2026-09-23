@@ -235,11 +235,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const deleteAccount = useCallback(async () => {
     // The real deletion runs server-side (Edge Function `delete-account`); the client only requests it and signs out.
-    try {
-      if (user) await supabase.functions.invoke('delete-account').catch(() => {});
-    } finally {
-      await signOut();
-    }
+    if (!user) throw new AuthError('unknown', 'No signed-in account to delete.');
+    const { error } = await supabase.functions.invoke('delete-account');
+    if (error) throw normalise(error);
+    await signOut();
   }, [user, signOut]);
 
   const value = useMemo<AuthValue>(
