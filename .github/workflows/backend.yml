@@ -305,9 +305,16 @@ jobs:
         run: |
           set -e
 
+          # Surface the psql error as a run annotation so it is readable even when raw
+          # job logs are not (the sandbox cannot fetch results-receiver log archives).
           supabase db push \
             --include-all \
-            --password "$SUPABASE_DB_PASSWORD"
+            --password "$SUPABASE_DB_PASSWORD" 2>&1 | tee /tmp/dbpush.log || {
+              grep -E "ERROR|error:" /tmp/dbpush.log | tail -n 20 | sed 's/^/::error::/' || true
+              echo "::error::supabase db push failed (last lines below)"
+              tail -n 30 /tmp/dbpush.log | sed 's/^/::error::/'
+              exit 1
+            }
 
 
       # --------------------------------------------------------
