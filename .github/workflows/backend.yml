@@ -305,21 +305,23 @@ jobs:
         run: |
           set -e
 
-          # Surface the psql error as a run annotation so it is readable even when raw
-          # job logs are not (the sandbox cannot fetch results-receiver log archives).
-          supabase db push \
-            --include-all \
-            --password "$SUPABASE_DB_PASSWORD" 2>&1 | tee /tmp/dbpush.log || {
+          # If a previous session left remote-only migration versions in schema_migrations, db push
+          # refuses ("Remote migration versions not found in local migrations directory"). Repair
+          # those to `reverted` and push again; our migrations are idempotent (if not exists /
+          # create or replace / on conflict) so re-applying over the existing schema is safe.
+          if ! supabase db push --include-all --password "$SUPABASE_DB_PASSWORD" 2>&1 | tee /tmp/dbpush.log; then
+            VERS=$(grep -oE "supabase migration repair --status reverted [0-9 ]+" /tmp/dbpush.log | head -1 | sed 's/.*reverted //')
+            if [ -n "$VERS" ]; then
+              echo "::warning::Repairing remote-only migration versions to reverted: $VERS"
+              supabase migration repair --status reverted $VERS --password "$SUPABASE_DB_PASSWORD"
+              supabase db push --include-all --password "$SUPABASE_DB_PASSWORD"
+            else
               grep -E "ERROR|error:" /tmp/dbpush.log | tail -n 20 | sed 's/^/::error::/' || true
               echo "::error::supabase db push failed (last lines below)"
               tail -n 30 /tmp/dbpush.log | sed 's/^/::error::/'
               exit 1
-            }
-
-
-      # --------------------------------------------------------
-      # DEPLOY EDGE FUNCTIONS
-      # --------------------------------------------------------
+            fi
+          fi
 
       - name: Deploy Edge Functions
         shell: bash
