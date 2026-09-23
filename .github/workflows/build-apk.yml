@@ -62,9 +62,8 @@ jobs:
       - name: Build APK (release, debug-signed → installable)
         working-directory: android
         run: ./gradlew assembleRelease --no-daemon
-        env:
-          # Catalog + Supabase client credentials are wired in constants/keys.ts. Do not inject
-          # EXPO_PUBLIC_TMDB_* from missing secrets here: an empty value would be inlined as ''.
+        # Catalog + Supabase client credentials are wired in constants/keys.ts. Do not inject
+        # EXPO_PUBLIC_TMDB_* from missing secrets here: an empty value would be inlined as ''.
 
       - name: Rename APK
         run: |
