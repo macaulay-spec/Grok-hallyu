@@ -1,9 +1,15 @@
-name: Build APk
+name: Build APK
 
 on:
   workflow_dispatch:
   push:
-    branches: [main, "arena/**"]
+    branches:
+      - main
+      - "arena/**"
+    paths-ignore:
+      - "supabase/**"
+      - "docs/**"
+      - "*.md"
 
 concurrency:
   group: apk-${{ github.ref }}
@@ -11,73 +17,86 @@ concurrency:
 
 jobs:
   build:
+    name: Android APK
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 75
     permissions:
       contents: write
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
 
-      - name: Setup Java (Temurin 17)
-        uses: actions/setup-java@v5
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
 
-      - name: Install JS dependencies
+      - name: Install dependencies
         run: npm ci
 
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Generate native Android project
+      - name: Expo prebuild (Android)
         run: npx expo prebuild --platform android --clean --no-install
         env:
           EXPO_NO_TELEMETRY: 1
+          CI: 1
 
-      - name: Cache Gradle dependencies
+      - name: Cache Gradle
         uses: actions/cache@v4
         with:
           path: |
             \~/.gradle/caches
             \~/.gradle/wrapper
           key: gradle-\( {{ runner.os }}- \){{ hashFiles('android/**/*.gradle*', 'android/**/gradle-wrapper.properties') }}
-          restore-keys: gradle-${{ runner.os }}-
+          restore-keys: |
+            gradle-${{ runner.os }}-
 
-      - name: Build APK (release, debug-signed → installable)
+      - name: Build release APK
         working-directory: android
+        env:
+          GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx4g -Dorg.gradle.daemon=false
         run: |
-          ./gradlew assembleRelease --no-daemon 2>&1 | tee /tmp/gradle.log || {
-            tail -n 80 /tmp/gradle.log | sed 's/^/::error::/'
-            exit 1
-          }
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon --stacktrace 2>&1 | tee /tmp/gradle.log
+          test -f app/build/outputs/apk/release/app-release.apk
 
-      - name: Rename APK
+      - name: Prepare artifact
         run: |
-          cp android/app/build/outputs/apk/release/app-release.apk hallyu-demo.apk
-          echo "APK_SIZE=$(du -h hallyu-demo.apk | cut -f1)" >> "$GITHUB_ENV"
+          set -euo pipefail
+          cp android/app/build/outputs/apk/release/app-release.apk hallyu.apk
+          ls -lh hallyu.apk
+          echo "APK_SIZE=$(du -h hallyu.apk | cut -f1)" >> "$GITHUB_ENV"
 
-      - name: Upload workflow artifact
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: hallyu-demo-apk
-          path: hallyu-demo.apk
+          name: hallyu-apk
+          path: hallyu.apk
           if-no-files-found: error
+          retention-days: 14
 
       - name: Publish GitHub Release
+        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           TAG="apk-${{ github.run_number }}"
-          gh release create "$TAG" hallyu-demo.apk \
+          gh release create "$TAG" hallyu.apk \
             --title "Hallyu APK #${{ github.run_number }}" \
-            --notes "Installable build (${APK_SIZE}), wired to the live backend via constants/keys.ts.
+            --notes "Installable Android APK (${APK_SIZE}).
 
-          Install: download the APK on your Android phone, allow 'install unknown apps' for your browser, then open it."
+          Connected to live Supabase backend via constants/keys.ts.
+
+          Install: download APK → allow unknown apps → open file."
