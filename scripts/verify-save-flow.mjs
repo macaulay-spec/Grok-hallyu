@@ -21,7 +21,7 @@ const out = mkdtempSync(join(tmpdir(), 'hallyu-pending-'));
 try {
   execSync(`npx tsc lib/data/pending.ts --outDir ${out} --module esnext --target es2020 --moduleResolution bundler --skipLibCheck`, { stdio: 'inherit' });
   const mod = await import(pathToFileURL(join(out, 'pending.js')).href);
-  const { pendingIds, mergePending, mergePendingMap } = mod;
+  const { pendingIds, mergePending, mergePendingMap, pendingPrefKeys, mergePendingPrefs } = mod;
 
   let failures = 0;
   const ok = (name, cond) => {
@@ -89,6 +89,16 @@ try {
   // --- Step 6: failed mutations are NOT protected (they will be rolled back) -----------
   const failed = { status: 'failed', action: { type: 'save', postId: POST, on: true } };
   ok('failed mutations are not treated as pending', !pendingIds({ outbox: [failed] }, 'save').has(POST));
+
+  // --- Step 7: a just-toggled setting survives a stale `me` pull ------------------------
+  const prefsState = {
+    outbox: [{ status: 'queued', action: { type: 'prefs', patch: { dataSaver: true } } }],
+  };
+  const serverPrefs = { dataSaver: false, autoplay: 'wifi', language: 'en' };
+  const localPrefs = { dataSaver: true, autoplay: 'wifi', language: 'en' };
+  const merged = mergePendingPrefs(serverPrefs, localPrefs, pendingPrefKeys(prefsState));
+  ok('stale me() does NOT revert a pending setting', merged.dataSaver === true);
+  ok('unrelated settings still take the server value', merged.autoplay === 'wifi');
 
   console.log(failures === 0 ? '\nALL SAVE-FLOW CHECKS PASSED' : `\n${failures} CHECK(S) FAILED`);
   process.exitCode = failures === 0 ? 0 : 1;

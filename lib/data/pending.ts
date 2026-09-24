@@ -12,7 +12,7 @@
 
 export interface PendingMutationLike {
   status: string;
-  action: { type: string; postId?: string; targetId?: string };
+  action: { type: string; postId?: string; targetId?: string; patch?: Record<string, unknown> };
 }
 
 export interface OutboxLike {
@@ -50,5 +50,25 @@ export function mergePendingMap<T>(server: Record<string, T>, local: Record<stri
     if (local[id] !== undefined && local[id] !== null) out[id] = local[id];
     else delete out[id];
   }
+  return out;
+}
+
+/** Pref keys with a non-failed mutation still waiting to reach the server. */
+export function pendingPrefKeys(s: OutboxLike): Set<string> {
+  const keys = new Set<string>();
+  for (const m of s.outbox) {
+    if (m.status === 'failed') continue;
+    if (m.action.type === 'prefs' && m.action.patch) for (const k of Object.keys(m.action.patch)) keys.add(k);
+  }
+  return keys;
+}
+
+/**
+ * Merge server prefs over local prefs, but keep the local value for any key that still has a
+ * pending write — a stale `me` pull must not visually revert a toggle the user just flipped.
+ */
+export function mergePendingPrefs<T extends object>(server: Partial<T>, local: T, pending: Set<string>): T {
+  const out = { ...local, ...server } as T;
+  for (const k of pending) if (k in local) (out as Record<string, unknown>)[k] = (local as Record<string, unknown>)[k];
   return out;
 }

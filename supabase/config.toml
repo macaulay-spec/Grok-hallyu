@@ -1,5 +1,7 @@
-# Supabase CLI project config (used by .github/workflows/backend.yml). Remote settings that the CLI does not push
-# (PostgREST schemas, auth redirect URLs, SMTP) are applied by the workflow through the Management API.
+# Supabase CLI project config (used by .github/workflows/backend.yml).
+# The CLI does not push every remote setting: the `backend.yml` deploy job applies auth redirect
+# URLs, SMTP and the Google OAuth provider through the Management API (see the "Apply auth config"
+# step). The PostgREST exposed schemas (`api`, `graphql_public`) are set once in the dashboard.
 project_id = "hallyu"
 
 [api]

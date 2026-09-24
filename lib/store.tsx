@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect } from 'react';
 import { create } from 'zustand';
 import { useStoreWithEqualityFn } from 'zustand/traditional';
-import { mergePending, mergePendingMap, pendingIds } from './data/pending';
+import { mergePending, mergePendingMap, mergePendingPrefs, pendingIds, pendingPrefKeys } from './data/pending';
 import { uid } from './format';
 import { Actor, Collection, Comment, Draft, Drama, Notification, NotificationGroup, Post, ReactionCounts, ReactionKind, SpoilerProtection, User, WatchStatus, WatchlistItem } from './model';
 
@@ -346,7 +346,7 @@ function reducer(s: AppState, a: Action): AppState {
       return {
         ...s,
         profile: p.profile ? { ...s.profile, ...p.profile } : s.profile,
-        prefs: p.prefs ? { ...s.prefs, ...p.prefs } : s.prefs,
+        prefs: p.prefs ? mergePendingPrefs<Prefs>(p.prefs, s.prefs, pendingPrefKeys(s)) : s.prefs,
         onboarding: p.onboarding ? { ...s.onboarding, ...p.onboarding } : s.onboarding,
         follows: p.follows ?? s.follows,
         dramaNotify: p.dramaNotify ? Object.fromEntries(p.dramaNotify.map((id) => [id, true])) : s.dramaNotify,

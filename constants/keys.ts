@@ -27,3 +27,21 @@ export const SUPABASE_ANON_KEY = env(process.env.EXPO_PUBLIC_HALYU_SUPABASE_ANON
 
 /** Video-storage project (Rork cloud): owns the public `videos` bucket + video-upload broker. Bytes only — no tables, no auth. */
 export const VIDEO_STORAGE_URL = env(process.env.EXPO_PUBLIC_SUPABASE_URL) ?? 'https://smijjihlnuushnlkbktm.supabase.co';
+
+/**
+ * Backend #3 — FUTURE private backend (preparation only, intentionally INACTIVE).
+ *
+ * Nothing in the app reads these yet: Hallyu keeps using Backend #1 (auth + Postgres) and
+ * Backend #2 (video storage) exactly as before. They exist so a future migration can be wired
+ * without re-plumbing config once the provider ("Supa Naija") supplies the project and keys.
+ *
+ * SECURITY: only the public URL and the publishable (anon) key may ever live in the client — both
+ * are safe to ship, like the Supabase publishable key. The service-role key is SERVER-SIDE ONLY and
+ * must NEVER be added here, imported into app code, or bundled into the APK. It belongs in a
+ * server/CI secret (e.g. a GitHub Actions secret), never in this file or the repo.
+ *
+ * See docs/backend/BACKEND-3.md. There are deliberately NO hard-coded defaults: they stay empty
+ * until the provider provides real values.
+ */
+export const BACKEND_3_URL = env(process.env.EXPO_PUBLIC_BACKEND_3_URL);
+export const BACKEND_3_ANON_KEY = env(process.env.EXPO_PUBLIC_BACKEND_3_ANON_KEY);
