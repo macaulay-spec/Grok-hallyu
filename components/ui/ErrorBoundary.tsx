@@ -11,6 +11,12 @@ interface Props {
   /** What broke, for the copy: "this screen" (default) or "Hallyu" at the root. */
   scope?: string;
   onReset?: () => void;
+  /**
+   * Non-visual isolation. Startup components (AccountSync, SyncProvider, ReminderSync, MilestoneWatcher)
+   * render nothing; if one of them throws we must keep the rest of the app alive without covering the
+   * screen with a recovery card. In silent mode the boundary logs the error and renders nothing.
+   */
+  silent?: boolean;
 }
 interface State {
   error: Error | null;
@@ -19,6 +25,8 @@ interface State {
 /**
  * Last line of defence. A crash inside a screen shows a calm recovery card instead of a white
  * screen; the root instance keeps the app alive. Errors are reported through analytics (no-op today).
+ * In `silent` mode it renders nothing on error, so a failure in a background startup component can
+ * never take the app down or hide the screen behind it.
  */
 export class ErrorBoundary extends React.Component<Props, State> {
   state: State = { error: null };
@@ -28,7 +36,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
-    track('error.boundary', { message: error.message, scope: this.props.scope ?? 'screen', stack: info.componentStack?.slice(0, 600) });
+    track('error.boundary', { message: error.message, scope: this.props.scope ?? 'screen', silent: !!this.props.silent, stack: info.componentStack?.slice(0, 600) });
   }
 
   reset = () => {
@@ -44,6 +52,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
 
   render() {
     if (!this.state.error) return this.props.children;
+    if (this.props.silent) return null;
     const scope = this.props.scope ?? 'this screen';
     return (
       <View style={styles.host} accessibilityRole="alert">

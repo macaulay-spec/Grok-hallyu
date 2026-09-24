@@ -1,56 +1,46 @@
-# Hallyu — Final Backend, Persistence & Integration Audit
+# Hallyu — Production Defect Fixes (12 items)
 
-## Phase 0: Recon
-- [x] Map repo structure (app/, lib/, components/, supabase/)
-- [x] Identify all data-layer files (supabase client, backend abstraction, stores)
-- [x] Identify all mock/demo/seed code paths (none in production paths)
+## 1. Profile + settings persistence
+- [x] Root cause: api.profiles is a read-only security_invoker view; view UPDATE grant broken
+- [x] Add secure api.update_profile(jsonb) RPC (SECURITY DEFINER, auth.uid()-scoped, column whitelist)
+- [x] Revoke view UPDATE from anon/authenticated
+- [x] Update frontend data layer (profile/prefs/onboarding pushes → RPC)
+- [x] Local verify via PGlite validator (RPC works, prefs merge, whitelist 422, language 422, view read-only)
+- [x] Deploy migration to live Backend #1 (workflow_dispatch success) + runtime verify (RPC, prefs merge, 422, view 403, persistence across re-login, cross-account isolation)
 
-## Phase 1: Saved State Bug (FIRST PRIORITY)
-- [x] Trace save/unsave flow end-to-end
-- [x] Check DB write + RPC + optimistic UI + cache invalidation
-- [x] Confirm root cause: pull races clobber optimistic saves (viewerSync/me) + push re-derives intent
-- [x] Fix ingestCards viewer-presence guard
-- [x] Fix viewerSync/me pending-save guard
-- [x] Fix push save to carry intended target
-- [x] Add Saved screen server fetch
-- [x] Verify persistence across reload/logout/account-switch
-- [x] Regression test scripts/verify-save-flow.mjs (14 checks)
+## 2. Google OAuth
+- [x] Inspect Supabase Google provider config (external.google=true; client_id configured; redirect_uri correct)
+- [x] Inspect Android OAuth config (browser flow; hallyu:// deep link registered; no native client needed)
+- [x] Surface OAuth callback errors in lib/auth.tsx (was silently swallowed)
+- [x] Report REQUIRES MANUAL CONFIGURATION (invalid Google client secret)
 
-## Phase 2: Settings / Preferences
-- [x] Enumerate every setting + its storage
-- [x] Verify persistence + account isolation (writes use explicit patch; device prefs carried)
-- [x] Harden me() against stale prefs clobber (mergePendingPrefs guard)
+## 3. AccountSync race conditions
+- [x] Generation guard (gen/inFlight/applied), stale() identity checks
+- [x] applied.current = completed state only
+- [x] Identity guards in store 'me' reducer + supabaseBackend pull layer
 
-## Phase 3: Authentication
-- [x] Email/password: signup, login, logout, session restore, confirm, reset
-- [x] Google OAuth flow (skipBrowserRedirect + openAuthSessionAsync + code exchange)
-- [x] Session persistence across app kill (AsyncStorage-backed supabase client)
-- [x] Account-switch contamination check (AccountSync reset on id change)
-- [x] FIX: display-name metadata mismatch (client `display_name` vs trigger `displayName`) → migration 20260922000900_signup_display_name.sql
+## 4. Global startup crash protection
+- [x] Rework provider hierarchy (silent ErrorBoundaries around startup components)
+- [x] reportError diagnostics instead of empty catch blocks
+- [x] Root ErrorBoundary sits high enough
 
-## Phase 4: Email / SMTP
-- [x] Identify configured provider + credential storage (GitHub Actions secrets SMTP_*)
-- [x] Verify Supabase Auth uses it (CI Management-API step PATCH /config/auth applies smtp_*)
-- [x] Verify redirect/deep-link URLs (uri_allow_list covers hallyu://auth/callback, web + exp + localhost)
+## 5. Verify signup + display name (runtime, live DB)
+- [x] Live signup → profile created → display_name = "Test Kdrama Fan" (verified in api.profiles)
+## 6. Verify email login full flow (runtime)
+- [x] Live: create account → session → profile fetch → re-login → profile fetch (app AccountSync/home flow pending APK)
+## 7. TMDB graceful failure (success/empty/401/429/network/missing image)
+- [x] Live API: 200 (20 results), empty (0 results), 401 (error JSON)
+- [x] Code: health tracking, friendlyCatalogCopy, useLoad catch, Poster fallback, ErrorState
+## 8. Video backend reconciliation (Backend #1 vs #2 video-upload)
+- [x] Confirmed Backend #2 (smijjihlnuushnlkbktm) owns production video (app endpoint + live broker)
+- [x] Confirmed Backend #1 video-upload genuinely unused (no refs; backend.yml never deploys it)
+- [x] Added guarded idempotent cleanup step; ran it → "Removed stale video-upload from Backend #1 (HTTP 200)"
+- [x] Verified live: Backend #1 video-upload now 404; Backend #2 broker still functional; Backend #3 inactive
+## 9. Preserve working fixes (saved state, download isolation, notif read state, display-name, TMDB, Backend #3)
+## 10. Android runtime test (build APK, verify, install, full flow)
+## 11. Security rules (no privileged creds in client)
+## 12. Final verification report (exact status format)
 
-## Phase 5: Posts / Social / Feed / Notifications
-- [x] Posts CRUD persistence (addPost/editPost/deletePost push cases)
-- [x] Likes/comments/follows (react/addComment/deleteComment/follow push cases)
-- [x] Feed/discovery real data + pagination (useRemote/useRefresh, PAGE=12, empty/loading states)
-- [x] Notifications + account isolation (activity scope; FIX: monotonic read-state in mergeNotifications)
-
-## Phase 6: Video System (verify only, NO rewrite)
-- [x] Upload auth (Hallyu JWT verified by broker), signed URL (deterministic object id), registration (register_media ownership regex), playback (videoUrl), quota (upload_quota), errors — verified, no change
-
-## Phase 7: Downloads & Media State
-- [x] Download record persistence + UI + isolation (FIX: per-account on-device ledger via setDownloadScope)
-
-## Phase 8: GitHub Actions
-- [x] Secrets present, build green, correct endpoints, no leaks (build-apk.yml injects only Backend #1/#2; Backend #3 NOT injected)
-
-## Phase 9: Backend #3 (future-only placeholders)
-- [x] Create BACKEND_3_URL / ANON / SERVICE_ROLE placeholders (constants/keys.ts, .env.example, docs/backend/BACKEND-3.md)
-- [x] Ensure inactive, no migration (not wired into any runtime path; no build-time injection)
-
-## Phase 10: Final Report
-- [x] Produce structured audit report
+## Build/Deploy
+- [ ] Commit + push branch arena/production-defect-fixes
+- [ ] Deploy backend migration to live project

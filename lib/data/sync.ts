@@ -18,7 +18,7 @@ import * as sel from '../selectors';
 import { Action, AppState, dispatch, dispatchLocal, getState, Mutation, setDispatchMiddleware, useSlice } from '../store';
 import { Backend, BackendError, PullScope } from './backend';
 import { supabaseBackend } from './supabaseBackend';
-import { track } from '../analytics';
+import { track, reportError } from '../analytics';
 
 let backend: Backend = supabaseBackend;
 /** Swap the backend implementation (the Supabase adapter will register itself here; tests inject fakes). */
@@ -410,12 +410,12 @@ export function SyncProvider(): null {
     kick();
   }, [hydrated]);
 
-  // First open (and on sign-in): warm the caches. Failures are silent — the screens still render
-  // whatever is persisted, and pull-to-refresh retries.
+  // First open (and on sign-in): warm the caches. Failures are logged but non-fatal — the screens
+  // still render whatever is persisted, and pull-to-refresh retries.
   useEffect(() => {
     if (!hydrated) return;
-    void backend.pull('home').catch(() => {});
-    void backend.pull('activity').catch(() => {});
+    void backend.pull('home').catch((e) => reportError('SyncProvider.pullHome', e));
+    void backend.pull('activity').catch((e) => reportError('SyncProvider.pullActivity', e));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated, authed]);
 

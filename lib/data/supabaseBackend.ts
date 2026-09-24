@@ -54,6 +54,20 @@ async function authed(): Promise<string | null> {
   return data.session?.user.id ?? null;
 }
 
+/**
+ * The account a read is issued for. Every read carries the signed-in account's JWT, so its result
+ * belongs to that account. If the account changes while the request is in flight (sign-out, or a
+ * switch A→B), the late response must be dropped instead of written into the new account's store —
+ * otherwise a previous user's profile/feed/viewer state could surface under another account.
+ * `readOwner()` is captured before the `await`; `isOwner(owner)` is re-checked before any write.
+ */
+function readOwner(): string {
+  return getState().profile.id;
+}
+function isOwner(owner: string): boolean {
+  return getState().profile.id === owner;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Server → store mappers
 // ---------------------------------------------------------------------------------------------
@@ -130,7 +144,9 @@ function mapPost(card: Json): { post: Post; author?: Partial<User> & { id: strin
 }
 
 /** Ingest a page of post cards: merge posts/authors/dramas, set the feed order, sync viewer flags. */
-function ingestCards(key: string | null, cards: Json[], opts: { append?: boolean; exhausted?: boolean; cursor?: unknown } = {}) {
+function ingestCards(key: string | null, cards: Json[], opts: { append?: boolean; exhausted?: boolean; cursor?: unknown; owner?: string } = {}) {
+  // Drop a page whose account changed while it was being fetched (see readOwner/isOwner).
+  if (opts.owner !== undefined && !isOwner(opts.owner)) return;
   const posts: Post[] = [];
   const users: Partial<User>[] = [];
   const dramas: Drama[] = [];
@@ -171,7 +187,8 @@ function ingestCards(key: string | null, cards: Json[], opts: { append?: boolean
   }
 }
 
-function ingestComments(postId: string, rows: Json[]) {
+function ingestComments(postId: string, rows: Json[], owner?: string) {
+  if (owner !== undefined && !isOwner(owner)) return;
   const comments: Comment[] = [];
   const users: Partial<User>[] = [];
   const reactions: Record<string, ReactionKind | null> = {};
@@ -218,8 +235,9 @@ const statusMap: Record<string, WatchlistItem['status']> = { watching: 'watching
 const statusToServer: Record<WatchlistItem['status'], string> = { watching: 'watching', want: 'planned', completed: 'completed', dropped: 'dropped' };
 
 async function pullMe() {
+  const owner = readOwner();
   const me = await rpc<Json | null>('me');
-  if (!me) return;
+  if (!me || !isOwner(owner)) return;
   const p: MePayload = {};
   const row = me.profile;
   if (row) {
@@ -264,11 +282,13 @@ async function pullMe() {
 }
 
 async function pullHome() {
+  const owner = readOwner();
   const [feed, rails] = await Promise.all([
     rpc<Json[]>('feed_for_you', { p_limit: 30 }).catch(() => [] as Json[]),
     rpc<Json | null>('home_rails').catch(() => null),
   ]);
-  ingestCards('forYou', feed, { exhausted: feed.length < 30 });
+  if (!isOwner(owner)) return;
+  ingestCards('forYou', feed, { exhausted: feed.length < 30, owner });
   if (!rails) return;
   // rails: merge trending dramas/posters, prime trending feeds
   const dramas: Drama[] = (rails.trendingDramas ?? []).map((t: Json) => ({
@@ -277,9 +297,9 @@ async function pullHome() {
   })).filter((d: Drama) => !!d?.id);
   if (dramas.length) dispatchLocal({ type: 'import', dramas });
   dispatchLocal({ type: 'setFeed', key: 'trendingDramas', ids: (rails.trendingDramas ?? []).map((t: Json) => t.id), exhausted: true });
-  ingestCards(null, rails.trendingPosts ?? []);
+  ingestCards(null, rails.trendingPosts ?? [], { owner });
   dispatchLocal({ type: 'setFeed', key: 'trendingPosts', ids: (rails.trendingPosts ?? []).map((p: Json) => p.id), exhausted: true });
-  ingestCards(null, rails.trendingDiscussions ?? []);
+  ingestCards(null, rails.trendingDiscussions ?? [], { owner });
   dispatchLocal({ type: 'setFeed', key: 'trendingDiscussions', ids: (rails.trendingDiscussions ?? []).map((p: Json) => p.id), exhausted: true });
   // "airing today" needs full drama records for episode titles — screens fall back to catalog TMDB; store thin ones too
   const airing: Drama[] = [];
@@ -292,9 +312,11 @@ async function pullHome() {
 }
 
 async function pullActivity() {
+  const owner = readOwner();
   const s = getState();
   if (!(await authed())) return;
   const rows = await rpc<Json[]>('notifications_page', { p_limit: 50 });
+  if (!isOwner(owner)) return;
   const notifs: Notification[] = [];
   const users: Partial<User>[] = [];
   for (const n of rows) {
@@ -352,6 +374,7 @@ async function pullCollection(id: string) {
 }
 
 async function pullProfile(handle: string) {
+  const owner = readOwner();
   const page = await rpc<Json | null>('profile_page', { p_handle: handle.toLowerCase() });
   if (!page) return;
   const user: Partial<User> & { id: string } = {
@@ -371,18 +394,19 @@ async function pullProfile(handle: string) {
   dispatchLocal({ type: 'mergeUsers', users: [user] });
   dispatchLocal({ type: 'mergeCollections', collections: (page.collections ?? []).map((c: Json) => ({ id: c.id, ownerId: page.id, title: c.title, visibility: c.visibility === 'private' ? ('private' as const) : ('public' as const), items: [], followerCount: c.followerCount ?? 0, updatedAt: now().toISOString() })) });
   const posts = await rpc<Json[]>('user_posts', { p_user_id: page.id, p_limit: 30 }).catch(() => [] as Json[]);
-  ingestCards(`user:${page.id}`, posts, { exhausted: posts.length < 30 });
+  ingestCards(`user:${page.id}`, posts, { exhausted: posts.length < 30, owner });
 }
 
 async function pullPost(id: string) {
+  const owner = readOwner();
   const card = await rpc<Json | null>('post_page', { p_id: id });
   if (card) {
-    ingestCards(null, [card]);
+    ingestCards(null, [card], { owner });
     // drama hub context may reference a drama this device hasn't seen — ensure-catalog materialises it
     void card;
   }
   const comments = await rpc<Json[]>('comments_page', { p_post_id: id, p_limit: 50 }).catch(() => [] as Json[]);
-  ingestComments(id, comments);
+  ingestComments(id, comments, owner);
 }
 
 /**
@@ -391,30 +415,33 @@ async function pullPost(id: string) {
  * whose card has aged out of the feed cache — would silently vanish from the list.
  */
 async function pullSaved() {
+  const owner = readOwner();
   const s = getState();
   const missing = s.saves.filter((id) => !s.posts.some((p) => p.id === id));
   if (!missing.length) return;
   const cards = await Promise.all(missing.slice(0, 50).map((id) => rpc<Json | null>('post_page', { p_id: id }).catch(() => null)));
-  ingestCards(null, cards.filter((c): c is Json => !!c));
+  ingestCards(null, cards.filter((c): c is Json => !!c), { owner });
 }
 
 async function pullDrama(scope: string) {
   // drama:<id> or drama:<id>:<tab>
+  const owner = readOwner();
   const rest = scope.slice('drama:'.length);
   const [dramaId, tab = 'all'] = rest.split(':');
   const cards = await rpc<Json[]>('drama_posts', { p_drama_id: dramaId, p_tab: tab === 'top' ? 'all' : tab, p_limit: 30 });
   // `top` ordering is applied client-side over the latest window; `latest` keeps server order
   const heat = (c: Json): number => Object.values<number>(c.reactions ?? {}).reduce((x, y) => x + y, 0) + 3 * (c.commentCount ?? 0) + 2 * (c.saveCount ?? 0);
-  if (tab !== 'top') ingestCards(`drama:${dramaId}:latest`, cards);
-  if (tab !== 'latest') ingestCards(`drama:${dramaId}:top`, [...cards].sort((a, b) => heat(b) - heat(a)));
+  if (tab !== 'top') ingestCards(`drama:${dramaId}:latest`, cards, { owner });
+  if (tab !== 'latest') ingestCards(`drama:${dramaId}:top`, [...cards].sort((a, b) => heat(b) - heat(a)), { owner });
 }
 
 async function pullEpisode(scope: string) {
+  const owner = readOwner();
   const [, dramaId, season, episode] = scope.split(':');
   const room = await rpc<Json | null>('episode_room', { p_drama_id: dramaId, p_season: Number(season), p_episode: Number(episode) });
   if (!room) return;
   const posts = (room.posts as Json[]) ?? [];
-  ingestCards(`episode:${dramaId}:${season}:${episode}`, posts);
+  ingestCards(`episode:${dramaId}:${season}:${episode}`, posts, { owner });
   liveMeters.set(`${dramaId}:${season}:${episode}`, { counts: (room.counts as Record<string, number>) ?? {}, recentPosters: room.recentPosters ?? 0 });
 }
 
@@ -422,14 +449,15 @@ async function pullEpisode(scope: string) {
 export const liveMeters = new Map<string, { counts: Record<string, number>; recentPosters: number }>();
 
 async function pullSearch(q: string) {
+  const owner = readOwner();
   const needle = q.trim().toLowerCase();
   if (!needle) return;
   const [posts, people] = await Promise.all([
     rpc<Json[]>('search_posts', { p_q: q, p_limit: 20 }).catch(() => [] as Json[]),
     rpc<Json[]>('search_people', { p_q: q, p_limit: 12 }).catch(() => [] as Json[]),
   ]);
-  ingestCards(`search:${needle}`, posts);
-  if (people?.length) {
+  ingestCards(`search:${needle}`, posts, { owner });
+  if (people?.length && isOwner(owner)) {
     dispatchLocal({ type: 'mergeUsers', users: people.map((p) => ({ id: p.id, handle: p.handle, displayName: p.displayName, avatarUrl: fileUrl(p.avatarKey), verified: !!p.verified, followers: p.followers ?? 0 })) });
     dispatchLocal({ type: 'setFeed', key: `searchPeople:${needle}`, ids: people.map((p) => p.id), exhausted: true });
   }
@@ -478,6 +506,7 @@ async function pull(scope: PullScope, opts?: PullOptions) {
 }
 
 async function pullFeed(key: 'forYou' | 'following' | 'shorts', opts?: PullOptions) {
+  const owner = readOwner();
   const s = getState();
   const feed = s.feeds[key];
   const append = !!opts?.more;
@@ -485,17 +514,17 @@ async function pullFeed(key: 'forYou' | 'following' | 'shorts', opts?: PullOptio
   const cursor = append ? feed?.cursor : undefined;
   if (key === 'forYou') {
     const cards = await rpc<Json[]>('feed_for_you', { p_limit: 20, ...(cursor?.score !== undefined && append ? { p_after_score: cursor.score, p_after_id: cursor.id } : {}) });
-    ingestCards('forYou', cards, { append, exhausted: cards.length < 20 });
+    ingestCards('forYou', cards, { append, exhausted: cards.length < 20, owner });
     return;
   }
   if (key === 'following') {
     if (!(await authed())) return;
     const cards = await rpc<Json[]>('feed_following', { p_limit: 20, ...(cursor?.before ? { p_before: cursor.before, p_before_id: cursor.id } : {}) });
-    ingestCards('following', cards, { append, exhausted: cards.length < 20 });
+    ingestCards('following', cards, { append, exhausted: cards.length < 20, owner });
     return;
   }
   const cards = await rpc<Json[]>('feed_shorts', { p_limit: 12, ...(cursor?.before ? { p_before: cursor.before, p_before_id: cursor.id } : {}) });
-  ingestCards('shorts', cards, { append, exhausted: cards.length < 12 });
+  ingestCards('shorts', cards, { append, exhausted: cards.length < 12, owner });
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -706,14 +735,16 @@ async function push(m: Parameters<Backend['push']>[0]) {
     case 'profile': {
       if (!uidMe) throw new BackendError('Sign in first', false, 401);
       const patch = a.patch;
-      const update: Json = {};
-      if (patch.displayName !== undefined) update.display_name = patch.displayName;
-      if (patch.bio !== undefined) update.bio = patch.bio ?? '';
-      if (patch.favoriteGenres !== undefined) update.favorite_genres = patch.favoriteGenres;
-      if (patch.favoriteDramaIds !== undefined) update.favorite_drama_ids = patch.favoriteDramaIds;
-      if (patch.isPrivate !== undefined) update.is_private = patch.isPrivate;
-      const { error } = await supabase.from('profiles').update(update).eq('id', uidMe);
-      if (error) throw mapError(error);
+      // Self-profile writes go through the authorized RPC (api.update_profile): it restricts the update to
+      // the caller's own row and whitelists the writable columns. `api.profiles` is a read-only view for
+      // clients, so a direct `.from('profiles').update(...)` is rejected by the database.
+      const p: Json = {};
+      if (patch.displayName !== undefined) p.display_name = patch.displayName;
+      if (patch.bio !== undefined) p.bio = patch.bio ?? '';
+      if (patch.favoriteGenres !== undefined) p.favorite_genres = patch.favoriteGenres;
+      if (patch.favoriteDramaIds !== undefined) p.favorite_drama_ids = patch.favoriteDramaIds;
+      if (patch.isPrivate !== undefined) p.is_private = patch.isPrivate;
+      if (Object.keys(p).length) await rpc('update_profile', { p_patch: p });
       if (patch.handle && patch.handle !== getState().profile.handle) {
         try {
           await rpc('claim_handle', { p_handle: patch.handle });
@@ -724,8 +755,7 @@ async function push(m: Parameters<Backend['push']>[0]) {
       }
       if (patch.avatarUrl && !/^https?:/.test(patch.avatarUrl)) {
         const key = await uploadAvatar(patch.avatarUrl, uidMe);
-        const { error } = await supabase.from('profiles').update({ avatar_key: key }).eq('id', uidMe);
-        if (error) throw mapError(error);
+        await rpc('update_profile', { p_patch: { avatar_key: key } });
         dispatchLocal({ type: 'profile', patch: { avatarUrl: fileUrl(key) } });
       }
       return;
@@ -737,20 +767,17 @@ async function push(m: Parameters<Backend['push']>[0]) {
       const terms = patch.termsVersion;
       delete patch.language;
       delete patch.termsVersion;
-      const { data: cur } = await supabase.from('profiles').select('prefs').eq('id', uidMe).maybeSingle();
-      const merged = { ...(cur?.prefs ?? {}), ...patch };
-      const update: Json = { prefs: merged };
-      if (language) update.language = language;
-      if (terms !== undefined) update.terms_version = terms;
-      const { error } = await supabase.from('profiles').update(update).eq('id', uidMe);
-      if (error) throw mapError(error);
+      // The RPC shallow-merges `prefs`, so no read-modify-write is needed (and no race with a concurrent pull).
+      const p: Json = { prefs: patch };
+      if (language) p.language = language;
+      if (terms !== undefined) p.terms_version = terms;
+      await rpc('update_profile', { p_patch: p });
       return;
     }
     case 'onboarding': {
       if (!uidMe) return;
       const s = getState();
-      const { error } = await supabase.from('profiles').update({ onboarding: { done: s.onboarding.done, step: s.onboarding.step, intent: s.onboarding.intent ?? null, genres: s.onboarding.genres } }).eq('id', uidMe);
-      if (error) throw mapError(error);
+      await rpc('update_profile', { p_patch: { onboarding: { done: s.onboarding.done, step: s.onboarding.step, intent: s.onboarding.intent ?? null, genres: s.onboarding.genres } } });
       return;
     }
     case 'block':

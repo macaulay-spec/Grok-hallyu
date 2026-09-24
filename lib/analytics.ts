@@ -20,7 +20,8 @@ export type AnalyticsEvent =
   | 'search.query'
   | 'catalog.import'
   | 'sync.failed'
-  | 'error.boundary';
+  | 'error.boundary'
+  | 'error.async';
 
 export interface AnalyticsSink {
   track(event: AnalyticsEvent, props?: Record<string, unknown>): void;
@@ -44,4 +45,19 @@ export function track(event: AnalyticsEvent, props?: Record<string, unknown>): v
 /** For debugging / tests. */
 export function drainAnalytics(): typeof buffer {
   return buffer.splice(0);
+}
+
+/**
+ * Diagnostics for a caught async failure in a background component. Unlike a bare `catch {}`, this
+ * always logs a useful line (dev) and forwards to the analytics sink, so a swallowed failure is
+ * still observable. Never throws.
+ */
+export function reportError(scope: string, error: unknown, props?: Record<string, unknown>): void {
+  const message = error instanceof Error ? error.message : String(error);
+  if (__DEV__) console.warn(`[hallyu:${scope}]`, message, error);
+  try {
+    track('error.async', { scope, message, ...props });
+  } catch {
+    /* analytics must never break the caller */
+  }
 }

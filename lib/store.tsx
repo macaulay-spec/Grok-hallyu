@@ -348,6 +348,11 @@ function reducer(s: AppState, a: Action): AppState {
     }
     case 'me': {
       const p = a.payload;
+      // Identity guard: a `me` snapshot is only ever produced for the signed-in account. Drop it if it
+      // does not belong to the profile currently loaded (a late response from a previous account, or an
+      // account snapshot arriving while signed out as guest) so one user's private state can never be
+      // applied under another.
+      if (s.profile.id === GUEST_ID || (p.profile?.id && p.profile.id !== s.profile.id)) return s;
       return {
         ...s,
         profile: p.profile ? { ...s.profile, ...p.profile } : s.profile,
