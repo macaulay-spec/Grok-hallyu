@@ -11,8 +11,9 @@
     "ios": "expo run:ios",
     "check:edge": "node scripts/check-edge-functions.mjs",
     "validate:db": "node docs/backend/validate-schema.mjs",
-    "check": "npm run typecheck && npm run check:edge && npm run validate:db && npm run test:watermark",
-    "test:watermark": "node scripts/test-watermark.mjs"
+    "check": "npm run typecheck && npm run check:edge && npm run validate:db && npm run test:watermark && npm run test:save",
+    "test:watermark": "node scripts/test-watermark.mjs",
+    "test:save": "node scripts/verify-save-flow.mjs"
   },
   "dependencies": {
     "@expo/metro-runtime": "~3.2.1",

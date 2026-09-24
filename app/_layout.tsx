@@ -15,6 +15,7 @@ import { AuthProvider, useAuth } from '../lib/auth';
 import { SyncProvider } from '../lib/data/sync';
 import { supabaseBackend } from '../lib/data/supabaseBackend';
 import { installNotificationHandler, reminderUrl, remindersSupported, syncEpisodeReminders } from '../lib/reminders';
+import { setDownloadScope } from '../lib/media';
 import { freshMemberState, getState, GUEST_ID, guestState, StoreProvider, useHallyu, useSlice, useStore } from '../lib/store';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -108,8 +109,9 @@ export default function RootLayout() {
 
 /**
  * Keeps the local store in step with the signed-in account:
- *  - a brand-new account gets a fresh (empty) member state and goes through onboarding
- *  - the demo account keeps the rich seeded state
+ *  - every account (new or returning) starts from a fresh member state, then pulls its real
+ *    snapshot from the backend — there is no seeded/demo state in production
+ *  - guests/signed-out visitors get the empty guest state; device-only prefs are carried over
  *  - password-recovery deep links jump to the reset screen
  */
 function AccountSync() {
@@ -125,6 +127,7 @@ function AccountSync() {
     if (!state.hydrated) return;
     if ((auth.status === 'guest' || auth.status === 'signedOut') && state.profile.id !== GUEST_ID) {
       const device = { reduceMotion: state.prefs.reduceMotion, trueBlack: state.prefs.trueBlack };
+      setDownloadScope(null);
       reset(guestState());
       dispatch({ type: 'prefs', patch: device });
     }
@@ -137,6 +140,7 @@ function AccountSync() {
     // and whenever the signed-in account differs from the loaded profile.
     if (applied.current === u.id && state.profile.id === u.id) return;
     applied.current = u.id;
+    setDownloadScope(u.id);
     const device = { reduceMotion: state.prefs.reduceMotion, trueBlack: state.prefs.trueBlack };
     const key = `hallyu.account.${u.id}`;
     AsyncStorage.getItem(key).then(async (seen) => {

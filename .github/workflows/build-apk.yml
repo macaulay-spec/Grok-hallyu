@@ -29,6 +29,15 @@ jobs:
       CI: "1"
       # Expo SDK 51 / React Native 0.74 compatible NDK.
       ANDROID_NDK_VERSION: "26.1.10909125"
+      # Optional build-time overrides for the backend endpoints. Empty secrets are ignored by
+      # constants/keys.ts (which keeps its built-in defaults), so the APK still connects to the
+      # live backend when these are unset. Backend #3 keys are deliberately NOT injected here.
+      EXPO_PUBLIC_HALYU_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_HALYU_SUPABASE_URL }}
+      EXPO_PUBLIC_HALYU_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_HALYU_SUPABASE_ANON_KEY }}
+      EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+      EXPO_PUBLIC_TMDB_ACCESS_TOKEN: ${{ secrets.EXPO_PUBLIC_TMDB_ACCESS_TOKEN }}
+      EXPO_PUBLIC_TMDB_API_KEY: ${{ secrets.EXPO_PUBLIC_TMDB_API_KEY }}
 
     steps:
       - name: Checkout

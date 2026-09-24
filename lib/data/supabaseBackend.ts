@@ -146,8 +146,13 @@ function ingestCards(key: string | null, cards: Json[], opts: { append?: boolean
     if (c.score !== undefined && c.type === 'discussion') {
       // feed_for_you doesn't send reasons; the server-side reason map arrives via `rail` tags only
     }
-    reactions[m.post.id] = m.myReaction ?? null;
-    saved[m.post.id] = !!m.saved;
+    // Only sync viewer flags the server actually reported. A card without a `viewer` object (e.g.
+    // an anonymous read) must not be treated as "not saved / no reaction" — that would wipe local
+    // optimistic state. `post_card` always emits a viewer, so this is purely defensive.
+    if (c.viewer) {
+      reactions[m.post.id] = m.myReaction ?? null;
+      if (typeof m.saved === 'boolean') saved[m.post.id] = m.saved;
+    }
   }
   const last = cards[cards.length - 1];
   dispatchLocal({ type: 'mergePosts', posts });
@@ -380,6 +385,19 @@ async function pullPost(id: string) {
   ingestComments(id, comments);
 }
 
+/**
+ * Materialise any saved post that isn't already in the local cache. The Saved screen is driven by
+ * `state.saves` (the authoritative id list); without this, a post saved on another device — or one
+ * whose card has aged out of the feed cache — would silently vanish from the list.
+ */
+async function pullSaved() {
+  const s = getState();
+  const missing = s.saves.filter((id) => !s.posts.some((p) => p.id === id));
+  if (!missing.length) return;
+  const cards = await Promise.all(missing.slice(0, 50).map((id) => rpc<Json | null>('post_page', { p_id: id }).catch(() => null)));
+  ingestCards(null, cards.filter((c): c is Json => !!c));
+}
+
 async function pullDrama(scope: string) {
   // drama:<id> or drama:<id>:<tab>
   const rest = scope.slice('drama:'.length);
@@ -430,6 +448,8 @@ async function pull(scope: PullScope, opts?: PullOptions) {
       return pullMe();
     case scope === 'activity':
       return pullActivity();
+    case scope === 'saved':
+      return pullSaved();
     case scope === 'collections':
       return pullCollectionsTab();
     case scope === 'trending':
@@ -655,7 +675,9 @@ async function push(m: Parameters<Backend['push']>[0]) {
     case 'react':
       return void (await rpc('set_reaction', { p_type: a.isComment ? 'comment' : 'post', p_id: a.targetId, p_kind: a.kind }));
     case 'save': {
-      const on = getState().saves.includes(a.postId);
+      // Prefer the target captured when the user tapped (survives a stale pull racing the flush);
+      // fall back to the live store for mutations replayed from an older persisted outbox.
+      const on = a.on ?? getState().saves.includes(a.postId);
       return void (await rpc('set_save', { p_post_id: a.postId, p_on: on }));
     }
     case 'addPost':

@@ -152,6 +152,60 @@ jobs:
           set -e
           supabase db push --include-all
 
+      # The Supabase CLI does not push auth redirect URLs, SMTP or OAuth providers from
+      # config.toml \u2014 those live behind the Management API. This step applies them so sign-up /
+      # password-reset emails and the Google flow are wired to this project by CI, not by hand.
+      # It is additive: only the fields we set are touched, and each optional block is skipped
+      # unless its secrets exist. No secret value is ever echoed.
+      - name: Apply auth config (redirect URLs, SMTP, Google OAuth)
+        shell: bash
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          SMTP_SENDER: ${{ secrets.SMTP_SENDER }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          # Optional override; defaults cover the mobile deep link + the web callback.
+          AUTH_REDIRECT_URLS: ${{ vars.AUTH_REDIRECT_URLS }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_ACCESS_TOKEN:-}" ]; then
+            echo "::warning::SUPABASE_ACCESS_TOKEN missing \u2014 skipping auth config."
+            exit 0
+          fi
+          api="https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/config/auth"
+          allow="${AUTH_REDIRECT_URLS:-hallyu://auth/callback,hallyu://*,https://hallyu.app/auth/callback,https://hallyu.app/*,exp://*,http://localhost:*/auth/callback}"
+          body=$(jq -n --arg allow "$allow" '{uri_allow_list: $allow}')
+          if [ -n "${SMTP_HOST:-}" ] && [ -n "${SMTP_USER:-}" ] && [ -n "${SMTP_PASS:-}" ]; then
+            body=$(jq -n --argjson b "$body" \
+              --arg host "$SMTP_HOST" --arg port "${SMTP_PORT:-587}" \
+              --arg user "$SMTP_USER" --arg pass "$SMTP_PASS" \
+              --arg sender "${SMTP_SENDER:-Hallyu}" \
+              '$b + {smtp_host:$host, smtp_port:$port, smtp_user:$user, smtp_pass:$pass, smtp_admin_email:$user, smtp_sender_name:$sender}')
+            echo "SMTP: applying custom sender."
+          else
+            echo "SMTP: no SMTP_* secrets \u2014 leaving the project's current mailer untouched."
+          fi
+          if [ -n "${GOOGLE_CLIENT_ID:-}" ] && [ -n "${GOOGLE_CLIENT_SECRET:-}" ]; then
+            body=$(jq -n --argjson b "$body" \
+              --arg id "$GOOGLE_CLIENT_ID" --arg secret "$GOOGLE_CLIENT_SECRET" \
+              '$b + {external_google_enabled:true, external_google_client_id:$id, external_google_secret:$secret}')
+            echo "Google OAuth: enabling provider."
+          fi
+          echo "Applying auth config fields: $(echo "$body" | jq -r 'keys | join(", ")')"
+          code=$(curl -sS -o /tmp/authcfg.json -w '%{http_code}' -X PATCH "$api" \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data "$body")
+          if [ "$code" != "200" ]; then
+            echo "::error::Auth config update failed (HTTP $code)."
+            cat /tmp/authcfg.json
+            exit 1
+          fi
+          echo "Auth config applied (HTTP $code)."
+
       - name: Deploy Edge Functions
         shell: bash
         run: |
@@ -160,7 +214,10 @@ jobs:
           supabase functions deploy delete-account --project-ref "$SUPABASE_PROJECT_REF"
           supabase functions deploy push-dispatch --project-ref "$SUPABASE_PROJECT_REF"
           supabase functions deploy orphan-media-sweep --project-ref "$SUPABASE_PROJECT_REF"
-          supabase functions deploy video-upload --project-ref "$SUPABASE_PROJECT_REF"
+          # NOTE: `video-upload` is NOT deployed to this project. It is the broker for the
+          # video-storage project (the one that owns the public `videos` bucket) and is deployed
+          # there \u2014 see docs/backend/10-video-storage.md and supabase/config.toml. Deploying it
+          # here would mint signed URLs into a bucket this project does not have.
 
       - name: Done
         run: echo "Backend deploy finished."
