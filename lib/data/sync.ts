@@ -165,7 +165,11 @@ function middleware(prev: AppState, a: Action): void {
       keys.delete(older.id);
     }
   }
-  const m: Mutation = { id: uid('m'), action: a, undo, createdAt: new Date().toISOString(), attempts: 0, status: 'queued', label: p.label };
+  // Capture the resolved target for toggles so the flush sends the user's *last* intent even if a
+  // background pull mutates the store before this mutation is sent. Without it, a stale feed/`me`
+  // read could flip the value the push derives and silently drop the write.
+  const action: Action = a.type === 'save' && a.on === undefined ? { ...a, on: !prev.saves.includes(a.postId) } : a;
+  const m: Mutation = { id: uid('m'), action, undo, createdAt: new Date().toISOString(), attempts: 0, status: 'queued', label: p.label };
   if (p.key) keys.set(m.id, p.key);
   dispatchLocal({ type: 'outbox.add', mutation: m });
   if (a.type === 'addPost') dispatchLocal({ type: 'postState', id: a.post.id, state: 'pending' });

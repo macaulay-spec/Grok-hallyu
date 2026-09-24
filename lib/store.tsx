@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect } from 'react';
 import { create } from 'zustand';
 import { useStoreWithEqualityFn } from 'zustand/traditional';
+import { mergePending, mergePendingMap, pendingIds } from './data/pending';
 import { uid } from './format';
 import { Actor, Collection, Comment, Draft, Drama, Notification, NotificationGroup, Post, ReactionCounts, ReactionKind, SpoilerProtection, User, WatchStatus, WatchlistItem } from './model';
 
@@ -165,7 +166,7 @@ export type Action =
   | { type: 'progress'; dramaId: string; season: number; episode: number; total: number }
   | { type: 'note'; dramaId: string; note: string }
   | { type: 'react'; targetId: string; kind: ReactionKind | null; isComment?: boolean }
-  | { type: 'save'; postId: string }
+  | { type: 'save'; postId: string; on?: boolean }
   | { type: 'reveal'; id: string }
   | { type: 'addPost'; post: Post }
   | { type: 'editPost'; id: string; patch: Partial<Post> }
@@ -319,16 +320,20 @@ function reducer(s: AppState, a: Action): AppState {
       };
     }
     case 'viewerSync': {
+      const pendingReacts = pendingIds(s, 'react');
       const reactions = { ...s.reactions };
       for (const [id, kind] of Object.entries(a.reactions)) {
+        if (pendingReacts.has(id)) continue; // don't clobber an optimistic reaction awaiting flush
         if (kind) reactions[id] = kind;
         else delete reactions[id];
       }
       let saves = s.saves;
       const touched = Object.keys(a.saved);
       if (touched.length) {
+        const pendingSaves = pendingIds(s, 'save');
         const set = new Set(saves);
         for (const id of touched) {
+          if (pendingSaves.has(id)) continue; // don't clobber an optimistic save awaiting flush
           if (a.saved[id]) set.add(id);
           else set.delete(id);
         }
@@ -346,8 +351,8 @@ function reducer(s: AppState, a: Action): AppState {
         follows: p.follows ?? s.follows,
         dramaNotify: p.dramaNotify ? Object.fromEntries(p.dramaNotify.map((id) => [id, true])) : s.dramaNotify,
         watchlist: p.watchlist ?? s.watchlist,
-        reactions: p.reactions ?? s.reactions,
-        saves: p.saves ?? s.saves,
+        reactions: p.reactions ? mergePendingMap(p.reactions, s.reactions, pendingIds(s, 'react')) : s.reactions,
+        saves: p.saves ? mergePending(p.saves, s.saves, pendingIds(s, 'save')) : s.saves,
         blockedUsers: p.blockedUsers ?? s.blockedUsers,
         mutedUsers: p.mutedUsers ?? s.mutedUsers,
         mutedDramas: p.mutedDramas ?? s.mutedDramas,
@@ -434,10 +439,12 @@ function reducer(s: AppState, a: Action): AppState {
       return { ...s, reactions, posts: a.isComment ? s.posts : apply(s.posts), comments: a.isComment ? apply(s.comments) : s.comments };
     }
     case 'save': {
-      const on = !s.saves.includes(a.postId);
+      const had = s.saves.includes(a.postId);
+      const on = a.on ?? !had;
+      if (on === had) return s;
       return {
         ...s,
-        saves: toggle(s.saves, a.postId),
+        saves: toggle(s.saves, a.postId, on),
         posts: s.posts.map((p) => (p.id === a.postId ? { ...p, saveCount: Math.max(0, p.saveCount + (on ? 1 : -1)) } : p)),
       };
     }

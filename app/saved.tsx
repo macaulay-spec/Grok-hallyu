@@ -6,6 +6,7 @@ import { FeedAutoplay } from '../components/media/FeedViewport';
 import { Screen, useListPadding } from '../components/ui/Screen';
 import { EmptyState } from '../components/ui/States';
 import { TopBar } from '../components/ui/TopBar';
+import { useRemote } from '../lib/data/sync';
 import { useApp } from '../lib/hooks';
 import { Post } from '../lib/model';
 
@@ -14,6 +15,8 @@ export default function Saved() {
   const router = useRouter();
   const { state, getPost } = useApp();
   const padding = useListPadding(false);
+  // Fill in any saved post whose card isn't cached locally (saved on another device, or aged out).
+  useRemote('saved', 0);
   const posts = [...state.saves]
     .reverse()
     .map((id) => getPost(id))
