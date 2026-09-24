@@ -298,7 +298,12 @@ function reducer(s: AppState, a: Action): AppState {
       return { ...s, users };
     }
     case 'mergeNotifications': {
-      const notifications = a.append ? [...a.notifications, ...s.notifications].filter(uniq).sort(byNewest).slice(0, 150) : a.notifications.slice(0, 150);
+      const merged = a.append ? [...a.notifications, ...s.notifications].filter(uniq).sort(byNewest).slice(0, 150) : a.notifications.slice(0, 150);
+      // Read state is monotonic within a session: a stale `activity` pull that still reports a
+      // notification as unread must not resurrect it after the member has read it (mirrors the
+      // pending-save guard in `viewerSync`/`me`). A brand-new id is unaffected and stays unread.
+      const wasRead = new Set(s.notifications.filter((n) => n.read).map((n) => n.id));
+      const notifications = wasRead.size ? merged.map((n) => (n.read || wasRead.has(n.id) ? { ...n, read: true } : n)) : merged;
       return { ...s, notifications };
     }
     case 'mergeCollections':

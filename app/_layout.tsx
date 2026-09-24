@@ -15,6 +15,7 @@ import { AuthProvider, useAuth } from '../lib/auth';
 import { SyncProvider } from '../lib/data/sync';
 import { supabaseBackend } from '../lib/data/supabaseBackend';
 import { installNotificationHandler, reminderUrl, remindersSupported, syncEpisodeReminders } from '../lib/reminders';
+import { setDownloadScope } from '../lib/media';
 import { freshMemberState, getState, GUEST_ID, guestState, StoreProvider, useHallyu, useSlice, useStore } from '../lib/store';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -126,6 +127,7 @@ function AccountSync() {
     if (!state.hydrated) return;
     if ((auth.status === 'guest' || auth.status === 'signedOut') && state.profile.id !== GUEST_ID) {
       const device = { reduceMotion: state.prefs.reduceMotion, trueBlack: state.prefs.trueBlack };
+      setDownloadScope(null);
       reset(guestState());
       dispatch({ type: 'prefs', patch: device });
     }
@@ -138,6 +140,7 @@ function AccountSync() {
     // and whenever the signed-in account differs from the loaded profile.
     if (applied.current === u.id && state.profile.id === u.id) return;
     applied.current = u.id;
+    setDownloadScope(u.id);
     const device = { reduceMotion: state.prefs.reduceMotion, trueBlack: state.prefs.trueBlack };
     const key = `hallyu.account.${u.id}`;
     AsyncStorage.getItem(key).then(async (seen) => {

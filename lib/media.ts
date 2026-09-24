@@ -25,6 +25,17 @@ const WATERMARK_PNG = require('../assets/branding/watermark.png');
 const ALBUM = 'Hallyu';
 const DOWNLOADS_KEY = 'hallyu.downloads.v1';
 
+// The on-device download ledger is bound to the active account so a "downloaded" indicator never
+// leaks between members sharing a device. It defaults to 'guest' until AccountSync binds it.
+let downloadScope = 'guest';
+/** Bind the on-device download ledger to the active account (call on sign-in / sign-out). */
+export function setDownloadScope(id: string | null | undefined): void {
+  downloadScope = id && id !== 'guest' && id !== 'local' ? id : 'guest';
+}
+function doneKey(): string {
+  return `${DOWNLOADS_KEY}.${downloadScope}`;
+}
+
 // ---------------------------------------------------------------------------------------------
 // base64 helper (expo-file-system gives us a base64 string; jpeg-js wants bytes)
 // ---------------------------------------------------------------------------------------------
@@ -123,13 +134,13 @@ export async function downloadState(keys: string[]): Promise<Record<string, bool
 type DoneMap = Record<string, string>;
 async function readDone(): Promise<DoneMap> {
   try {
-    return (JSON.parse((await AsyncStorage.getItem(DOWNLOADS_KEY)) ?? '{}') as DoneMap) ?? {};
+    return (JSON.parse((await AsyncStorage.getItem(doneKey())) ?? '{}') as DoneMap) ?? {};
   } catch {
     return {};
   }
 }
 async function writeDone(map: DoneMap): Promise<void> {
-  await AsyncStorage.setItem(DOWNLOADS_KEY, JSON.stringify(map)).catch(() => {});
+  await AsyncStorage.setItem(doneKey(), JSON.stringify(map)).catch(() => {});
 }
 
 // ---------------------------------------------------------------------------------------------
