@@ -32,7 +32,10 @@
 - [x] Live API: 200 (20 results), empty (0 results), 401 (error JSON)
 - [x] Code: health tracking, friendlyCatalogCopy, useLoad catch, Poster fallback, ErrorState
 ## 8. Video backend reconciliation (Backend #1 vs #2 video-upload)
-- [ ] Determine Backend #1 video-upload status + Backend #2 deployment + app endpoint
+- [x] Confirmed Backend #2 (smijjihlnuushnlkbktm) owns production video (app endpoint + live broker)
+- [x] Confirmed Backend #1 video-upload genuinely unused (no refs; backend.yml never deploys it)
+- [x] Added guarded idempotent cleanup step; ran it → "Removed stale video-upload from Backend #1 (HTTP 200)"
+- [x] Verified live: Backend #1 video-upload now 404; Backend #2 broker still functional; Backend #3 inactive
 ## 9. Preserve working fixes (saved state, download isolation, notif read state, display-name, TMDB, Backend #3)
 ## 10. Android runtime test (build APK, verify, install, full flow)
 ## 11. Security rules (no privileged creds in client)
