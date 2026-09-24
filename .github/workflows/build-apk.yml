@@ -113,6 +113,38 @@ jobs:
 
           test -f app/build/outputs/apk/release/app-release.apk
 
+      # Fail the build here — before the APK is uploaded or released — if it would not install or
+      # launch cleanly. Catches the classic release-APK regressions: an unaligned zip (INSTALL_FAILED),
+      # a missing/broken signature (Android 7+ requires v2), and a missing JS bundle (white screen on
+      # launch). Uses the build-tools that were installed above; nothing here touches signing keys.
+      - name: Verify release APK (install-safety)
+        working-directory: android
+        run: |
+          set -euo pipefail
+          APK=app/build/outputs/apk/release/app-release.apk
+          BT="${ANDROID_SDK_ROOT}/build-tools/34.0.0"
+          echo "APK: $APK ($(du -h "$APK" | cut -f1))"
+
+          echo "— zipalign (4-byte) —"
+          "$BT/zipalign" -c -v 4 "$APK" >/dev/null
+          echo "zipalign: OK"
+
+          echo "— signature (v1 + v2) —"
+          "$BT/apksigner" verify --verbose "$APK"
+          "$BT/apksigner" verify --print-certs "$APK" | head -3
+
+          echo "— embedded JS bundle —"
+          unzip -l "$APK" | grep -q "assets/index.android.bundle" || {
+            echo "::error::assets/index.android.bundle missing — the app would white-screen on launch."
+            exit 1
+          }
+          echo "JS bundle: present"
+
+          echo "— manifest sanity (package / sdk / launcher) —"
+          "$BT/aapt2" dump badging "$APK" | grep -E "package:|sdkVersion|targetSdkVersion|launchable-activity" | head -6
+
+          echo "APK install-safety verification passed."
+
       - name: Print Gradle diagnostics on failure
         if: failure()
         working-directory: android
