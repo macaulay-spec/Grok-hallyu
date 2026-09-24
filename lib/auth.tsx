@@ -4,7 +4,7 @@ import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from './supabase';
-import { track } from './analytics';
+import { track, reportError } from './analytics';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -82,6 +82,23 @@ function normalise(e: unknown): AuthError {
   return new AuthError('unknown', msg || 'Something went wrong. Please try again.');
 }
 
+/**
+ * Map an OAuth error returned on the deep-link callback (Google → Supabase → app) to a
+ * user-facing message. Provider-side failures (e.g. `invalid_client`) previously vanished into a
+ * silent catch, so the sign-in button appeared to do nothing. We now surface a clear message.
+ */
+function oauthMessage(code: string, description: string): string {
+  const c = code.toLowerCase();
+  if (c === 'access_denied') return 'Google sign-in was cancelled.';
+  if (c === 'invalid_client' || c === 'unauthorized_client') {
+    return 'Google sign-in is not configured correctly on the server. Please use email sign-in.';
+  }
+  if (c === 'redirect_uri_mismatch') {
+    return 'Google sign-in is not configured correctly on the server. Please use email sign-in.';
+  }
+  return description || 'Google sign-in could not be completed. Please try again or use email sign-in.';
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('loading');
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -124,26 +141,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const handle = async (url: string | null) => {
       if (!url || !url.includes('auth')) return;
-      await applyAuthUrl(url);
+      try {
+        await applyAuthUrl(url);
+      } catch (e) {
+        reportError('auth.deepLink', e);
+      }
     };
-    Linking.getInitialURL().then(handle).catch(() => {});
+    Linking.getInitialURL().then(handle).catch((e) => reportError('auth.initialUrl', e));
     const sub = Linking.addEventListener('url', (e) => handle(e.url));
     return () => sub.remove();
   }, []);
 
   const applyAuthUrl = async (url: string) => {
-    try {
-      const parsed = Linking.parse(url);
-      const fragment = url.includes('#') ? Object.fromEntries(new URLSearchParams(url.split('#')[1])) : {};
-      const params = { ...(parsed.queryParams ?? {}), ...fragment } as Record<string, string>;
-      if (params.type === 'recovery') setRecoveryPending(true);
-      if (params.access_token && params.refresh_token) {
-        await supabase.auth.setSession({ access_token: params.access_token, refresh_token: params.refresh_token });
-      } else if (params.code) {
-        await supabase.auth.exchangeCodeForSession(params.code);
-      }
-    } catch {
-      /* ignore malformed links */
+    const parsed = Linking.parse(url);
+    const fragment = url.includes('#') ? Object.fromEntries(new URLSearchParams(url.split('#')[1])) : {};
+    const params = { ...(parsed.queryParams ?? {}), ...fragment } as Record<string, string>;
+    // OAuth failures come back as ?error=...&error_description=... — surface them instead of
+    // silently doing nothing (a silent catch here is what hid the invalid_client failure).
+    if (params.error) {
+      const desc = params.error_description ?? params.error;
+      reportError('auth.oauth', new Error(`${params.error}: ${desc}`));
+      throw new AuthError('unknown', oauthMessage(params.error, desc));
+    }
+    if (params.type === 'recovery') setRecoveryPending(true);
+    if (params.access_token && params.refresh_token) {
+      await supabase.auth.setSession({ access_token: params.access_token, refresh_token: params.refresh_token });
+    } else if (params.code) {
+      await supabase.auth.exchangeCodeForSession(params.code);
     }
   };
 

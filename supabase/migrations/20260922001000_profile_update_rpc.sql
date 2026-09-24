@@ -17,6 +17,12 @@
 -- The base-table RLS policy (profiles_update) and the column-level grants remain in place as defence in
 -- depth for any other (future) access path. No privileged credential is ever placed in the mobile app.
 
+-- Drop any pre-existing `update_profile(jsonb)` first: live inspection found an orphaned, partial
+-- implementation on the production project (it updated `bio` but silently ignored `display_name`) that
+-- is not present in any repository migration. Dropping guarantees a clean replace even if that orphan
+-- had a different return type, and removes the ambiguous overload.
+drop function if exists api.update_profile(jsonb);
+
 create or replace function api.update_profile(p_patch jsonb) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
