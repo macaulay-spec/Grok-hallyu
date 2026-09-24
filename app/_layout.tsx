@@ -11,6 +11,7 @@ import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 import { MilestoneWatcher } from '../components/moments/MilestoneWatcher';
 import { ToastProvider } from '../components/ui/Toast';
 import { colors } from '../constants/theme';
+import { reportError } from '../lib/analytics';
 import { AuthProvider, useAuth } from '../lib/auth';
 import { SyncProvider } from '../lib/data/sync';
 import { supabaseBackend } from '../lib/data/supabaseBackend';
@@ -38,12 +39,28 @@ export default function RootLayout() {
       <StoreProvider>
         <AuthProvider>
           <ToastProvider>
-            <StatusBar style="light" backgroundColor={colors.canvas} />
-            <AccountSync />
-            <SyncProvider />
-            <ReminderSync />
-            <MilestoneWatcher />
+            {/*
+              Crash isolation. The root boundary sits high enough to protect the whole application
+              tree (the Stack and every screen). The non-visual startup components each get their own
+              `silent` boundary, so an exception in AccountSync / SyncProvider / ReminderSync /
+              MilestoneWatcher is logged and swallowed instead of taking the app down — previously
+              those components sat ABOVE the only ErrorBoundary, so a crash in one of them bypassed
+              it entirely. Startup components also catch their own async failures (see reportError).
+            */}
             <ErrorBoundary scope="Hallyu">
+              <StatusBar style="light" backgroundColor={colors.canvas} />
+              <ErrorBoundary scope="AccountSync" silent>
+                <AccountSync />
+              </ErrorBoundary>
+              <ErrorBoundary scope="SyncProvider" silent>
+                <SyncProvider />
+              </ErrorBoundary>
+              <ErrorBoundary scope="ReminderSync" silent>
+                <ReminderSync />
+              </ErrorBoundary>
+              <ErrorBoundary scope="MilestoneWatcher" silent>
+                <MilestoneWatcher />
+              </ErrorBoundary>
               <Stack
                 screenOptions={{
                   headerShown: false,
@@ -119,50 +136,82 @@ function AccountSync() {
   const { state, reset, dispatch } = useStore();
   const router = useRouter();
   const segments = useSegments();
+  // `applied` = the account whose sync has COMPLETED (not merely started). `inFlight` = the account
+  // currently syncing (prevents re-entrancy while the first sync is still running). `gen` is bumped on
+  // every identity change (sign-in, sign-out, account switch) so any in-flight continuation from a
+  // previous account can detect it is stale and bail before touching the store.
   const applied = useRef<string | null>(null);
+  const inFlight = useRef<string | null>(null);
+  const gen = useRef(0);
 
   // Guests and signed-out visitors browse the public world with no personal layer. Device-only
   // prefs (reduceMotion / trueBlack) are the viewer's, not the account's — carry them over.
   useEffect(() => {
     if (!state.hydrated) return;
-    if ((auth.status === 'guest' || auth.status === 'signedOut') && state.profile.id !== GUEST_ID) {
-      const device = { reduceMotion: state.prefs.reduceMotion, trueBlack: state.prefs.trueBlack };
-      setDownloadScope(null);
-      reset(guestState());
-      dispatch({ type: 'prefs', patch: device });
-    }
-  }, [auth.status, state.hydrated, state.profile.id, reset, state.prefs.reduceMotion, state.prefs.trueBlack, dispatch]);
 
-  useEffect(() => {
-    if (!state.hydrated || auth.status !== 'signedIn' || !auth.user) return;
+    // Any non-signed-in state invalidates pending account work: a late response from the previous
+    // account must never be applied after a sign-out (or while the app is at the guest gate).
+    if (auth.status !== 'signedIn' || !auth.user) {
+      gen.current++;
+      inFlight.current = null;
+      applied.current = null;
+      if ((auth.status === 'guest' || auth.status === 'signedOut') && state.profile.id !== GUEST_ID) {
+        const device = { reduceMotion: state.prefs.reduceMotion, trueBlack: state.prefs.trueBlack };
+        setDownloadScope(null);
+        reset(guestState());
+        dispatch({ type: 'prefs', patch: device });
+      }
+      return;
+    }
+
     const u = auth.user;
-    // Re-run after a sign-out/sign-in of the same account (the store was reset to guest in between),
-    // and whenever the signed-in account differs from the loaded profile.
+    // Already fully synced for this account and the store holds it.
     if (applied.current === u.id && state.profile.id === u.id) return;
-    applied.current = u.id;
+    // A sync for this account is already running — don't start a second one.
+    if (inFlight.current === u.id) return;
+
+    inFlight.current = u.id;
+    const myGen = ++gen.current;
+    // A continuation is stale if a newer identity change happened, or the signed-in account is no
+    // longer this one. Checked before every store write below.
+    const stale = () => myGen !== gen.current || auth.user?.id !== u.id || auth.status !== 'signedIn';
     setDownloadScope(u.id);
     const device = { reduceMotion: state.prefs.reduceMotion, trueBlack: state.prefs.trueBlack };
     const key = `hallyu.account.${u.id}`;
-    AsyncStorage.getItem(key).then(async (seen) => {
-      if (!seen) AsyncStorage.setItem(key, '1').catch(() => {});
-      reset(
-        freshMemberState({
-          id: u.id,
-          handle: u.handle,
-          displayName: u.displayName,
-          avatarUrl: u.avatarUrl,
-          favoriteGenres: [],
-          favoriteDramaIds: [],
-          followers: 0,
-          following: 0,
-          joinedAt: new Date().toISOString(),
-        }),
-      );
-      dispatch({ type: 'prefs', patch: device });
-      // Pull the real account snapshot (profile, graph, watchlist…) and the feeds.
-      await supabaseBackend.pull('me').catch(() => {});
-      await supabaseBackend.pull('home').catch(() => {});
-    });
+
+    void (async () => {
+      try {
+        const seen = await AsyncStorage.getItem(key);
+        if (stale()) return;
+        if (!seen) AsyncStorage.setItem(key, '1').catch((e) => reportError('AccountSync.markSeen', e));
+        reset(
+          freshMemberState({
+            id: u.id,
+            handle: u.handle,
+            displayName: u.displayName,
+            avatarUrl: u.avatarUrl,
+            favoriteGenres: [],
+            favoriteDramaIds: [],
+            followers: 0,
+            following: 0,
+            joinedAt: new Date().toISOString(),
+          }),
+        );
+        dispatch({ type: 'prefs', patch: device });
+        // Pull the real account snapshot (profile, graph, watchlist…) and the feeds. The backend
+        // drops any response whose account changed mid-flight, and we re-check here between steps.
+        await supabaseBackend.pull('me');
+        if (stale()) return;
+        await supabaseBackend.pull('home');
+        if (stale()) return;
+        applied.current = u.id; // mark COMPLETE only after the snapshot and feeds are in
+      } catch (e) {
+        // Expected async failures (offline, transient 5xx): log diagnostics, keep the app usable.
+        reportError('AccountSync.sync', e, { account: u.id });
+      } finally {
+        if (myGen === gen.current) inFlight.current = null;
+      }
+    })();
   }, [auth.status, auth.user, state.hydrated, state.profile.id, reset, state.prefs.reduceMotion, state.prefs.trueBlack, dispatch]);
 
   useEffect(() => {
@@ -185,7 +234,10 @@ function ReminderSync() {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const schedule = (delay = 1500) => {
       clearTimeout(timer);
-      timer = setTimeout(() => void syncEpisodeReminders(getState()), delay);
+      timer = setTimeout(() => {
+        // Local notification scheduling must never crash the app if the OS rejects it.
+        void syncEpisodeReminders(getState()).catch((e) => reportError('ReminderSync.schedule', e));
+      }, delay);
     };
     schedule(2500);
     const unsub = useHallyu.subscribe((s, prev) => {
@@ -196,7 +248,7 @@ function ReminderSync() {
     const tapped = Notifications.addNotificationResponseReceivedListener((r) => open(reminderUrl(r)));
     Notifications.getLastNotificationResponseAsync()
       .then((r) => open(reminderUrl(r)))
-      .catch(() => {});
+      .catch((e) => reportError('ReminderSync.lastResponse', e));
     return () => {
       clearTimeout(timer);
       unsub();

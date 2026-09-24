@@ -105,9 +105,15 @@ await as(A); console.log('feed after being blocked by B (B has no posts, expect 
 await db.exec(`select set_config('request.jwt.claims', '', false)`);
 console.log('anon api.profiles prefs column:', await q(`select handle, prefs from api.profiles order by handle`));
 await db.exec(`set role authenticated`); await as(A);
-try { await db.exec(`update api.profiles set follower_count = 999 where id = '${A}'`); console.log('UNEXPECTED: counter update allowed'); } catch (e) { console.log('expected privilege error:', e.message.split('\n')[0]); }
-await db.exec(`update api.profiles set bio = 'K-drama forever' where id = '${A}'`);
-console.log('bio updated:', await q(`select bio from api.profiles where id = '${A}'`));
+// api.profiles is a read-only view for clients now: a direct UPDATE must be rejected (no broad view grant).
+try { await db.exec(`update api.profiles set bio = 'x' where id = '${A}'`); console.log('UNEXPECTED: direct view update allowed'); } catch (e) { console.log('expected view read-only:', e.message.split('\n')[0]); }
+// All self-writes go through the authorized RPC (api.update_profile).
+console.log('update_profile bio:', (await q(`select api.update_profile('{"bio":"K-drama forever"}') as p`))[0].p.bio);
+await q(`select api.update_profile('{"prefs":{"autoplay":"wifi"}}')`);
+await q(`select api.update_profile('{"prefs":{"dataSaver":true},"language":"ko","is_private":true}')`);
+console.log('profile after RPC (prefs merged, language, private):', await q(`select prefs, language, is_private from api.profiles where id = '${A}'`));
+try { await q(`select api.update_profile('{"follower_count":999}')`); console.log('UNEXPECTED: counter update allowed via RPC'); } catch (e) { console.log('expected 422 field not allowed:', e.message.split('\n')[0]); }
+try { await q(`select api.update_profile('{"language":"fr"}')`); console.log('UNEXPECTED: bad language accepted'); } catch (e) { console.log('expected 422 language:', e.message.split('\n')[0]); }
 try { await db.exec(`insert into public.posts (id, author_id, type) values (gen_random_uuid(), '${A}', 'post')`); console.log('UNEXPECTED: direct insert allowed'); } catch (e) { console.log('expected RLS/priv error on direct insert:', e.message.split('\n')[0]); }
 await db.exec(`reset role`);
 
@@ -150,8 +156,8 @@ console.log('push_render after mark_sent:', (await q(`select api.push_render((se
 await q(`select api.push_disable_tokens(array['ExponentPushToken[abc123]'])`);
 console.log('token disabled:', await q(`select disabled_at is not null as disabled from public.push_tokens where token = 'ExponentPushToken[abc123]'`));
 try { await as(A); await q(`select api.push_render(array[]::uuid[])`); console.log('UNEXPECTED: user could push_render'); } catch (e) { console.log('expected 403 push_render:', e.message); }
-// media_ready: unknown key is rejected for avatars
-try { await as(A); await db.exec(`update api.profiles set avatar_key = 'avatars/${A}/nope.jpg' where id = '${A}'`); console.log('UNEXPECTED: unknown avatar accepted'); } catch (e) { console.log('expected avatar guard:', e.message.split('\n')[0]); }
+// media_ready: unknown key is rejected for avatars (exercised through the self-update RPC)
+try { await as(A); await q(`select api.update_profile('{"avatar_key":"avatars/${A}/nope.jpg"}')`); console.log('UNEXPECTED: unknown avatar accepted'); } catch (e) { console.log('expected avatar guard:', e.message.split('\n')[0]); }
 // -------------------------------------------------------------------------------------
 // 0006 / 0007: download ledger, orphan sweep, account-deletion cleanup
 // -------------------------------------------------------------------------------------
