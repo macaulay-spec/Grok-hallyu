@@ -219,5 +219,35 @@ jobs:
           # there \u2014 see docs/backend/10-video-storage.md and supabase/config.toml. Deploying it
           # here would mint signed URLs into a bucket this project does not have.
 
+      # Reconciliation: production video is owned by the video-storage project (Backend #2), which
+      # owns the public `videos` bucket and mints the signed upload URLs the app consumes
+      # (`VIDEO_STORAGE_URL` in constants/keys.ts). The app never calls this project for video, and
+      # `video-upload` is deliberately absent from the deploy list above. A stale copy from an
+      # earlier experiment is nevertheless present on this project; remove it so the only production
+      # video broker is the one the app actually calls. Idempotent: 404 means it is already gone.
+      - name: Remove stale video-upload from Backend #1 (owned by Backend #2)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_ACCESS_TOKEN:-}" ]; then
+            echo "::warning::SUPABASE_ACCESS_TOKEN missing \u2014 skipping stale function cleanup."
+            exit 0
+          fi
+          api="https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/functions"
+          echo "Edge Functions currently on this project:"
+          curl -sS "$api" -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            | jq -r '.[]?.slug' 2>/dev/null || echo "(could not list)"
+          code=$(curl -sS -o /tmp/rmfn.json -w '%{http_code}' -X DELETE "$api/video-upload" \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN")
+          if [ "$code" = "200" ] || [ "$code" = "204" ]; then
+            echo "Removed stale video-upload from Backend #1 (HTTP $code)."
+          elif [ "$code" = "404" ]; then
+            echo "video-upload not present on Backend #1 \u2014 nothing to remove."
+          else
+            echo "::error::Failed to remove stale video-upload (HTTP $code)."
+            cat /tmp/rmfn.json || true
+            exit 1
+          fi
+
       - name: Done
         run: echo "Backend deploy finished."
