@@ -2,7 +2,6 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
-const { PNG } = require('pngjs');
 const jpeg = require('jpeg-js');
 const ts = require('typescript');
 const { transpileModule } = ts;

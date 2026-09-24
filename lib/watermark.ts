@@ -9,7 +9,7 @@
  * The brand mark is sized to ~30% of the frame width and tucked into the lower-right corner with a
  * small margin — present but never in the way.
  */
-import { PNG } from 'pngjs';
+import { decode as decodePng } from 'fast-png';
 import * as jpeg from 'jpeg-js';
 
 export interface WatermarkResult {
@@ -23,7 +23,9 @@ export interface WatermarkResult {
 let cachedMark: { data: Uint8Array; width: number; height: number } | null = null;
 
 export function setWatermarkSource(pngBytes: Uint8Array): void {
-  const png = PNG.sync.read(Buffer.from(pngBytes));
+  // `fast-png` is a pure-JS decoder with no Node core-module dependencies, so it bundles cleanly
+  // in React Native/Metro (unlike `pngjs`, which pulls in `stream`/`zlib`/`util`/`assert`).
+  const png = decodePng(pngBytes);
   cachedMark = { data: new Uint8Array(png.data), width: png.width, height: png.height };
 }
 
@@ -73,10 +75,10 @@ export function burnIntoJpeg(jpegBytes: Uint8Array, quality = 0.92): WatermarkRe
   const mark = cachedMark;
   if (!mark) return null;
   try {
-    const dec = jpeg.decode(Buffer.from(jpegBytes), { useTArray: true, formatAsRGBA: true, maxMemoryUsageInMB: 512 });
+    const dec = jpeg.decode(jpegBytes, { useTArray: true, formatAsRGBA: true, maxMemoryUsageInMB: 512 });
     const data = new Uint8Array(dec.data);
     composite(data, dec.width, dec.height, mark);
-    const enc = jpeg.encode({ data: Buffer.from(data), width: dec.width, height: dec.height }, Math.round(quality * 100));
+    const enc = jpeg.encode({ data, width: dec.width, height: dec.height }, Math.round(quality * 100));
     return { bytes: new Uint8Array(enc.data), width: dec.width, height: dec.height };
   } catch {
     return null;

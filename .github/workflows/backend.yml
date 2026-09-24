@@ -1,239 +1,166 @@
-name: Build APK
+name: Backend (Supabase)
+
+# Hallyu backend deployment
+#
+# REQUIRED GITHUB REPOSITORY SECRETS:
+#   SUPABASE_ACCESS_TOKEN
+#   SUPABASE_DB_PASSWORD
+#
+# OPTIONAL:
+#   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_SENDER
+#   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+#   EXPO_ACCESS_TOKEN, EXPO_TOKEN
+#   TMDB_TOKEN
 
 on:
   workflow_dispatch:
+    inputs:
+      deploy:
+        description: Deploy to Supabase
+        type: boolean
+        default: true
 
   push:
     branches:
       - main
-      - "arena/**"
-    paths-ignore:
-      - "supabase/**"
-      - "docs/**"
-      - "*.md"
+    paths:
+      - 'supabase/**'
+      - 'docs/backend/validate-schema.mjs'
+      - '.github/workflows/backend.yml'
 
 concurrency:
-  group: apk-${{ github.ref }}
-  cancel-in-progress: true
+  group: backend-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  SUPABASE_PROJECT_REF: psmxekrmoltwabefgqpd
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  build:
-    name: Android APK
-    runs-on: ubuntu-22.04
-    timeout-minutes: 75
-
-    env:
-      CI: "1"
-      EXPO_NO_TELEMETRY: "1"
-      ANDROID_NDK_VERSION: "26.1.10909125"
+  validate:
+    name: Validate schema + functions
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: npm
+          node-version: 22
 
-      - name: Setup Java 17
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v4
-        with:
-          packages: |
-            platform-tools
-            platforms;android-34
-            build-tools;34.0.0
-            ndk;26.1.10909125
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Expo diagnostics
+      - name: Run migrations in embedded Postgres
+        shell: bash
         run: |
-          set -euo pipefail
-
-          echo "Expo version:"
-          npx expo --version
-
-          echo "Expo environment:"
-          npx expo env:info
-
-          echo "Expo doctor:"
-          npx expo-doctor || true
-
-      - name: Generate Android project
-        run: |
-          set -euxo pipefail
-
-          echo "Generating Android project..."
-
-          npx expo prebuild \
-            --platform android \
-            --no-install
-
-          echo "Checking generated Android project..."
-
-          test -d android
-          test -f android/gradlew
-          test -f android/settings.gradle
-          test -f android/build.gradle
-          test -f android/app/build.gradle
-
-          chmod +x android/gradlew
-
-          echo "Android project generated successfully."
-
-      - name: Show Android environment
-        run: |
-          set -euo pipefail
-
-          echo "Node:"
-          node --version
-
-          echo "NPM:"
-          npm --version
-
-          echo "Java:"
-          java -version
-
-          echo "ANDROID_HOME=${ANDROID_HOME}"
-          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT}"
-
-          echo "Android SDK:"
-          ls -la "${ANDROID_SDK_ROOT}" || true
-
-          echo "NDK:"
-          ls -la "${ANDROID_SDK_ROOT}/ndk" || true
-
-      - name: Check Gradle
-        run: |
-          set -euo pipefail
-
-          cd android
-          chmod +x gradlew
-
-          ./gradlew --version
-
-      - name: Cache Gradle
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle*', 'android/**/gradle-wrapper.properties', 'package-lock.json') }}
-          restore-keys: |
-            gradle-${{ runner.os }}-
-
-      - name: Build release APK
-        run: |
-          set -euo pipefail
-
-          cd android
-          chmod +x gradlew
-
-          echo "Starting APK build..."
-
-          ./gradlew :app:assembleRelease \
-            --no-daemon \
-            --stacktrace \
-            --info \
-            --warning-mode all
-
-          test -s app/build/outputs/apk/release/app-release.apk
-
-          echo "APK build successful."
-
-      - name: Gradle diagnostics on failure
-        if: failure()
-        run: |
-          set +e
-
-          echo "========================================"
-          echo "BUILD FAILURE DIAGNOSTICS"
-          echo "========================================"
-
-          echo "Current directory:"
-          pwd
-
-          echo "Repository contents:"
-          ls -la
-
-          echo "Android directory:"
-          if [ -d android ]; then
-            find android -maxdepth 3 -type f | head -200
-
-            cd android
-
-            echo "Gradle version:"
-            ./gradlew --version || true
-
-            echo "Android configuration:"
-            grep -RInE \
-              "compileSdk|targetSdk|minSdk|ndkVersion|buildToolsVersion|namespace|applicationId" \
-              . \
-              --exclude-dir=.gradle \
-              --exclude='*.lock' || true
-          else
-            echo "ERROR: Android directory was NOT generated by Expo."
+          set -e
+          mkdir -p /tmp/pgv
+          cd /tmp/pgv
+          npm init -y >/dev/null
+          npm install @electric-sql/pglite@0.3 --no-audit --no-fund
+          cd "$GITHUB_WORKSPACE"
+          PGLITE_DIR=/tmp/pgv node docs/backend/validate-schema.mjs | tee /tmp/validate.log
+          grep -q "ALL SMOKE TESTS DONE" /tmp/validate.log
+          if grep -q "UNEXPECTED" /tmp/validate.log; then
+            echo "::error::Unexpected migration validation error detected."
+            exit 1
           fi
+          echo "Database migration validation passed."
 
-          echo "Android SDK:"
-          ls -la "${ANDROID_SDK_ROOT}" || true
-
-          echo "APK outputs:"
-          find . \
-            -path "*/build/outputs/*" \
-            -type f \
-            -print 2>/dev/null || true
-
-      - name: Prepare APK
+      - name: Install Deno
+        shell: bash
         run: |
-          set -euo pipefail
+          set -e
+          curl -fsSL https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip -o /tmp/deno.zip
+          cd /tmp
+          unzip -qo deno.zip
+          echo "/tmp" >> "$GITHUB_PATH"
 
-          test -s android/app/build/outputs/apk/release/app-release.apk
+      - name: Type-check Edge Functions
+        working-directory: supabase/functions
+        shell: bash
+        run: |
+          set -e
+          deno check \
+            --config deno.json \
+            _shared/http.ts \
+            _shared/supabase.ts \
+            _shared/tmdb.ts \
+            ensure-catalog/index.ts \
+            delete-account/index.ts \
+            push-dispatch/index.ts \
+            orphan-media-sweep/index.ts \
+            video-upload/index.ts
+          echo "Edge Function type-check passed."
 
-          cp \
-            android/app/build/outputs/apk/release/app-release.apk \
-            hallyu.apk
+  deploy:
+    name: Deploy to Supabase
+    needs: validate
+    if: github.event_name == 'push' || inputs.deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
 
-          ls -lh hallyu.apk
+    env:
+      SUPABASE_PROJECT_REF: psmxekrmoltwabefgqpd
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
 
-          echo "APK_SIZE=$(du -h hallyu.apk | cut -f1)" >> "$GITHUB_ENV"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+      - name: Verify Supabase credentials
+        shell: bash
+        run: |
+          set -e
+          echo "Checking Supabase configuration..."
+          if [ -z "$SUPABASE_PROJECT_REF" ]; then
+            echo "::error::SUPABASE_PROJECT_REF is missing."
+            exit 1
+          fi
+          if [ -z "$SUPABASE_ACCESS_TOKEN" ]; then
+            echo "::error::SUPABASE_ACCESS_TOKEN is missing."
+            echo "Create the repository secret named exactly: SUPABASE_ACCESS_TOKEN"
+            exit 1
+          fi
+          if [ -z "$SUPABASE_DB_PASSWORD" ]; then
+            echo "::error::SUPABASE_DB_PASSWORD is missing."
+            echo "Create the repository secret named exactly: SUPABASE_DB_PASSWORD"
+            exit 1
+          fi
+          echo "Supabase credentials look present."
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
         with:
-          name: hallyu-apk
-          path: hallyu.apk
-          if-no-files-found: error
-          retention-days: 14
+          version: latest
 
-      - name: Publish GitHub Release
-        if: github.ref == 'refs/heads/main'
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Link Supabase project
+        shell: bash
         run: |
-          set -euo pipefail
+          set -e
+          supabase link --project-ref "$SUPABASE_PROJECT_REF" -p "$SUPABASE_DB_PASSWORD"
 
-          TAG="apk-${{ github.run_number }}"
+      - name: Push database migrations
+        shell: bash
+        run: |
+          set -e
+          supabase db push --include-all
 
-          gh release create "$TAG" hallyu.apk \
-            --title "Hallyu APK #${{ github.run_number }}" \
-            --notes "Installable Android APK (${APK_SIZE}).
+      - name: Deploy Edge Functions
+        shell: bash
+        run: |
+          set -e
+          supabase functions deploy ensure-catalog --project-ref "$SUPABASE_PROJECT_REF"
+          supabase functions deploy delete-account --project-ref "$SUPABASE_PROJECT_REF"
+          supabase functions deploy push-dispatch --project-ref "$SUPABASE_PROJECT_REF"
+          supabase functions deploy orphan-media-sweep --project-ref "$SUPABASE_PROJECT_REF"
+          supabase functions deploy video-upload --project-ref "$SUPABASE_PROJECT_REF"
 
-          Connected to live Supabase backend via constants/keys.ts.
-
-          Install: download APK → allow unknown apps → open file."
+      - name: Done
+        run: echo "Backend deploy finished."
