@@ -80,9 +80,9 @@ Format per area: **Status** · **Finding** · **Action Taken** · **Verification
 
 ## Phase 6 — Video System (VERIFY ONLY — NO REWRITE)
 
-**Status:** ✅ Verified (no change)
+**Status:** ✅ Architecturally and code-path verified (no change). **Not** claimed as full production end-to-end verified — see caveat below.
 
-**Finding:** The video posting/upload system is correct and complete.
+**Finding:** The video posting/upload system is correct and complete at the code-path level.
 - **Client** (`lib/video.ts`): mint → PUT → ledger. Verifies session, checks size ≤ 100 MB, POSTs to the broker with the Hallyu JWT, PUTs bytes with `x-upsert` to the signed path, then `rpc('register_media', …)`.
 - **Broker** (`supabase/functions/video-upload/index.ts`, deployed on the video-storage project): verifies the caller's Hallyu JWT against the Hallyu auth server, re-checks `api.upload_quota()`, mints a short-lived signed upload URL for a deterministic object id derived from the post id (FNV-1a → 26 base32 chars).
 - **Ledger** (`20260922000500_video_pipeline.sql`): `register_media` re-validates ownership (`^video/<uid>/[0-9A-Z]{26}\.mp4$`), mime (`video/mp4`), size, and quota — nothing trusts the client's numbers.
@@ -161,7 +161,7 @@ Format per area: **Status** · **Finding** · **Action Taken** · **Verification
 | 6 | Posts/social verified with real backend persistence | ✅ |
 | 7 | Feed/discovery verified with real data | ✅ |
 | 8 | Notifications verified + account-isolated | ✅ (+ read-state fix) |
-| 9 | Video system verified (no rewrite) | ✅ |
+| 9 | Video system verified (no rewrite) | ✅ architecturally + code-path verified (live E2E upload not physically tested) |
 | 10 | Downloads/media state verified | ✅ (+ account-scope fix) |
 | 11 | GitHub Actions deployment verified | ✅ |
 | 12 | Backend #3 env placeholders created (inactive, no migration) | ✅ |
