@@ -7,7 +7,7 @@ import { useFonts } from 'expo-font';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { AppState as RNAppState, View } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -27,6 +27,14 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
 
 export const unstable_settings = { initialRouteName: 'index' };
 
+/**
+ * Hard ceiling on the font gate. Fonts normally resolve in well under a second from the APK's
+ * bundled assets, but a wedged font load must never hold the whole tree hostage behind an empty
+ * View (that is the release-only "splash forever" symptom: Index — the only splash-hider — never
+ * mounts). After this timeout we proceed on system fonts and drop the native splash ourselves.
+ */
+const FONT_GATE_MS = 2800;
+
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
     'Pretendard-Regular': require('../assets/fonts/Pretendard-Regular.otf'),
@@ -36,7 +44,21 @@ export default function RootLayout() {
     'Pretendard-ExtraBold': require('../assets/fonts/Pretendard-ExtraBold.otf'),
   });
 
-  if (!fontsLoaded && !fontError) return <View style={{ flex: 1, backgroundColor: colors.canvas }} />;
+  const [gateTimedOut, setGateTimedOut] = useState(false);
+  const fontsSettled = fontsLoaded || !!fontError;
+
+  useEffect(() => {
+    const t = setTimeout(() => setGateTimedOut(true), FONT_GATE_MS);
+    return () => clearTimeout(t);
+  }, []);
+
+  // Hide the native splash as soon as fonts settle OR the gate times out — whichever comes first.
+  // Index keeps its own hideAsync call as a safety net, but we no longer depend on Index mounting.
+  useEffect(() => {
+    if (fontsSettled || gateTimedOut) SplashScreen.hideAsync().catch(() => {});
+  }, [fontsSettled, gateTimedOut]);
+
+  if (!fontsSettled && !gateTimedOut) return <View style={{ flex: 1, backgroundColor: colors.canvas }} />;
 
   return (
     <SafeAreaProvider>

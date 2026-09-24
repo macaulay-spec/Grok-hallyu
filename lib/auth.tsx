@@ -49,6 +49,31 @@ interface AuthValue {
 const Ctx = createContext<AuthValue | null>(null);
 const GUEST_KEY = 'hallyu.auth.guest';
 
+/**
+ * Ceiling on the boot getSession call. With a stored-but-expired session and autoRefreshToken on,
+ * supabase-js hits the network with no fetch timeout of its own — on a hung/offline connection
+ * that promise can pend forever, and status would stay 'loading' (the app never leaves the
+ * splash). The race makes that impossible: after the timeout we fall back to the guest flag, and
+ * a late success is still picked up by onAuthStateChange (SIGNED_IN promotes to signedIn).
+ */
+const AUTH_BOOT_TIMEOUT_MS = 4500;
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`auth boot timed out after ${ms}ms`)), ms);
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(t);
+        reject(e);
+      },
+    );
+  });
+}
+
 function handleFrom(email?: string, name?: string): string {
   const base = (name ?? email?.split('@')[0] ?? 'member').toLowerCase().replace(/[^a-z0-9_.]/g, '').slice(0, 20) || 'member';
   return base;
@@ -112,15 +137,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     booted.current = true;
     (async () => {
       try {
-        const { data } = await supabase.auth.getSession();
+        const { data } = await withTimeout(supabase.auth.getSession(), AUTH_BOOT_TIMEOUT_MS);
         if (data.session) {
           setUser(fromSession(data.session));
           setStatus('signedIn');
           return;
         }
         setStatus((await AsyncStorage.getItem(GUEST_KEY)) === '1' ? 'guest' : 'signedOut');
-      } catch {
-        setStatus('signedOut');
+      } catch (e) {
+        // Timeout or failure — the boot can never leave us on 'loading'. Recover as guest or
+        // signed-out; the auth-state subscription still promotes a session that lands later.
+        reportError('auth.boot', e);
+        const guest = await AsyncStorage.getItem(GUEST_KEY).catch(() => null);
+        setStatus(guest === '1' ? 'guest' : 'signedOut');
       }
     })();
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
