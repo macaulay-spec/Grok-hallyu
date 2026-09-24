@@ -45,6 +45,16 @@ export const videoStore = (): Admin => {
   return vUrl && vKey ? client(vUrl, vKey) : admin();
 };
 
+/**
+ * Service-role client for Backend #3 — the video-fallback storage project. Keys prefixed `b3/`
+ * in the ledger resolve here (purge sweeps delete the bytes from this project). Unset → `admin()`.
+ */
+export const backend3 = (): Admin => {
+  const bUrl = Deno.env.get('BACKEND_3_URL');
+  const bKey = Deno.env.get('BACKEND_3_SERVICE_ROLE_KEY');
+  return bUrl && bKey ? client(bUrl, bKey) : admin();
+};
+
 /** Resolve the calling user from the Authorization header; 401 when missing/invalid. */
 export async function requireUser(req: Request, db: Admin = hallyu()): Promise<User> {
   const auth = req.headers.get('Authorization') ?? '';

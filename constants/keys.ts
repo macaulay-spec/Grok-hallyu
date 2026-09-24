@@ -45,3 +45,11 @@ export const VIDEO_STORAGE_URL = env(process.env.EXPO_PUBLIC_SUPABASE_URL) ?? 'h
  */
 export const BACKEND_3_URL = env(process.env.EXPO_PUBLIC_BACKEND_3_URL);
 export const BACKEND_3_ANON_KEY = env(process.env.EXPO_PUBLIC_BACKEND_3_ANON_KEY);
+
+/**
+ * True once Backend #3 is fully configured (URL + publishable key). While true, video uploads
+ * automatically redirect here when the primary video storage (Backend #2) is exhausted or
+ * unavailable — see lib/video.ts. With no configuration the app behaves exactly as before and
+ * Backend #2 remains the only video destination.
+ */
+export const BACKEND_3_READY = !!(BACKEND_3_URL && BACKEND_3_ANON_KEY);

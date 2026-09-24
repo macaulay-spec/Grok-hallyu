@@ -31,7 +31,7 @@ export function ProfileView({ user, isMe, headerExtra }: { user: User; isMe: boo
   const tabBar = useTabBarMotion();
   const router = useRouter();
   const toast = useToast();
-  const { state, dispatch, me, getDrama, watch } = useApp();
+  const { state, dispatch, getDrama, watch } = useApp();
   const [tab, setTab] = useState<Tab>('posts');
   const [menu, setMenu] = useState(false);
   const padding = useListPadding();

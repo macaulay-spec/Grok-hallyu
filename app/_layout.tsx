@@ -1,3 +1,7 @@
+// Must be the first import in the app: the global error trap has to be in place before any
+// other module can evaluate, so a release-mode JS exception can never silently kill the process
+// ("opens then instantly exits"). See lib/crash.ts.
+import '../lib/crash';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFonts } from 'expo-font';
 import { Stack, useRouter, useSegments } from 'expo-router';

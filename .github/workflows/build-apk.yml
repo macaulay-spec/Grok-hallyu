@@ -38,6 +38,11 @@ jobs:
       EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
       EXPO_PUBLIC_TMDB_ACCESS_TOKEN: ${{ secrets.EXPO_PUBLIC_TMDB_ACCESS_TOKEN }}
       EXPO_PUBLIC_TMDB_API_KEY: ${{ secrets.EXPO_PUBLIC_TMDB_API_KEY }}
+      # Backend #3 (video fallback): when these secrets are set, video uploads automatically
+      # redirect to that project whenever Backend #2 is exhausted or unavailable
+      # (lib/video.ts). Unset → the app behaves exactly as before, Backend #2 only.
+      EXPO_PUBLIC_BACKEND_3_URL: ${{ secrets.EXPO_PUBLIC_BACKEND_3_URL }}
+      EXPO_PUBLIC_BACKEND_3_ANON_KEY: ${{ secrets.EXPO_PUBLIC_BACKEND_3_ANON_KEY }}
 
     steps:
       - name: Checkout

@@ -27,7 +27,7 @@ export default function CollectionDetail() {
   const router = useRouter();
   const toast = useToast();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { state, dispatch, getCollection, getUser, getDrama, me, watch } = useApp();
+  const { dispatch, getCollection, getUser, getDrama, me, watch } = useApp();
   useRemote(`collection:${id}`);
   const padding = useListPadding(false);
   const col = getCollection(id);

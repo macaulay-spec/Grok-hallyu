@@ -56,7 +56,6 @@ function PostCardBase({ post, reason, detail, hideContext, style, onOpenComments
   const veiled = isPostVeiled(post);
   const saved = isSaved(post.id);
   const isMine = post.authorId === me.id;
-  const multi = (drama?.seasons.length ?? 1) > 1;
   const epLabel = seasonEpisodeLabel(post.context.season, post.context.episode, drama?.seasons.length);
   const imageW = Math.min(width - margin * 2, 640);
 

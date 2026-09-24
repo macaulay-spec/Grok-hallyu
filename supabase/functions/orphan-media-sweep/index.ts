@@ -7,10 +7,12 @@
 //   2. Drain that queue: delete the bytes from the bucket that actually owns the key, then drop
 //      the ledger rows and the queue messages.
 //
-// Keys are routed by prefix: `video/…` lives in the `videos` bucket on the video-storage project,
-// `posts/…` and `avatars/…` live in the `media` bucket here (docs/backend/10-video-storage.md).
+// Keys are routed by prefix: `video/…` lives in the `videos` bucket on the primary video-storage
+// project, `b3/video/…` lives in the `videos` bucket on Backend #3 (the video-fallback project),
+// `posts/…` and `avatars/…` live in the `media` bucket here (docs/backend/10-video-storage.md,
+// docs/backend/BACKEND-3.md).
 import { fail, json, serve } from '../_shared/http.ts';
-import { admin, rpc, timingSafeEqual, videoStore } from '../_shared/supabase.ts';
+import { admin, backend3, rpc, timingSafeEqual, videoStore } from '../_shared/supabase.ts';
 
 const IMAGE_BUCKET = 'media';
 const VIDEO_BUCKET = 'videos';
@@ -34,6 +36,8 @@ serve(async (req) => {
 
   const keys = [...new Set(msgs.map((m) => m.message?.key).filter((k): k is string => !!k))];
   const videos = keys.filter((k) => k.startsWith('video/'));
+  // b3/ keys live on the Backend #3 project — strip the ledger prefix before removing there.
+  const b3Videos = keys.filter((k) => k.startsWith('b3/video/')).map((k) => k.slice('b3/'.length));
   const images = keys.filter((k) => k.startsWith('posts/') || k.startsWith('avatars/'));
 
   let removed = 0;
@@ -47,6 +51,7 @@ serve(async (req) => {
     }
   };
   if (videos.length) await remove(videoStore(), VIDEO_BUCKET, videos);
+  if (b3Videos.length) await remove(backend3(), VIDEO_BUCKET, b3Videos);
   if (images.length) await remove(db, IMAGE_BUCKET, images);
 
   // 3. Drop the ledger rows and the queue messages so the next run does not redo the work.

@@ -39,7 +39,8 @@ deterministically from the post id, so sync-engine retries re-upload to the same
   images to the Hallyu `media` bucket (`posts/{uid}/{ulid}.jpg`) — `create_post` requires a
   poster key for every video.
 - Playback URLs resolve as `videoUrl(key)` (`lib/video.ts`); `fileUrl` in the backend adapter
-  routes `video/`-prefixed keys there automatically.
+  routes `video/`-prefixed keys there automatically. Keys prefixed `b3/` resolve on Backend #3 —
+  the video-fallback project that takes over when this one is exhausted (docs/backend/BACKEND-3.md).
 
 ## Why not Supabase Storage on the Hallyu project?
 

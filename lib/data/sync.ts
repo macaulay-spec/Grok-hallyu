@@ -419,10 +419,11 @@ export function SyncProvider(): null {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated, authed]);
 
-  // reconnect → flush
+  // reconnect → flush (the tick encodes reachability as a dependency-stable primitive)
+  const onlineTick = reachable ? 1 : 0;
   useEffect(() => {
-    if (reachable) kick();
-  }, [reachable ? 1 : 0]);
+    if (onlineTick) kick();
+  }, [onlineTick]);
 
   return null;
 }
