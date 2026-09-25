@@ -150,6 +150,60 @@ jobs:
 
           echo "APK install-safety verification passed."
 
+      # Automated emulator boot check: verifies the release APK installs and launches on a clean Android environment
+      # without crashing or ANRing before or during JavaScript initialization.
+      - name: Verify release APK boot on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        continue-on-error: true
+        with:
+          api-level: 30
+          target: default
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: |
+            set -euo pipefail
+            APK="android/app/build/outputs/apk/release/app-release.apk"
+            echo "Installing release APK: $APK"
+            adb install -r "$APK"
+
+            echo "Clearing logcat buffer..."
+            adb logcat -c
+
+            echo "Launching app (com.hallyu.app/.MainActivity)..."
+            adb shell am start -n com.hallyu.app/.MainActivity
+
+            echo "Waiting 15 seconds for startup window..."
+            sleep 15
+
+            echo "Capturing logcat errors (*:E) and full logcat..."
+            adb logcat -d *:E > logcat-errors.txt || true
+            adb logcat -d > logcat-full.txt || true
+
+            echo "=== LOGCAT ERRORS (*:E) ==="
+            cat logcat-errors.txt || true
+            echo "==========================="
+
+            echo "Checking for FATAL EXCEPTION or ANR..."
+            if grep -E "FATAL EXCEPTION|ANR in" logcat-full.txt; then
+              echo "::error::Detected FATAL EXCEPTION or ANR during launch window!"
+              grep -C 5 -E "FATAL EXCEPTION|ANR in" logcat-full.txt
+              exit 1
+            fi
+
+            echo "Emulator boot check passed: No FATAL EXCEPTION or ANR detected."
+
+      - name: Upload emulator boot logcat artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: boot-test-logcat
+          path: |
+            logcat-errors.txt
+            logcat-full.txt
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Print Gradle diagnostics on failure
         if: failure()
         working-directory: android

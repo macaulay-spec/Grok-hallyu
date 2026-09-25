@@ -702,13 +702,29 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (hydrationStarted) return;
     hydrationStarted = true;
+
+    // Hard failsafe ceiling: AsyncStorage must never hang hydration and freeze the app.
+    const failsafe = setTimeout(() => {
+      if (!getState().hydrated) {
+        dispatch({ type: 'hydrate', state: {} });
+        startPersistence();
+      }
+    }, 1200);
+
     AsyncStorage.getItem(STORAGE_KEY)
       .then((raw) => {
+        clearTimeout(failsafe);
         const parsed = raw ? deserialise(raw) : null;
         dispatch({ type: 'hydrate', state: parsed ?? {} });
       })
-      .catch(() => dispatch({ type: 'hydrate', state: {} }))
-      .finally(startPersistence);
+      .catch(() => {
+        clearTimeout(failsafe);
+        dispatch({ type: 'hydrate', state: {} });
+      })
+      .finally(() => {
+        clearTimeout(failsafe);
+        startPersistence();
+      });
   }, []);
   return <>{children}</>;
 }

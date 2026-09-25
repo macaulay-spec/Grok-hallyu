@@ -33,7 +33,7 @@ export const unstable_settings = { initialRouteName: 'index' };
  * View (that is the release-only "splash forever" symptom: Index — the only splash-hider — never
  * mounts). After this timeout we proceed on system fonts and drop the native splash ourselves.
  */
-const FONT_GATE_MS = 2800;
+const FONT_GATE_MS = 1200;
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({

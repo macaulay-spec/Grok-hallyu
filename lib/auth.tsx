@@ -56,7 +56,7 @@ const GUEST_KEY = 'hallyu.auth.guest';
  * splash). The race makes that impossible: after the timeout we fall back to the guest flag, and
  * a late success is still picked up by onAuthStateChange (SIGNED_IN promotes to signedIn).
  */
-const AUTH_BOOT_TIMEOUT_MS = 4500;
+const AUTH_BOOT_TIMEOUT_MS = 1600;
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -183,7 +183,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const applyAuthUrl = async (url: string) => {
     const parsed = Linking.parse(url);
-    const fragment = url.includes('#') ? Object.fromEntries(new URLSearchParams(url.split('#')[1])) : {};
+    const fragment: Record<string, string> = {};
+    if (url.includes('#')) {
+      const hash = url.split('#')[1] || '';
+      for (const pair of hash.split('&')) {
+        const [k, v] = pair.split('=');
+        if (k) fragment[decodeURIComponent(k)] = decodeURIComponent(v || '');
+      }
+    }
     const params = { ...(parsed.queryParams ?? {}), ...fragment } as Record<string, string>;
     // OAuth failures come back as ?error=...&error_description=... — surface them instead of
     // silently doing nothing (a silent catch here is what hid the invalid_client failure).
