@@ -150,6 +150,12 @@ jobs:
 
           echo "APK install-safety verification passed."
 
+      - name: Enable KVM permissions
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm || true
+
       # Automated emulator boot check: verifies the release APK installs and launches on a clean Android environment
       # without crashing or ANRing before or during JavaScript initialization.
       - name: Verify release APK boot on Android emulator

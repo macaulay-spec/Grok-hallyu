@@ -64,7 +64,7 @@ export default function Search() {
       dispatch({ type: 'recentSearch', q: debounced });
       track('search.query', { length: debounced.length, scope, tag: debounced.startsWith('#') });
     }
-  }, [debounced, dispatch]);
+  }, [debounced, dispatch, scope]);
 
   useEffect(() => {
     const fresh = (remote.data?.actors ?? []).filter((a) => !state.importedActors.some((x) => x.id === a.id));

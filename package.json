@@ -5,6 +5,7 @@
   "main": "expo-router/entry",
   "scripts": {
     "dev": "expo start --web --port 3000",
+    "build": "expo export -p web",
     "start": "expo start",
     "android": "expo run:android",
     "typecheck": "tsc --noEmit",
@@ -17,6 +18,7 @@
     "test:save": "node scripts/verify-save-flow.mjs"
   },
   "dependencies": {
+    "@expo/cli": "^0.18.31",
     "@expo/metro-runtime": "~3.2.1",
     "@expo/vector-icons": "^14.0.0",
     "@react-native-async-storage/async-storage": "^1.23.1",
