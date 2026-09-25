@@ -2,7 +2,7 @@
   "name": "hallyu",
   "version": "1.0.0",
   "private": true,
-  "main": "expo-router/entry",
+  "main": "./index.js",
   "scripts": {
     "dev": "expo start --web --port 3000",
     "build": "expo export -p web",

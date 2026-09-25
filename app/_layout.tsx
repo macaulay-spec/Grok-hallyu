@@ -17,6 +17,7 @@ import { ToastProvider } from '../components/ui/Toast';
 import { colors } from '../constants/theme';
 import { reportError } from '../lib/analytics';
 import { AuthProvider, useAuth } from '../lib/auth';
+import { markBoot } from '../lib/boot';
 import { SyncProvider } from '../lib/data/sync';
 import { supabaseBackend } from '../lib/data/supabaseBackend';
 import { installNotificationHandler, reminderUrl, remindersSupported, syncEpisodeReminders } from '../lib/reminders';
@@ -55,7 +56,10 @@ export default function RootLayout() {
   // Hide the native splash as soon as fonts settle OR the gate times out — whichever comes first.
   // Index keeps its own hideAsync call as a safety net, but we no longer depend on Index mounting.
   useEffect(() => {
-    if (fontsSettled || gateTimedOut) SplashScreen.hideAsync().catch(() => {});
+    if (fontsSettled || gateTimedOut) {
+      markBoot(gateTimedOut && !fontsSettled ? 'layout:font-gate-timeout' : 'layout:fonts-settled');
+      SplashScreen.hideAsync().catch(() => {});
+    }
   }, [fontsSettled, gateTimedOut]);
 
   if (!fontsSettled && !gateTimedOut) return <View style={{ flex: 1, backgroundColor: colors.canvas }} />;

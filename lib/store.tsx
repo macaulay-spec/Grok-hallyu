@@ -3,6 +3,7 @@ import React, { useEffect } from 'react';
 import { create } from 'zustand';
 import { useStoreWithEqualityFn } from 'zustand/traditional';
 import { mergePending, mergePendingMap, mergePendingPrefs, pendingIds, pendingPrefKeys } from './data/pending';
+import { markBoot } from './boot';
 import { uid } from './format';
 import { Actor, Collection, Comment, Draft, Drama, Notification, NotificationGroup, Post, ReactionCounts, ReactionKind, SpoilerProtection, User, WatchStatus, WatchlistItem } from './model';
 
@@ -706,6 +707,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // Hard failsafe ceiling: AsyncStorage must never hang hydration and freeze the app.
     const failsafe = setTimeout(() => {
       if (!getState().hydrated) {
+        markBoot('store:hydrate-failsafe');
         dispatch({ type: 'hydrate', state: {} });
         startPersistence();
       }
@@ -715,10 +717,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       .then((raw) => {
         clearTimeout(failsafe);
         const parsed = raw ? deserialise(raw) : null;
+        markBoot('store:hydrated');
         dispatch({ type: 'hydrate', state: parsed ?? {} });
       })
       .catch(() => {
         clearTimeout(failsafe);
+        markBoot('store:hydrate-error');
         dispatch({ type: 'hydrate', state: {} });
       })
       .finally(() => {

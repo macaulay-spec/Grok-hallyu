@@ -5,6 +5,7 @@ import * as WebBrowser from 'expo-web-browser';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from './supabase';
 import { track, reportError } from './analytics';
+import { markBoot } from './boot';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -140,14 +141,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const { data } = await withTimeout(supabase.auth.getSession(), AUTH_BOOT_TIMEOUT_MS);
         if (data.session) {
           setUser(fromSession(data.session));
+          markBoot('auth:signedIn');
           setStatus('signedIn');
           return;
         }
+        markBoot('auth:no-session');
         setStatus((await AsyncStorage.getItem(GUEST_KEY)) === '1' ? 'guest' : 'signedOut');
       } catch (e) {
         // Timeout or failure — the boot can never leave us on 'loading'. Recover as guest or
         // signed-out; the auth-state subscription still promotes a session that lands later.
         reportError('auth.boot', e);
+        markBoot('auth:boot-failed');
         const guest = await AsyncStorage.getItem(GUEST_KEY).catch(() => null);
         setStatus(guest === '1' ? 'guest' : 'signedOut');
       }

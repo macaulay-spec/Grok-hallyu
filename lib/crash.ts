@@ -10,6 +10,8 @@
  * In dev the original handler still runs so red boxes and Metro keep working.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Alert } from 'react-native';
+import { markBoot } from './boot';
 
 export interface CrashRecord {
   name: string;
@@ -20,6 +22,8 @@ export interface CrashRecord {
 
 const CRASH_KEY = 'hallyu.crash.last';
 let installed = false;
+// Release errors surface once per unique message — visible, but never alert-spamming.
+const alertedSignatures = new Set<string>();
 
 interface ErrorUtilsLike {
   setGlobalHandler(handler: ((error: unknown, isFatal?: boolean) => void) | undefined): void;
@@ -48,8 +52,14 @@ export function installGlobalErrorTrap(): void {
       original(error, isFatal);
       return;
     }
-    // Release: keep the process alive. A silent exit helps nobody — the boundary layer renders
-    // whatever is recoverable, and the breadcrumb is persisted for the next diagnostics pass.
+    // Release: keep the process alive, but make the failure VISIBLE — a silent exit or a silent
+    // freeze helps nobody. Once per unique message; the breadcrumb is persisted for diagnostics.
+    const sig = (e.message || String(e)).slice(0, 80);
+    if (!alertedSignatures.has(sig)) {
+      alertedSignatures.add(sig);
+      markBoot(`fatal:${sig.slice(0, 60)}`);
+      Alert.alert('Hallyu hit an error', `${e.name}: ${e.message}`.slice(0, 400));
+    }
   });
 }
 
