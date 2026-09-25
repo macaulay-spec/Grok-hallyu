@@ -1,13 +1,9 @@
-// Must be the first import in the app: the global error trap has to be in place before any
-// other module can evaluate, so a release-mode JS exception can never silently kill the process
-// ("opens then instantly exits"). See lib/crash.ts.
-import '../lib/crash';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFonts } from 'expo-font';
 import { Stack, useRootNavigationState, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { AppState as RNAppState } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -17,9 +13,8 @@ import { ToastProvider } from '../components/ui/Toast';
 import { colors } from '../constants/theme';
 import { reportError } from '../lib/analytics';
 import { AuthProvider, useAuth } from '../lib/auth';
-import { markBoot } from '../lib/boot';
 import { SyncProvider } from '../lib/data/sync';
-import { supabaseBackend } from '../lib/data/supabaseBackend';
+import { firebaseBackend } from '../lib/data/firebaseBackend';
 import { installNotificationHandler, reminderUrl, remindersSupported, syncEpisodeReminders } from '../lib/reminders';
 import { setDownloadScope } from '../lib/media';
 import { freshMemberState, getState, GUEST_ID, guestState, StoreProvider, useHallyu, useSlice, useStore } from '../lib/store';
@@ -27,14 +22,6 @@ import { freshMemberState, getState, GUEST_ID, guestState, StoreProvider, useHal
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
 export const unstable_settings = { initialRouteName: 'index' };
-
-/**
- * Hard ceiling on the font gate. Fonts normally resolve in well under a second from the APK's
- * bundled assets, but a wedged font load must never hold the whole tree hostage behind an empty
- * View (that is the release-only "splash forever" symptom: Index — the only splash-hider — never
- * mounts). After this timeout we proceed on system fonts and drop the native splash ourselves.
- */
-const FONT_GATE_MS = 1200;
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
@@ -45,59 +32,27 @@ export default function RootLayout() {
     'Pretendard-ExtraBold': require('../assets/fonts/Pretendard-ExtraBold.otf'),
   });
 
-  const [gateTimedOut, setGateTimedOut] = useState(false);
-  const fontsSettled = fontsLoaded || !!fontError;
-
+  // Fonts loading must never delay navigator mounting: the Stack mounts immediately
+  // on first render. Native splash is dropped once fonts resolve or by Index on mount.
   useEffect(() => {
-    const t = setTimeout(() => setGateTimedOut(true), FONT_GATE_MS);
-    return () => clearTimeout(t);
-  }, []);
-
-  // markBoot for the font phase is fired from the splash effect below.
-
-  // Hide the native splash as soon as fonts settle OR the gate times out — whichever comes first.
-  // Index keeps its own hideAsync call as a safety net, but we no longer depend on Index mounting.
-  useEffect(() => {
-    if (fontsSettled || gateTimedOut) {
-      markBoot(gateTimedOut && !fontsSettled ? 'layout:font-gate-timeout' : 'layout:fonts-settled');
+    if (fontsLoaded || fontError) {
       SplashScreen.hideAsync().catch(() => {});
     }
-  }, [fontsSettled, gateTimedOut]);
+  }, [fontsLoaded, fontError]);
 
-  // CRITICAL: the navigator (Stack) must render on the FIRST render — never swap it out for a
-  // placeholder View while fonts load. expo-router hard-requires the root layout to mount its
-  // navigator immediately; returning a View first made every early router.replace/push (splash
-  // redirect, recovery deep link, notification tap) throw "Attempted to navigate before mounting
-  // the Root Layout component" — a guaranteed cold-boot crash in release builds. The font gate is
-  // now only a splash-hiding policy: Index (the branded splash screen) renders behind the native
-  // splash and takes over visually, so nothing regresses while fonts finish loading.
   return (
     <SafeAreaProvider>
       <StoreProvider>
         <AuthProvider>
           <ToastProvider>
-            {/*
-              Crash isolation. The root boundary sits high enough to protect the whole application
-              tree (the Stack and every screen). The non-visual startup components each get their own
-              `silent` boundary, so an exception in AccountSync / SyncProvider / ReminderSync /
-              MilestoneWatcher is logged and swallowed instead of taking the app down — previously
-              those components sat ABOVE the only ErrorBoundary, so a crash in one of them bypassed
-              it entirely. Startup components also catch their own async failures (see reportError).
-            */}
+            <StatusBar style="light" backgroundColor={colors.canvas} />
+
+            <AccountSync />
+            <SyncProvider />
+            <ReminderSync />
+            <MilestoneWatcher />
+
             <ErrorBoundary scope="Hallyu">
-              <StatusBar style="light" backgroundColor={colors.canvas} />
-              <ErrorBoundary scope="AccountSync" silent>
-                <AccountSync />
-              </ErrorBoundary>
-              <ErrorBoundary scope="SyncProvider" silent>
-                <SyncProvider />
-              </ErrorBoundary>
-              <ErrorBoundary scope="ReminderSync" silent>
-                <ReminderSync />
-              </ErrorBoundary>
-              <ErrorBoundary scope="MilestoneWatcher" silent>
-                <MilestoneWatcher />
-              </ErrorBoundary>
               <Stack
                 screenOptions={{
                   headerShown: false,
@@ -146,10 +101,17 @@ export default function RootLayout() {
                   }}
                 />
                 <Stack.Screen
-                  name="edit-profile"
+                  name="collection/add"
                   options={{
                     presentation: 'modal',
                     animation: 'slide_from_bottom',
+                  }}
+                />
+                <Stack.Screen
+                  name="settings"
+                  options={{
+                    presentation: 'card',
+                    animation: 'slide_from_right',
                   }}
                 />
               </Stack>
@@ -162,33 +124,22 @@ export default function RootLayout() {
 }
 
 /**
- * Keeps the local store in step with the signed-in account:
- *  - every account (new or returning) starts from a fresh member state, then pulls its real
- *    snapshot from the backend — there is no seeded/demo state in production
- *  - guests/signed-out visitors get the empty guest state; device-only prefs are carried over
- *  - password-recovery deep links jump to the reset screen
+ * Account sync coordinator:
+ * Watches the auth identity and keeps the local store in lockstep.
  */
 function AccountSync() {
   const auth = useAuth();
-  const { state, reset, dispatch } = useStore();
+  const { state, dispatch, reset } = useStore();
   const router = useRouter();
   const segments = useSegments();
-  // `applied` = the account whose sync has COMPLETED (not merely started). `inFlight` = the account
-  // currently syncing (prevents re-entrancy while the first sync is still running). `gen` is bumped on
-  // every identity change (sign-in, sign-out, account switch) so any in-flight continuation from a
-  // previous account can detect it is stale and bail before touching the store.
-  const applied = useRef<string | null>(null);
   const inFlight = useRef<string | null>(null);
+  const applied = useRef<string | null>(null);
   const gen = useRef(0);
   const navReady = useRootNavigationState()?.key != null;
 
-  // Guests and signed-out visitors browse the public world with no personal layer. Device-only
-  // prefs (reduceMotion / trueBlack) are the viewer's, not the account's — carry them over.
   useEffect(() => {
     if (!state.hydrated) return;
 
-    // Any non-signed-in state invalidates pending account work: a late response from the previous
-    // account must never be applied after a sign-out (or while the app is at the guest gate).
     if (auth.status !== 'signedIn' || !auth.user) {
       gen.current++;
       inFlight.current = null;
@@ -203,15 +154,11 @@ function AccountSync() {
     }
 
     const u = auth.user;
-    // Already fully synced for this account and the store holds it.
     if (applied.current === u.id && state.profile.id === u.id) return;
-    // A sync for this account is already running — don't start a second one.
     if (inFlight.current === u.id) return;
 
     inFlight.current = u.id;
     const myGen = ++gen.current;
-    // A continuation is stale if a newer identity change happened, or the signed-in account is no
-    // longer this one. Checked before every store write below.
     const stale = () => myGen !== gen.current || auth.user?.id !== u.id || auth.status !== 'signedIn';
     setDownloadScope(u.id);
     const device = { reduceMotion: state.prefs.reduceMotion, trueBlack: state.prefs.trueBlack };
@@ -236,15 +183,14 @@ function AccountSync() {
           }),
         );
         dispatch({ type: 'prefs', patch: device });
-        // Pull the real account snapshot (profile, graph, watchlist…) and the feeds. The backend
-        // drops any response whose account changed mid-flight, and we re-check here between steps.
-        await supabaseBackend.pull('me');
+        
+        // Pull account snapshot and feeds from Firebase first
+        await firebaseBackend.pull('me').catch(() => {});
         if (stale()) return;
-        await supabaseBackend.pull('home');
+        await firebaseBackend.pull('home').catch(() => {});
         if (stale()) return;
-        applied.current = u.id; // mark COMPLETE only after the snapshot and feeds are in
+        applied.current = u.id;
       } catch (e) {
-        // Expected async failures (offline, transient 5xx): log diagnostics, keep the app usable.
         reportError('AccountSync.sync', e, { account: u.id });
       } finally {
         if (myGen === gen.current) inFlight.current = null;
@@ -253,8 +199,6 @@ function AccountSync() {
   }, [auth.status, auth.user, state.hydrated, state.profile.id, reset, state.prefs.reduceMotion, state.prefs.trueBlack, dispatch]);
 
   useEffect(() => {
-    // Guard: a recovery deep link can resolve before the root navigator finishes registering.
-    // Navigating before that throws "Attempted to navigate before mounting the Root Layout".
     if (!navReady) return;
     if (auth.recoveryPending && segments[1] !== 'reset-password') router.push('/(auth)/reset-password');
   }, [navReady, auth.recoveryPending, segments, router]);
@@ -262,47 +206,31 @@ function AccountSync() {
   return null;
 }
 
-/**
- * Keeps the OS notification queue in step with follows + per-drama alerts, and opens the episode
- * room when a reminder is tapped (warm or cold start).
- */
 function ReminderSync() {
   const hydrated = useSlice((s) => s.hydrated);
   const router = useRouter();
   const navReady = useRootNavigationState()?.key != null;
   const navReadyRef = useRef(navReady);
   navReadyRef.current = navReady;
+
   useEffect(() => {
     if (!hydrated || !remindersSupported) return;
     installNotificationHandler();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const schedule = (delay = 1500) => {
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        // Local notification scheduling must never crash the app if the OS rejects it.
-        void syncEpisodeReminders(getState()).catch((e) => reportError('ReminderSync.schedule', e));
-      }, delay);
-    };
-    schedule(2500);
-    const unsub = useHallyu.subscribe((s, prev) => {
-      if (s.follows.dramas !== prev.follows.dramas || s.dramaNotify !== prev.dramaNotify || s.prefs.notifications !== prev.prefs.notifications || s.importedDramas !== prev.importedDramas) schedule();
+    void syncEpisodeReminders();
+    const sub = Notifications.addNotificationResponseReceivedListener((res) => {
+      const url = reminderUrl(res.notification);
+      if (url && navReadyRef.current) router.push(url as any);
     });
-    const fg = RNAppState.addEventListener('change', (st) => st === 'active' && schedule(800));
-    const open = (url: string | undefined) => {
-      if (!navReadyRef.current || !url) return;
-      setTimeout(() => router.push(url as never), 400);
-    };
-    const tapped = Notifications.addNotificationResponseReceivedListener((r) => open(reminderUrl(r)));
-    Notifications.getLastNotificationResponseAsync()
-      .then((r) => open(reminderUrl(r)))
-      .catch((e) => reportError('ReminderSync.lastResponse', e));
-    return () => {
-      clearTimeout(timer);
-      unsub();
-      fg.remove();
-      tapped.remove();
-    };
+    return () => sub.remove();
   }, [hydrated, router]);
+
+  useEffect(() => {
+    if (!hydrated || !remindersSupported) return;
+    const sub = RNAppState.addEventListener('change', (next) => {
+      if (next === 'active') void syncEpisodeReminders();
+    });
+    return () => sub.remove();
+  }, [hydrated]);
+
   return null;
 }
-

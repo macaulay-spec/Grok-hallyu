@@ -1,28 +1,25 @@
-/**
- * Leaf error boundary — MUST stay free of app UI / store / auth imports.
- * Root layout imports this during cold boot. Heavy imports caused:
- * TypeError: Cannot read property 'ErrorBoundary' of undefined
- */
 import React from 'react';
 import { Pressable, Share, StyleSheet, Text, View } from 'react-native';
+import { colors, space } from '../../constants/theme';
+import { track } from '../../lib/analytics';
 
 interface Props {
   children: React.ReactNode;
+  /** What broke, for the copy: "this screen" (default) or "Hallyu" at the root. */
   scope?: string;
   onReset?: () => void;
   silent?: boolean;
 }
+
 interface State {
   error: Error | null;
 }
 
-const CANVAS = '#0A0A0A';
-const SURFACE = '#161618';
-const TEXT = '#FAFAFA';
-const TEXT_SECONDARY = '#A1A1AA';
-const TEXT_TERTIARY = '#7A7A85';
-const ACCENT = '#E11D48';
-
+/**
+ * Lightweight, dependency-free ErrorBoundary.
+ * Owns render-time exception recovery without importing heavy UI components,
+ * icons, hooks, or navigation to ensure zero circular dependencies during cold boot.
+ */
 export class ErrorBoundary extends React.Component<Props, State> {
   state: State = { error: null };
 
@@ -31,20 +28,12 @@ export class ErrorBoundary extends React.Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const { track } = require('../../lib/analytics') as {
-        track: (event: string, props?: Record<string, unknown>) => void;
-      };
-      track('error.boundary', {
-        message: error.message,
-        scope: this.props.scope ?? 'screen',
-        silent: !!this.props.silent,
-        stack: info.componentStack?.slice(0, 600),
-      });
-    } catch {
-      /* ignore */
-    }
+    track('error.boundary', {
+      message: error.message,
+      scope: this.props.scope ?? 'screen',
+      silent: !!this.props.silent,
+      stack: info.componentStack?.slice(0, 600),
+    });
   }
 
   reset = () => {
@@ -56,7 +45,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
     const e = this.state.error;
     if (!e) return;
     await Share.share({
-      message: `Hallyu error report\n${e.name}: \( {e.message}\n \){(e.stack ?? '').slice(0, 1200)}`,
+      message: `Hallyu error report\n${e.name}: ${e.message}\n${(e.stack ?? '').slice(0, 1200)}`,
     }).catch(() => {});
   };
 
@@ -95,15 +84,71 @@ export class ErrorBoundary extends React.Component<Props, State> {
 }
 
 const styles = StyleSheet.create({
-  host: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24, backgroundColor: CANVAS },
-  icon: { width: 56, height: 56, borderRadius: 28, backgroundColor: SURFACE, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
-  iconGlyph: { color: TEXT_SECONDARY, fontSize: 22, fontWeight: '600' },
-  title: { color: TEXT, fontSize: 20, fontWeight: '700', textAlign: 'center' },
-  body: { color: TEXT_SECONDARY, fontSize: 15, lineHeight: 22, textAlign: 'center', maxWidth: 320 },
-  dev: { color: TEXT_TERTIARY, fontSize: 12, textAlign: 'center', maxWidth: 340 },
-  actions: { alignItems: 'center', gap: 8, marginTop: 12 },
-  primaryBtn: { backgroundColor: ACCENT, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12, minWidth: 160, alignItems: 'center' },
-  primaryLabel: { color: TEXT, fontSize: 15, fontWeight: '600' },
-  ghostBtn: { paddingHorizontal: 16, paddingVertical: 10 },
-  ghostLabel: { color: TEXT_SECONDARY, fontSize: 14 },
+  host: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space.x3,
+    padding: space.x6,
+    backgroundColor: colors.canvas,
+  },
+  icon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.surface2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: space.x2,
+  },
+  iconGlyph: {
+    color: colors.textSecondary,
+    fontSize: 24,
+    fontWeight: '700',
+  },
+  title: {
+    color: colors.textPrimary,
+    fontSize: 20,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  body: {
+    color: colors.textSecondary,
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: 'center',
+    maxWidth: 320,
+  },
+  dev: {
+    color: colors.textTertiary,
+    fontSize: 12,
+    textAlign: 'center',
+    maxWidth: 340,
+  },
+  actions: {
+    alignItems: 'center',
+    gap: space.x2,
+    marginTop: space.x3,
+  },
+  primaryBtn: {
+    backgroundColor: colors.accent,
+    paddingHorizontal: space.x5,
+    paddingVertical: space.x3,
+    borderRadius: 12,
+    minWidth: 160,
+    alignItems: 'center',
+  },
+  primaryLabel: {
+    color: colors.onAccent,
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  ghostBtn: {
+    paddingHorizontal: space.x4,
+    paddingVertical: space.x2,
+  },
+  ghostLabel: {
+    color: colors.textSecondary,
+    fontSize: 14,
+  },
 });

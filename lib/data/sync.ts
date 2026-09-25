@@ -17,10 +17,11 @@ import { Post } from '../model';
 import * as sel from '../selectors';
 import { Action, AppState, dispatch, dispatchLocal, getState, Mutation, setDispatchMiddleware, useSlice } from '../store';
 import { Backend, BackendError, PullScope } from './backend';
+import { firebaseBackend } from './firebaseBackend';
 import { supabaseBackend } from './supabaseBackend';
 import { track, reportError } from '../analytics';
 
-let backend: Backend = supabaseBackend;
+let backend: Backend = firebaseBackend;
 /** Swap the backend implementation (the Supabase adapter will register itself here; tests inject fakes). */
 export function setBackend(b: Backend): void {
   backend = b;

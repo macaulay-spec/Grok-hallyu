@@ -1,0 +1,110 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User profile with display info, preferences, and handle",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "handle": { "type": "string", "maxLength": 50 },
+        "displayName": { "type": "string", "maxLength": 100 },
+        "avatarUrl": { "type": "string", "maxLength": 1000 },
+        "bio": { "type": "string", "maxLength": 500 },
+        "email": { "type": "string", "maxLength": 200 },
+        "followersCount": { "type": "number" },
+        "followingCount": { "type": "number" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "handle", "displayName"]
+    },
+    "Post": {
+      "title": "Feed Post",
+      "description": "User created post or drama review or video clip",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "authorHandle": { "type": "string" },
+        "authorName": { "type": "string" },
+        "authorAvatar": { "type": "string" },
+        "type": { "type": "string", "enum": ["post", "review", "clip", "question"] },
+        "body": { "type": "string", "maxLength": 5000 },
+        "dramaId": { "type": "string" },
+        "dramaTitle": { "type": "string" },
+        "mediaUrl": { "type": "string" },
+        "mediaType": { "type": "string" },
+        "likesCount": { "type": "number" },
+        "commentsCount": { "type": "number" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "body", "type"]
+    },
+    "Comment": {
+      "title": "Post Comment",
+      "description": "Comment on a post",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "postId": { "type": "string" },
+        "userId": { "type": "string" },
+        "authorHandle": { "type": "string" },
+        "authorName": { "type": "string" },
+        "authorAvatar": { "type": "string" },
+        "body": { "type": "string", "maxLength": 2000 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "postId", "userId", "body"]
+    },
+    "Like": {
+      "title": "Post Like",
+      "description": "User like record on a post",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "postId": { "type": "string" },
+        "userId": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "postId", "userId"]
+    },
+    "WatchlistItem": {
+      "title": "Watchlist Item",
+      "description": "Drama saved to user's watchlist",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "dramaId": { "type": "string" },
+        "status": { "type": "string", "enum": ["watching", "plan_to_watch", "completed", "dropped"] },
+        "rating": { "type": "number" },
+        "currentEpisode": { "type": "number" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "dramaId", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/posts/{postId}": {
+      "schema": "Post",
+      "description": "All community posts, reviews, and video clips"
+    },
+    "/posts/{postId}/comments/{commentId}": {
+      "schema": "Comment",
+      "description": "Comments under specific posts"
+    },
+    "/posts/{postId}/likes/{likeId}": {
+      "schema": "Like",
+      "description": "Likes on specific posts"
+    },
+    "/users/{userId}/watchlist/{watchlistId}": {
+      "schema": "WatchlistItem",
+      "description": "User personal drama watchlist"
+    }
+  }
+}
