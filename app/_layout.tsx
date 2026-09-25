@@ -4,11 +4,11 @@
 import '../lib/crash';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFonts } from 'expo-font';
-import { Stack, useRouter, useSegments } from 'expo-router';
+import { Stack, useRootNavigationState, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useRef, useState } from 'react';
-import { AppState as RNAppState, View } from 'react-native';
+import { AppState as RNAppState } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ErrorBoundary } from '../components/ui/ErrorBoundary';
@@ -53,6 +53,8 @@ export default function RootLayout() {
     return () => clearTimeout(t);
   }, []);
 
+  // markBoot for the font phase is fired from the splash effect below.
+
   // Hide the native splash as soon as fonts settle OR the gate times out — whichever comes first.
   // Index keeps its own hideAsync call as a safety net, but we no longer depend on Index mounting.
   useEffect(() => {
@@ -62,8 +64,13 @@ export default function RootLayout() {
     }
   }, [fontsSettled, gateTimedOut]);
 
-  if (!fontsSettled && !gateTimedOut) return <View style={{ flex: 1, backgroundColor: colors.canvas }} />;
-
+  // CRITICAL: the navigator (Stack) must render on the FIRST render — never swap it out for a
+  // placeholder View while fonts load. expo-router hard-requires the root layout to mount its
+  // navigator immediately; returning a View first made every early router.replace/push (splash
+  // redirect, recovery deep link, notification tap) throw "Attempted to navigate before mounting
+  // the Root Layout component" — a guaranteed cold-boot crash in release builds. The font gate is
+  // now only a splash-hiding policy: Index (the branded splash screen) renders behind the native
+  // splash and takes over visually, so nothing regresses while fonts finish loading.
   return (
     <SafeAreaProvider>
       <StoreProvider>
@@ -173,6 +180,7 @@ function AccountSync() {
   const applied = useRef<string | null>(null);
   const inFlight = useRef<string | null>(null);
   const gen = useRef(0);
+  const navReady = useRootNavigationState()?.key != null;
 
   // Guests and signed-out visitors browse the public world with no personal layer. Device-only
   // prefs (reduceMotion / trueBlack) are the viewer's, not the account's — carry them over.
@@ -245,8 +253,11 @@ function AccountSync() {
   }, [auth.status, auth.user, state.hydrated, state.profile.id, reset, state.prefs.reduceMotion, state.prefs.trueBlack, dispatch]);
 
   useEffect(() => {
+    // Guard: a recovery deep link can resolve before the root navigator finishes registering.
+    // Navigating before that throws "Attempted to navigate before mounting the Root Layout".
+    if (!navReady) return;
     if (auth.recoveryPending && segments[1] !== 'reset-password') router.push('/(auth)/reset-password');
-  }, [auth.recoveryPending, segments, router]);
+  }, [navReady, auth.recoveryPending, segments, router]);
 
   return null;
 }
@@ -258,6 +269,9 @@ function AccountSync() {
 function ReminderSync() {
   const hydrated = useSlice((s) => s.hydrated);
   const router = useRouter();
+  const navReady = useRootNavigationState()?.key != null;
+  const navReadyRef = useRef(navReady);
+  navReadyRef.current = navReady;
   useEffect(() => {
     if (!hydrated || !remindersSupported) return;
     installNotificationHandler();
@@ -274,7 +288,10 @@ function ReminderSync() {
       if (s.follows.dramas !== prev.follows.dramas || s.dramaNotify !== prev.dramaNotify || s.prefs.notifications !== prev.prefs.notifications || s.importedDramas !== prev.importedDramas) schedule();
     });
     const fg = RNAppState.addEventListener('change', (st) => st === 'active' && schedule(800));
-    const open = (url: string | undefined) => url && setTimeout(() => router.push(url as never), 400);
+    const open = (url: string | undefined) => {
+      if (!navReadyRef.current || !url) return;
+      setTimeout(() => router.push(url as never), 400);
+    };
     const tapped = Notifications.addNotificationResponseReceivedListener((r) => open(reminderUrl(r)));
     Notifications.getLastNotificationResponseAsync()
       .then((r) => open(reminderUrl(r)))

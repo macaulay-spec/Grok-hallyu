@@ -1,4 +1,4 @@
-import { useRouter } from 'expo-router';
+import { useRouter, useRootNavigationState } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import React, { useEffect, useRef, useState } from 'react';
 import { Alert, Animated, Pressable, StyleSheet, View } from 'react-native';
@@ -24,6 +24,9 @@ export default function Index() {
   const auth = useAuth();
   const router = useRouter();
   const { state } = useStore();
+  // expo-router requires the root navigator to be registered before ANY router.replace/push —
+  // navigating earlier throws "Attempted to navigate before mounting the Root Layout component".
+  const navReady = useRootNavigationState()?.key != null;
   const ready = auth.status !== 'loading' && state.hydrated;
   const fade = useRef(new Animated.Value(0)).current;
   const hasNavigated = useRef(false);
@@ -35,19 +38,19 @@ export default function Index() {
     Animated.timing(fade, { toValue: 1, duration: motion.long, useNativeDriver: true }).start();
   }, [fade]);
 
-  // Navigate reliably once ready
+  // Navigate reliably once ready (and only once the root navigator is actually registered)
   useEffect(() => {
-    if (!ready || hasNavigated.current) return;
+    if (!ready || !navReady || hasNavigated.current) return;
     hasNavigated.current = true;
 
     const dest = auth.status === 'signedOut' ? '/(auth)/welcome' : auth.status === 'signedIn' && !state.onboarding.done ? '/(onboarding)/genres' : '/(tabs)';
     markBoot(`index:redirect${auth.status === 'signedOut' || (auth.status === 'signedIn' && !state.onboarding.done) ? '' : ':tabs'} ${dest}`);
     router.replace(dest as never);
-  }, [ready, auth.status, state.onboarding.done, router]);
+  }, [ready, navReady, auth.status, state.onboarding.done, router]);
 
   // Auto-bailout failsafe: if readiness never arrives, force navigation to welcome
   useEffect(() => {
-    if (ready || hasNavigated.current) return;
+    if (ready || !navReady || hasNavigated.current) return;
     const t = setTimeout(() => {
       if (!hasNavigated.current) {
         hasNavigated.current = true;
@@ -57,7 +60,7 @@ export default function Index() {
       }
     }, AUTO_BAILOUT_MS);
     return () => clearTimeout(t);
-  }, [ready, auth, router]);
+  }, [ready, navReady, auth, router]);
 
   // The tap stays a simple "continue" for normal slow starts; once stuck, it opens diagnostics.
   useEffect(() => {
@@ -67,7 +70,7 @@ export default function Index() {
   }, [ready]);
 
   const bailOut = () => {
-    if (hasNavigated.current) return;
+    if (hasNavigated.current || !navReady) return;
     hasNavigated.current = true;
     void auth.signOut().catch(() => {});
     router.replace('/(auth)/welcome');
