@@ -47,14 +47,25 @@ Sessions now survive restart, background/foreground and process death; `onAuthSt
 the single source of truth for the auth boot (1.5 s failsafe → `signedOut`, splash never hangs).
 
 **Hermes polyfills (`lib/polyfills.ts`).** Android's Hermes engine has no global
-`TextDecoder`/`TextEncoder`, and `@firebase/firestore` constructs one while initializing its
-Platform singleton — a release-only `ReferenceError: Property 'TextDecoder' doesn't exist` that
-kills the bundle before React mounts (dev/Chrome has it natively, so debug builds never showed
-it; the CI emulator gate caught it on the first honest run). `lib/polyfills.ts` installs both
-globals (via `text-encoding-polyfill`) plus `react-native-url-polyfill`, and is imported FIRST
-by `index.js` and by every module that imports `firebase/*` directly (firebase.ts, auth.tsx,
+`TextDecoder`/`TextEncoder`, and `@firebase/firestore` constructs one (`new TextDecoder('utf-8')`,
+i.e. WITH a label argument) while initializing its Platform singleton — a release-only
+`ReferenceError: Property 'TextDecoder' doesn't exist` that kills the bundle before React mounts
+(dev/Chrome has it natively, so debug builds never showed it; the CI emulator gate caught it on
+the first honest run, then caught the first fix attempt too). `lib/polyfills.ts` installs both
+globals (via `@zxing/text-encoding`) plus `react-native-url-polyfill`, and is imported FIRST by
+`index.js` and by every module that imports `firebase/*` directly (firebase.ts, auth.tsx,
 media.ts, firebaseBackend.ts). `scripts/test-firebase-backend.mjs` fails if that order ever
-regresses.
+regresses, or if the encoding package is swapped for one of the two rejected ones:
+
+- `text-encoding-polyfill` — its JS decoder demands `encoding-indexes` on the global, which only
+  its Node code path installs → release crash `Decoder not present. Did you forget to include
+  encoding-indexes.js first?` (CI run 36237673311; it passes Node tests because it silently
+  re-exports Node's native TextDecoder when one exists).
+- `fastestsmallesttextencoderdecoder` — returns corrupted output (NUL-padded garbage) when
+  constructed with the label form Firestore uses, `new TextDecoder('utf-8')`; byte-verified.
+- `@zxing/text-encoding` (adopted) — complete WHATWG impl; verified locally for the label ctor,
+  multibyte roundtrips and `byteOffset` views (protobuf decoding) with the native globals
+  deleted from the test environment.
 
 `.npmrc` sets `legacy-peer-deps=true` because `@firebase/auth` declares an *optional* peer on
 `@react-native-async-storage/async-storage@^2||^3` while Expo SDK 51 ships 1.23.1 — the

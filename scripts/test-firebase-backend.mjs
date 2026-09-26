@@ -126,6 +126,11 @@ ok('ErrorBoundary: leaf module (react/react-native imports only)', /^import .* f
 // --- Hermes polyfills (the release-only TextDecoder crash the emulator gate caught)
 const polyfills = read('lib/polyfills.ts');
 ok('polyfills: installs TextDecoder/TextEncoder + URL before firebase loads', /TextDecoder/.test(polyfills) && /TextEncoder/.test(polyfills) && /react-native-url-polyfill/.test(polyfills));
+// Package-choice regressions (both alternatives were byte-tested and REJECTED):
+// text-encoding-polyfill dies on Hermes without encoding-indexes (CI run 36237673311);
+// fastestsmallesttextencoderdecoder corrupts output via `new TextDecoder('utf-8')`.
+ok('polyfills: uses @zxing/text-encoding (verified WHATWG impl)', /@zxing\/text-encoding/.test(polyfills));
+ok('polyfills: never regress to broken encoding packages', !/from ['"](?:text-encoding-polyfill|fastestsmallesttextencoderdecoder)['"]/.test(polyfills));
 ok('index.js: polyfills imported before the router entry', indexJs.indexOf("import './lib/polyfills'") >= 0 && indexJs.indexOf("import './lib/polyfills'") < indexJs.indexOf("import '@expo/metro-runtime'"));
 for (const f of ['lib/firebase.ts', 'lib/auth.tsx', 'lib/media.ts', 'lib/data/firebaseBackend.ts']) {
   const src = read(f);
