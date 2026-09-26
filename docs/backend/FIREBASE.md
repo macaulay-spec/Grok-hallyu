@@ -46,6 +46,16 @@ signed out on every relaunch). We therefore:
 Sessions now survive restart, background/foreground and process death; `onAuthStateChanged` is
 the single source of truth for the auth boot (1.5 s failsafe → `signedOut`, splash never hangs).
 
+**Hermes polyfills (`lib/polyfills.ts`).** Android's Hermes engine has no global
+`TextDecoder`/`TextEncoder`, and `@firebase/firestore` constructs one while initializing its
+Platform singleton — a release-only `ReferenceError: Property 'TextDecoder' doesn't exist` that
+kills the bundle before React mounts (dev/Chrome has it natively, so debug builds never showed
+it; the CI emulator gate caught it on the first honest run). `lib/polyfills.ts` installs both
+globals (via `text-encoding-polyfill`) plus `react-native-url-polyfill`, and is imported FIRST
+by `index.js` and by every module that imports `firebase/*` directly (firebase.ts, auth.tsx,
+media.ts, firebaseBackend.ts). `scripts/test-firebase-backend.mjs` fails if that order ever
+regresses.
+
 `.npmrc` sets `legacy-peer-deps=true` because `@firebase/auth` declares an *optional* peer on
 `@react-native-async-storage/async-storage@^2||^3` while Expo SDK 51 ships 1.23.1 — the
 persistence API surface it uses (`getItem/setItem/removeItem`) is identical across those majors.

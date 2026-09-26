@@ -34,6 +34,7 @@
  * denormalize the display title/poster of the drama they reference (user content metadata, not a
  * catalog copy).
  */
+import '../polyfills'; // MUST precede the firebase/* imports below (Hermes TextDecoder crash)
 import {
   documentId,
   collection,

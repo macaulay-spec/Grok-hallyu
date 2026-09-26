@@ -123,6 +123,17 @@ ok('layout: font gate ceiling present', /FONT_GATE_MS/.test(layoutTsx) && /layou
 const errBoundary = read('components/ui/ErrorBoundary.tsx');
 ok('ErrorBoundary: leaf module (react/react-native imports only)', /^import .* from '(react|react-native)';$/m.test(errBoundary) && !/from '\.\.\/\.\.\/(constants|lib)\//.test(errBoundary.split('componentDidCatch')[0]));
 
+// --- Hermes polyfills (the release-only TextDecoder crash the emulator gate caught)
+const polyfills = read('lib/polyfills.ts');
+ok('polyfills: installs TextDecoder/TextEncoder + URL before firebase loads', /TextDecoder/.test(polyfills) && /TextEncoder/.test(polyfills) && /react-native-url-polyfill/.test(polyfills));
+ok('index.js: polyfills imported before the router entry', indexJs.indexOf("import './lib/polyfills'") >= 0 && indexJs.indexOf("import './lib/polyfills'") < indexJs.indexOf("import '@expo/metro-runtime'"));
+for (const f of ['lib/firebase.ts', 'lib/auth.tsx', 'lib/media.ts', 'lib/data/firebaseBackend.ts']) {
+  const src = read(f);
+  const polyAt = src.search(/^import '\.\.?\/polyfills';/m);
+  const fbAt = src.search(/^import .*from 'firebase\//m) >= 0 ? src.search(/^import .*from 'firebase\//m) : src.search(/^import \{$/m);
+  ok(`${f}: polyfills import precedes firebase/* imports`, polyAt >= 0 && polyAt < src.indexOf("from 'firebase/"));
+}
+
 // --- CI gate integrity (mandate #18)
 const wf = read('.github/workflows/build-apk.yml');
 const bootCheck = read('scripts/ci/boot-check.sh');

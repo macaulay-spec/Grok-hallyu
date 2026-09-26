@@ -17,7 +17,7 @@
  *   • Module load must never throw: startup safety requires the root navigator to mount even if
  *     Firebase init somehow fails — errors surface at first use via requireFirebase().
  */
-import 'react-native-url-polyfill/auto';
+import './polyfills'; // TextDecoder/TextEncoder (Hermes) + URL — MUST precede firebase/* below
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import { getApp, getApps, initializeApp, type FirebaseApp } from 'firebase/app';

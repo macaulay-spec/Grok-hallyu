@@ -10,6 +10,10 @@
 // this a module-init throw in the very first route load could escape the trap. app/_layout.tsx
 // keeps its own `import '../lib/crash'` (installGlobalErrorTrap is idempotent — first call wins).
 import './lib/crash';
+// Polyfills (TextDecoder/TextEncoder for Hermes + URL) must exist before ANY firebase module
+// evaluates — @firebase/firestore throws at import time without them (release-only crash the CI
+// emulator gate caught). Idempotent; lib/polyfills.ts explains the whole story.
+import './lib/polyfills';
 import '@expo/metro-runtime';
 import { markBoot, resetBootTrail } from './lib/boot';
 

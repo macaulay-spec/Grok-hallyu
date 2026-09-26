@@ -12,6 +12,7 @@
  * The compositor is pure and unit-tested (scripts/test-watermark.mjs); when it cannot run (e.g. an
  * unsupported source format) we fall back honestly and do NOT claim a burn-in happened.
  */
+import './polyfills'; // MUST precede the firebase/* imports below (Hermes TextDecoder crash)
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';

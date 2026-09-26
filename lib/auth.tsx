@@ -18,6 +18,7 @@
  *   • account deletion: purge the member's Firestore/Storage data, then delete the Firebase
  *     auth account (with re-auth handling for stale sessions / Google accounts).
  */
+import './polyfills'; // MUST precede the firebase/* imports below (Hermes TextDecoder crash)
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Linking from 'expo-linking';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
