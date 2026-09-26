@@ -25,9 +25,16 @@ export default function ResetPassword() {
   const submit = async () => {
     setBusy(true);
     setError(null);
+    // Recovering via the emailed link works while signed out: updatePassword() confirms the
+    // pending one-time code, then the member signs in with the new password.
+    const viaLink = auth.hasPendingReset && auth.status !== 'signedIn';
     try {
       await auth.updatePassword(p1);
-      toast.show({ message: 'Password updated. You’re signed in.', icon: 'checkmark-circle', tone: 'success' });
+      toast.show({
+        message: viaLink ? 'Password reset. Sign in with your new password.' : 'Password updated. You’re signed in.',
+        icon: 'checkmark-circle',
+        tone: 'success',
+      });
       router.replace('/');
     } catch (e) {
       setError(e as AuthError);
@@ -43,13 +50,13 @@ export default function ResetPassword() {
           Choose a new password.
         </Text>
         <Text variant="body" tone="secondary" style={{ marginTop: space.x2, marginBottom: space.x6 }}>
-          {auth.status === 'signedIn' ? 'Your account is recovered. Set a password you’ll remember.' : 'Open the link from your email on this device to recover your account, then set a password here.'}
+          {auth.status === 'signedIn' || auth.hasPendingReset ? 'Your account is recovered. Set a password you’ll remember.' : 'Open the link from your email on this device to recover your account, then set a password here.'}
         </Text>
         <View style={{ gap: space.x4 }}>
           <TextField label="New password" value={p1} onChangeText={setP1} password autoComplete="new-password" leading="lock-closed-outline" hint="At least 8 characters with a number" />
           <TextField label="Repeat password" value={p2} onChangeText={setP2} password leading="lock-closed-outline" error={p2 && p1 !== p2 ? 'Passwords don’t match.' : null} returnKeyType="go" onSubmitEditing={submit} />
           {error ? <InlineNotice tone="danger" icon="alert-circle-outline" text={error.message} /> : null}
-          <Button label="Save password" size="lg" block onPress={submit} loading={busy} disabled={!valid || auth.status !== 'signedIn'} />
+          <Button label="Save password" size="lg" block onPress={submit} loading={busy} disabled={!valid || (auth.status !== 'signedIn' && !auth.hasPendingReset)} />
         </View>
       </ScrollScreen>
     </Screen>

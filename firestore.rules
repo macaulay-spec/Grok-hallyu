@@ -1,104 +1,173 @@
 rules_version = '2';
+
+// Hallyu — Firestore security rules (Firebase is the primary backend).
+//
+// Model (see lib/data/firebaseBackend.ts and docs/backend/FIREBASE.md):
+//   users/{uid}                     PUBLIC profile card — public fields only (no email/prefs)
+//   users/{uid}/private/**          owner-only (email, prefs, onboarding, lastSeenActivity)
+//   users/{uid}/{sub}               owner-only private subcollections (watchlist, saved, blocks,
+//                                   mutes, dramaNotify, reactions, commentRefs, downloads)
+//   users/{uid}/follows/**          owner-written, publicly readable (social graph)
+//   users/{uid}/followers/**        written by the FOLLOWER (reverse index), publicly readable
+//   users/{uid}/collections/**      owner-written; public-visibility docs readable by everyone
+//   users/{uid}/notifications/**    owner reads/updates; created by the ACTING member only
+//   posts/{id}                      public read; owner write; non-owner writes limited to the
+//                                   counter keys that reactions/comments/saves legitimately bump
+//   posts/{id}/comments/{cid}       public read; author write; post owner may moderate (state)
+//   collections/{id}                public mirror of public collections; owner write; non-owner
+//                                   writes limited to followerCount
+//   reports/{id}                    create-only (write-once, never readable back by clients)
+//
+// Everything not matched below is denied by the default-deny catch-all.
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Global helper functions
+
+    // -----------------------------------------------------------------------------------------
+    // Helpers
+    // -----------------------------------------------------------------------------------------
     function isSignedIn() {
       return request.auth != null;
     }
-    function isOwner(userId) {
+    function isMe(userId) {
       return isSignedIn() && request.auth.uid == userId;
     }
     function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+      return id is string && id.size() > 0 && id.size() <= 150 && id.matches('^[A-Za-z0-9_\\-]+$');
+    }
+    /** Keys a non-owner may touch on a post: reaction counters + the derived counts + updatedAt. */
+    function postCounterKeys() {
+      return [
+        'reactions.loved', 'reactions.cried', 'reactions.screamed',
+        'reactions.swooned', 'reactions.laughed', 'reactions.furious',
+        'commentCount', 'saveCount', 'updatedAt',
+      ];
+    }
+    function commentCounterKeys() {
+      return [
+        'reactions.loved', 'reactions.cried', 'reactions.screamed',
+        'reactions.swooned', 'reactions.laughed', 'reactions.furious',
+        'updatedAt',
+      ];
     }
 
-    // Default deny catch-all
+    // Default deny — any collection not matched below is inaccessible.
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // Users Collection & Private Subcollections
+    // -----------------------------------------------------------------------------------------
+    // Users
+    // -----------------------------------------------------------------------------------------
     match /users/{userId} {
-      allow read: if isSignedIn();
-      allow create: if isOwner(userId) && isValidId(userId);
-      allow update, delete: if isOwner(userId);
+      // Public profile card. Contains ONLY public fields — email/prefs live in private/me below.
+      allow read: if true;
+      allow create: if isMe(userId) && isValidId(userId);
+      // Owner: full control. Others: ONLY the counters a follow legitimately bumps (each side of
+      // a follow updates its own follower/following count on both user docs).
+      allow update: if isMe(userId)
+        || (isSignedIn() && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['followersCount', 'followingCount', 'updatedAt']));
+      allow delete: if isMe(userId);
 
-      match /watchlist/{watchlistId} {
-        allow read: if isOwner(userId);
-        allow create, update, delete: if isOwner(userId) && isValidId(watchlistId);
+      // Owner-private state (email, prefs, onboarding, activity marker).
+      match /private/{docId} {
+        allow read, write: if isMe(userId);
       }
 
-      match /saved/{postId} {
-        allow read: if isOwner(userId);
-        allow create, update, delete: if isOwner(userId);
-      }
+      // Private per-member subcollections.
+      match /watchlist/{itemId}     { allow read, write: if isMe(userId); }
+      match /saved/{postId}         { allow read, write: if isMe(userId); }
+      match /blocks/{blockedId}     { allow read, write: if isMe(userId); }
+      match /mutes/{muteId}         { allow read, write: if isMe(userId); }
+      match /dramaNotify/{dramaId}  { allow read, write: if isMe(userId); }
+      match /reactions/{targetId}   { allow read, write: if isMe(userId); }
+      match /commentRefs/{cid}      { allow read, write: if isMe(userId); }
+      match /downloads/{keyId}      { allow read, write: if isMe(userId); }
 
+      // Social graph: owner-written following edges; readable so profile tabs can list them.
       match /follows/{followId} {
-        allow read: if isSignedIn();
-        allow create, update, delete: if isOwner(userId);
+        allow read: if true;
+        allow create: if isMe(userId) && request.resource.data.kind is string;
+        allow update, delete: if isMe(userId);
       }
 
+      // Reverse index: written/removed by the FOLLOWER, readable by everyone (follower lists).
+      match /followers/{followerId} {
+        allow read: if true;
+        allow create: if isSignedIn() && request.auth.uid == followerId;
+        allow delete: if isSignedIn() && (request.auth.uid == followerId || isMe(userId));
+        allow update: if false;
+      }
+
+      // Member's collections: owner-managed; public ones readable by everyone.
       match /collections/{collectionId} {
-        allow read: if isSignedIn();
-        allow create, update, delete: if isOwner(userId);
+        allow read: if isMe(userId) || (resource.data.visibility == 'public');
+        allow create: if isMe(userId) && isValidId(collectionId);
+        allow update, delete: if isMe(userId);
       }
 
+      // Notifications: owner reads/marks/deletes. Creation is done BY the acting member into the
+      // TARGET's doc — so actorIds must contain the caller and the payload stays bounded.
       match /notifications/{notificationId} {
-        allow read, update, delete: if isOwner(userId);
-        allow create: if isSignedIn();
-      }
-
-      match /blocks/{blockedUserId} {
-        allow read, write: if isOwner(userId);
-      }
-
-      match /mutes/{muteId} {
-        allow read, write: if isOwner(userId);
-      }
-
-      match /dramaNotify/{dramaId} {
-        allow read, write: if isOwner(userId);
+        allow read, update, delete: if isMe(userId);
+        allow create: if isSignedIn()
+          && request.resource.data.actorIds is list
+          && request.resource.data.actorIds.size() >= 1
+          && request.resource.data.actorIds.size() <= 8
+          && request.auth.uid in request.resource.data.actorIds
+          && request.resource.data.read == false;
       }
     }
 
-    // Posts Collection
+    // -----------------------------------------------------------------------------------------
+    // Posts + comments
+    // -----------------------------------------------------------------------------------------
     match /posts/{postId} {
       allow read: if true;
-      allow create: if isSignedIn() && isValidId(postId) && (request.resource.data.userId == request.auth.uid || request.resource.data.authorId == request.auth.uid);
-      allow update: if isSignedIn() && (
-        resource.data.userId == request.auth.uid ||
-        resource.data.authorId == request.auth.uid ||
-        // Allow like/comment counters increments
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likesCount', 'commentCount', 'saveCount', 'state', 'mediaUrl', 'mediaType', 'videoDuration', 'videoWidth', 'videoHeight', 'updatedAt'])
-      );
-      allow delete: if isSignedIn() && (resource.data.userId == request.auth.uid || resource.data.authorId == request.auth.uid);
+      allow create: if isSignedIn() && isValidId(postId)
+        && request.resource.data.authorId == request.auth.uid
+        && request.resource.data.state == 'active';
+      // Owner edits/deletes freely. Non-owners may ONLY bump the counter keys that reacting,
+      // commenting (commentCount by a comment author deleting their comment) and saving touch —
+      // body/media/state/authorship are untouchable by anyone but the post owner.
+      allow update: if isMe(resource.data.authorId)
+        || (isSignedIn() && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(postCounterKeys()));
+      allow delete: if isMe(resource.data.authorId);
 
-      // Comments subcollection
       match /comments/{commentId} {
         allow read: if true;
-        allow create: if isSignedIn() && isValidId(commentId) && (request.resource.data.userId == request.auth.uid || request.resource.data.authorId == request.auth.uid);
-        allow update, delete: if isSignedIn() && (resource.data.userId == request.auth.uid || resource.data.authorId == request.auth.uid);
-      }
-
-      // Likes subcollection
-      match /likes/{likeId} {
-        allow read: if true;
-        allow create: if isSignedIn() && isValidId(likeId) && request.resource.data.userId == request.auth.uid;
-        allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+        allow create: if isSignedIn() && isValidId(commentId)
+          && request.resource.data.authorId == request.auth.uid;
+        // Comment author edits/tombstones; the POST owner may moderate (hide/delete) the comment;
+        // anyone reacting bumps only the reaction counters.
+        allow update: if isMe(resource.data.authorId)
+          || (isSignedIn() && request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(commentCounterKeys()));
+        allow delete: if isMe(resource.data.authorId);
       }
     }
 
-    // Top-level Public Collections
+    // -----------------------------------------------------------------------------------------
+    // Public collection mirrors + reports
+    // -----------------------------------------------------------------------------------------
     match /collections/{collectionId} {
       allow read: if true;
-      allow create, update, delete: if isSignedIn() && (resource == null || resource.data.userId == request.auth.uid);
+      allow create: if isSignedIn() && isValidId(collectionId)
+        && request.resource.data.ownerId == request.auth.uid;
+      // Owner manages the mirror; followers bump only followerCount.
+      allow update: if isSignedIn() && (
+        resource.data.ownerId == request.auth.uid
+        || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['followerCount', 'updatedAt'])
+      );
+      allow delete: if isSignedIn() && resource.data.ownerId == request.auth.uid;
     }
 
-    // Moderation Reports
     match /reports/{reportId} {
-      allow create: if isSignedIn();
-      allow read, delete: if false; // server / admin only
+      // Write-once moderation reports: the reporter is recorded, clients can never read back.
+      allow create: if isSignedIn() && request.resource.data.reporterId == request.auth.uid;
+      allow read, update, delete: if false;
     }
   }
 }

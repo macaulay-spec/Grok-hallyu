@@ -1,5 +1,10 @@
 /**
- * The real backend: Supabase (PostgREST over the `api` schema + Storage + Edge Functions).
+ * LEGACY RECOVERY ADAPTER: the pre-Firebase Supabase backend (PostgREST over the `api` schema +
+ * Storage + Edge Functions). Firebase (lib/data/firebaseBackend.ts) is the primary backend and
+ * the source of truth; this module is NOT wired into the app by default — it exists so the old
+ * server can be re-registered explicitly via setBackend() (lib/data/sync.ts) for data recovery or
+ * migration, and so supabase/functions + supabase/migrations stay meaningful. Do not add new
+ * features here.
  *
  * Reads call the `api.*` read RPCs (feed cards come back pre-joined with author, drama and viewer
  * state); writes call the `api.*` functions with the client-generated UUID so replays are idempotent.

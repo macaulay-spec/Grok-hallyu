@@ -1,0 +1,47 @@
+rules_version = '2';
+
+// Hallyu — Firebase Storage security rules.
+//
+// All media is user-scoped by the authenticated UID in the path (see storagePaths in
+// lib/firebase.ts):
+//   users/{uid}/avatar.jpg              profile avatar          (image,  ≤ 10 MB)
+//   posts/{uid}/{postId}/image_N.jpg    post images             (image,  ≤ 20 MB each)
+//   posts/{uid}/{postId}/poster.jpg     video-post poster       (image,  ≤ 20 MB)
+//   videos/{uid}/{postId}.mp4           post video              (video, ≤ 100 MB = VIDEO_MAX_BYTES)
+//
+// Reads are public (download URLs are embedded in public posts); writes are owner-only with
+// size/type caps. Everything else is denied.
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Default deny for any path not matched below.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+
+    match /users/{uid}/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    match /posts/{uid}/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.size < 20 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    match /videos/{uid}/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.size < 100 * 1024 * 1024
+        && request.resource.contentType.matches('video/.*');
+    }
+  }
+}

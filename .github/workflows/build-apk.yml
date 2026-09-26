@@ -31,18 +31,26 @@ jobs:
       ANDROID_NDK_VERSION: "26.1.10909125"
       # Optional build-time overrides for the backend endpoints. Empty secrets are ignored by
       # constants/keys.ts (which keeps its built-in defaults), so the APK still connects to the
-      # live backend when these are unset. Backend #3 keys are deliberately NOT injected here.
+      # live backend when these are unset.
+      # NOTE: Firebase is the primary backend and needs NO secrets here — its client config is
+      # public by design (firebase-applet-config.json; security lives in firestore/storage rules).
+      # The Supabase variables below feed the LEGACY recovery adapter only (lib/supabase.ts).
       EXPO_PUBLIC_HALYU_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_HALYU_SUPABASE_URL }}
       EXPO_PUBLIC_HALYU_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_HALYU_SUPABASE_ANON_KEY }}
       EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
       EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
       EXPO_PUBLIC_TMDB_ACCESS_TOKEN: ${{ secrets.EXPO_PUBLIC_TMDB_ACCESS_TOKEN }}
       EXPO_PUBLIC_TMDB_API_KEY: ${{ secrets.EXPO_PUBLIC_TMDB_API_KEY }}
-      # Backend #3 (video fallback): when these secrets are set, video uploads automatically
-      # redirect to that project whenever Backend #2 is exhausted or unavailable
-      # (lib/video.ts). Unset → the app behaves exactly as before, Backend #2 only.
+      # Backend #3: legacy video-storage bucket, READ-only now (videoUrl() resolves pre-migration
+      # media keys). Uploads go to Firebase Storage (lib/video.ts) — no broker involved.
       EXPO_PUBLIC_BACKEND_3_URL: ${{ secrets.EXPO_PUBLIC_BACKEND_3_URL }}
       EXPO_PUBLIC_BACKEND_3_ANON_KEY: ${{ secrets.EXPO_PUBLIC_BACKEND_3_ANON_KEY }}
+      # Native Google sign-in OAuth clients (optional until provisioned in Google Cloud Console:
+      # Android client = package com.hallyu.app + signing SHA-1). Unset → the app shows a clear
+      # "Google sign-in is not configured" error; email auth works regardless (lib/googleAuth.ts).
+      EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID: ${{ secrets.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID }}
+      EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID: ${{ secrets.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID }}
+      EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID: ${{ secrets.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID }}
 
     steps:
       - name: Checkout
@@ -55,7 +63,7 @@ jobs:
           cache: npm
 
       - name: Setup Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 17
@@ -71,6 +79,12 @@ jobs:
 
       - name: Typecheck
         run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Backend unit tests (pure logic + architecture invariants)
+        run: node scripts/test-firebase-backend.mjs
 
       - name: Expo prebuild
         run: npx expo prebuild --platform android --clean --no-install
@@ -156,11 +170,16 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm || true
 
-      # Automated emulator boot check: verifies the release APK installs and launches on a clean Android environment
-      # without crashing or ANRing before or during JavaScript initialization.
+      # Automated emulator boot check: verifies the release APK installs and launches on a clean
+      # Android environment, AND — via the app's own logcat traces — that cold start completes:
+      #   * "[hallyu:boot] index:redirect" must appear (splash left, landed on welcome/tabs),
+      #   * "[hallyu:crash]" (the global trap firing) or "Attempted to navigate" or
+      #     "index:nav-failed" must NOT appear (a swallowed JS error = failed build, no more
+      #     green-with-errors-underneath),
+      #   * no FATAL EXCEPTION / ANR.
+      # Hard gate (no continue-on-error): if this step is red, the APK is broken. Period.
       - name: Verify release APK boot on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
-        continue-on-error: true
         with:
           api-level: 30
           target: default
@@ -168,36 +187,85 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           script: |
-            set -euo pipefail
-            APK="android/app/build/outputs/apk/release/app-release.apk"
-            echo "Installing release APK: $APK"
-            adb install -r "$APK"
+            # POSIX sh ONLY. This action executes the script as `/usr/bin/sh -e ...` (dash, with
+            # -e IMPOSED externally). Hard-won rules from runs 36138512922 / 36139864397 /
+            # 36141310662:
+            #   * no bashisms — 'set -o pipefail' once killed every run on line 1 (exit 2);
+            #   * $GITHUB_WORKSPACE is EMPTY in this context — run 3 proved it ("start OUT="),
+            #     so paths built from it became nonexistent "/android/..." — locate the APK
+            #     with find instead and derive the workspace from its real path;
+            #   * -e is imposed by the action — EVERY fallible command must use the guarded
+            #     'cmd || rc=$?' form, never a bare command, or the script dies mid-check
+            #     (run 3 died at a plain 'ls' with exit 2).
+            set -u
+            note() { echo "::notice::[boot-check] $*"; }
 
-            echo "Clearing logcat buffer..."
-            adb logcat -c
+            APK=$(find /home/runner/work -type f -name app-release.apk -path "*/outputs/apk/release/*" 2>/dev/null | head -1) || APK=""
+            note "apk-locate found=${APK:+yes}"
+            if [ -z "$APK" ]; then
+              echo "::error::[boot-check] could not locate app-release.apk under /home/runner/work — falling back to cwd-relative path"
+              APK="android/app/build/outputs/apk/release/app-release.apk"
+            fi
+            case "$APK" in
+              /*) OUT=$(echo "$APK" | sed 's|/android/app/build.*||') ;;
+              *) OUT="." ;;
+            esac
+            note "workspace-derived len=$(echo "$OUT" | wc -c)"
 
-            echo "Launching app (com.hallyu.app/.MainActivity)..."
-            adb shell am start -n com.hallyu.app/.MainActivity
+            rc=0; adb devices || rc=$?; note "stage=adb-devices exit=$rc"
 
-            echo "Waiting 15 seconds for startup window..."
-            sleep 15
+            FAILED=0
+            rc=0; adb install -r "$APK" || rc=$?; note "stage=install exit=$rc"
+            if [ "$rc" != "0" ]; then echo "::error::[boot-check] adb install failed exit=$rc"; FAILED=1; fi
 
-            echo "Capturing logcat errors (*:E) and full logcat..."
-            adb logcat -d *:E > logcat-errors.txt || true
-            adb logcat -d > logcat-full.txt || true
+            rc=0; adb wait-for-device shell 'while [ "$(getprop sys.boot_completed)" != "1" ]; do sleep 1; done' || rc=$?; note "stage=boot-wait exit=$rc"
 
+            rc=0; adb logcat -c || rc=$?; note "stage=logcat-clear exit=$rc"
+
+            rc=0; adb shell am start -n com.hallyu.app/.MainActivity || rc=$?; note "stage=am-start exit=$rc"
+            if [ "$rc" != "0" ]; then echo "::error::[boot-check] am start failed exit=$rc"; FAILED=1; fi
+
+            # Poll for the app's own boot marker: cold start must leave the splash and redirect
+            # within ~48s (designed worst case: font gate 1.2s + auth ceiling 1.6s + bailout 6s).
+            FOUND=""
+            i=0
+            while [ "$i" -lt 24 ]; do
+              sleep 2
+              i=$((i+1))
+              # NOTE: the real line is "[hallyu:boot] +<N>ms index:redirect..." — the pattern
+              # must tolerate the elapsed-time field between prefix and phase.
+              if adb logcat -d 2>/dev/null | grep -q "\[hallyu:boot\].*index:redirect"; then FOUND="yes"; break; fi
+            done
+            note "stage=poll polls=$i found=${FOUND:-no}"
+
+            rc=0; adb logcat -d > "$OUT/logcat-full.txt" 2>/dev/null || rc=$?; note "stage=capture-full exit=$rc"
+            rc=0; adb logcat -d "*:E" > "$OUT/logcat-errors.txt" 2>/dev/null || rc=$?
+            rc=0; adb logcat -d 2>/dev/null | grep "\[hallyu:boot\]" > "$OUT/logcat-boot-trail.txt" || rc=$?
+            rc=0; ls -l "$OUT"/logcat-*.txt || rc=$?; note "stage=capture exit=$rc"
+
+            echo "=== BOOT TRAIL ==="
+            cat "$OUT/logcat-boot-trail.txt" 2>/dev/null || true
             echo "=== LOGCAT ERRORS (*:E) ==="
-            cat logcat-errors.txt || true
+            cat "$OUT/logcat-errors.txt" 2>/dev/null || true
             echo "==========================="
 
-            echo "Checking for FATAL EXCEPTION or ANR..."
-            if grep -E "FATAL EXCEPTION|ANR in" logcat-full.txt; then
-              echo "::error::Detected FATAL EXCEPTION or ANR during launch window!"
-              grep -C 5 -E "FATAL EXCEPTION|ANR in" logcat-full.txt
-              exit 1
+            if grep -E "FATAL EXCEPTION|ANR in" "$OUT/logcat-full.txt" 2>/dev/null; then
+              echo "::error::[boot-check] FATAL EXCEPTION or ANR during launch window"
+              grep -E "FATAL EXCEPTION.*|ANR in.*" "$OUT/logcat-full.txt" 2>/dev/null | head -4 | while IFS= read -r l; do echo "::error::[fatal-line] $l"; done
+              FAILED=1
             fi
-
-            echo "Emulator boot check passed: No FATAL EXCEPTION or ANR detected."
+            if grep -E "\[hallyu:crash\]|Attempted to navigate before mounting|index:nav-failed" "$OUT/logcat-full.txt" 2>/dev/null; then
+              echo "::error::[boot-check] swallowed JS error during launch — crash trap fired or navigation failed"
+              grep -E "\[hallyu:crash\].*|Attempted to navigate.*|index:nav-failed.*" "$OUT/logcat-full.txt" 2>/dev/null | head -6 | while IFS= read -r l; do echo "::error::[crash-line] $l"; done
+              FAILED=1
+            fi
+            if [ -z "$FOUND" ]; then
+              echo "::error::[boot-check] cold start never reached [hallyu:boot] index:redirect within ~48s"
+              tail -12 "$OUT/logcat-boot-trail.txt" 2>/dev/null | while IFS= read -r l; do echo "::error::[boot-trail] $l"; done
+              FAILED=1
+            fi
+            if [ "$FAILED" != "0" ]; then exit 1; fi
+            note "PASSED — reached redirect, no JS crash, no FATAL/ANR"
 
       - name: Upload emulator boot logcat artifact
         if: always()
@@ -207,7 +275,8 @@ jobs:
           path: |
             logcat-errors.txt
             logcat-full.txt
-          if-no-files-found: ignore
+            logcat-boot-trail.txt
+          if-no-files-found: warn
           retention-days: 7
 
       - name: Print Gradle diagnostics on failure

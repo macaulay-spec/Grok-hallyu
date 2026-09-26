@@ -1,0 +1,5 @@
+{
+  "//": "Hallyu deliberately uses ZERO composite indexes: every Firestore query in lib/data/firebaseBackend.ts is restricted to auto-indexed shapes (single-field equality/range, orderBy(field)+orderBy(__name__) cursors, equality-only zigzag, array-contains). Feeds that would need composite indexes are fetched as bounded windows and paged client-side. See docs/backend/FIREBASE.md.",
+  "indexes": [],
+  "fieldOverrides": []
+}

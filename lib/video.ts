@@ -1,25 +1,41 @@
 /**
- * Video posting pipeline.
- * Firebase Storage as primary with seamless secondary backend fallback.
+ * Video posting pipeline — Firebase Storage is the ONLY upload path.
+ *
+ * History: video bytes used to flow through a Supabase edge-function broker (`video-upload`)
+ * that minted signed upload URLs into a separate storage project. Per the Firebase-first
+ * architecture that broker upload path is REMOVED — uploads now go straight to Firebase Storage
+ * via the resumable pipeline in lib/firebase.ts (progress + cancellation supported).
+ *
+ * What remains of the legacy broker is READ-only: videoUrl() still resolves storage keys of
+ * pre-migration posts (b3/… and VIDEO_STORAGE_URL keys) so old media keeps playing. Those keys
+ * are ledgered in old Firestore/Supabase rows; nothing new creates them.
  */
-import * as FileSystem from 'expo-file-system';
-import { BACKEND_3_ANON_KEY, BACKEND_3_READY, BACKEND_3_URL, VIDEO_STORAGE_URL } from '../constants/keys';
+import { BACKEND_3_URL, VIDEO_STORAGE_URL } from '../constants/keys';
 import { BackendError } from './data/backend';
-import { supabase } from './supabase';
-import { auth as fbAuth, db, uploadToFirebaseStorage } from './firebase';
-import { doc, setDoc } from 'firebase/firestore';
+import {
+  fbAuth,
+  isLocalMediaUri,
+  storagePaths,
+  uploadVideoToFirebaseStorage,
+  type VideoUploadProgress,
+} from './firebase';
 
 /** Daily cap: 100MB max */
 export const VIDEO_MAX_BYTES = 100 * 1024 * 1024;
 
 const B3_PREFIX = 'b3/';
 
-/** Feature flag: video uploading always active */
-export async function videoUploadsAvailable(): Promise<boolean> {
+/** Feature flag: video uploading is always available (Firebase Storage needs no broker). */
+export function videoUploadsAvailable(): boolean {
   return true;
 }
 
-/** Public playback URL for a ledgered video key */
+/**
+ * Public playback URL for a ledgered video reference.
+ *  • http(s)/blob/data/file URLs (incl. Firebase Storage download URLs) pass through.
+ *  • Legacy broker keys (b3/… or the old video-storage project) resolve to their public buckets
+ *    so pre-migration posts keep playing.
+ */
 export function videoUrl(key: string): string {
   if (!key) return '';
   if (key.startsWith('http') || key.startsWith('blob:') || key.startsWith('data:') || key.startsWith('file:')) return key;
@@ -33,92 +49,28 @@ export function videoUrl(key: string): string {
   return key;
 }
 
-interface MintBody {
-  bytes: number;
-  durationMs: number;
-  seed: string;
+export interface UploadVideoResult {
+  /** Firebase Storage download URL (tokenized, playable everywhere). */
+  url: string;
+  /** Storage object path — stable identity for cleanup (downloads, post deletion, purge). */
+  key: string;
 }
 
-type Project = 'primary' | 'b3';
-
-interface Minted {
-  project: Project;
-  path: string;
-  token: string;
-}
-
-async function mint(project: Project, body: MintBody, jwt: string): Promise<Minted> {
-  const base = project === 'b3' ? BACKEND_3_URL! : VIDEO_STORAGE_URL;
-  const anonKey = project === 'b3' ? BACKEND_3_ANON_KEY : undefined;
-  const res = await fetch(`${base}/functions/v1/video-upload`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${jwt}`,
-      ...(anonKey ? { apikey: anonKey } : {}),
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  }).catch(() => undefined);
-  if (!res?.ok) {
-    const payload = res ? ((await res.json().catch(() => ({}))) as { error?: string; retryable?: boolean }) : undefined;
-    const message = payload?.error ?? (res ? `Video storage is unavailable (HTTP ${res.status})` : 'Video storage is unreachable');
-    const retryable = payload?.retryable ?? (!res || res.status === 429 || res.status >= 500);
-    throw new BackendError(message, retryable, res?.status);
-  }
-  const { path, token } = (await res.json()) as { path: string; token: string };
-  return { project, path, token };
-}
-
-async function putBytes(project: Project, minted: Minted, uri: string): Promise<void> {
-  const base = project === 'b3' ? BACKEND_3_URL! : VIDEO_STORAGE_URL;
-  const put = await FileSystem.uploadAsync(`${base}/storage/v1/object/upload/sign/${minted.path}?token=${encodeURIComponent(minted.token)}`, uri, {
-    httpMethod: 'PUT',
-    uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-    headers: { 'x-upsert': 'true', 'content-type': 'video/mp4' },
-  });
-  if (put.status >= 400) throw new BackendError('Video upload failed — will retry', true, put.status);
-}
-
-/** Upload video helper with Firebase Storage primary and Supabase fallback */
-export async function uploadVideo(asset: { uri: string; duration?: number; width?: number; height?: number }, postId: string): Promise<{ key: string }> {
-  const userId = fbAuth.currentUser?.uid || 'guest';
-  let storageUrl = asset.uri;
-
-  // Upload video file directly to Firebase Storage first if local URI
-  if (asset.uri.startsWith('file:') || asset.uri.startsWith('blob:') || asset.uri.startsWith('content:')) {
-    storageUrl = await uploadToFirebaseStorage(asset.uri, `videos/${userId}/${postId}.mp4`, 'video/mp4');
-  }
-
-  // Ledger to Firestore post document immediately
-  try {
-    const videoRef = doc(db, 'posts', postId);
-    await setDoc(videoRef, {
-      mediaUrl: storageUrl,
-      mediaType: 'video',
-      videoDuration: asset.duration,
-      videoWidth: asset.width,
-      videoHeight: asset.height,
-      updatedAt: new Date().toISOString(),
-    }, { merge: true });
-  } catch (err) {
-    console.warn('Firestore video ledger note:', err);
-  }
-
-  // Attempt secondary remote broker if configured as fallback
-  try {
-    const { data: session } = await supabase.auth.getSession();
-    const jwt = session.session?.access_token;
-    if (jwt && VIDEO_STORAGE_URL) {
-      const info = await FileSystem.getInfoAsync(asset.uri, { size: true }).catch(() => ({ exists: false, size: 0 }));
-      const bytes = 'size' in info ? (info as any).size : 0;
-      const body: MintBody = { bytes: bytes || 1024, durationMs: Math.round((asset.duration ?? 0) * 1000), seed: postId };
-      const minted = await mint('primary', body, jwt);
-      await putBytes('primary', minted, asset.uri);
-      return { key: minted.path };
-    }
-  } catch (secondaryErr) {
-    console.warn('Secondary video broker bypassed, using Firebase Storage URL:', secondaryErr);
-  }
-
-  return { key: storageUrl };
+/**
+ * Upload a local video asset to Firebase Storage (resumable pipeline).
+ * Throws BackendError on every failure — never returns the local uri pretending it uploaded.
+ * Remote http(s) inputs pass through unchanged.
+ */
+export async function uploadVideo(
+  asset: { uri: string; duration?: number; width?: number; height?: number },
+  postId: string,
+  opts: { onProgress?: (p: VideoUploadProgress) => void; signal?: AbortSignal } = {},
+): Promise<UploadVideoResult> {
+  if (!asset?.uri) throw new BackendError('Nothing to upload', false);
+  if (!isLocalMediaUri(asset.uri)) return { url: asset.uri, key: asset.uri };
+  const uid = fbAuth().currentUser?.uid;
+  if (!uid) throw new BackendError('Sign in to upload video', false, 401);
+  const path = storagePaths.video(uid, postId);
+  const url = await uploadVideoToFirebaseStorage(asset.uri, path, opts);
+  return { url, key: path };
 }
