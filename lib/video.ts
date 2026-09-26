@@ -18,7 +18,7 @@
  * (`b3/video/{uid}/{ulid}.mp4`), so playback URLs, download ledger and purge sweeps all resolve to
  * the project that actually owns the bytes. No client code anywhere else needs to know.
  *
- * Device-side downloads / saves and the watermark compositor live in `lib/media.ts` (kept separate
+ * Device-side downloads / saves live in `lib/media.ts` (kept separate
  * so they can pull in the image libraries without bloating this module).
  *
  * See docs/backend/10-video-storage.md and docs/backend/BACKEND-3.md.

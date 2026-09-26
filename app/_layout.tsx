@@ -1,6 +1,9 @@
-// Must be the first import in the app: the global error trap has to be in place before any
-// other module can evaluate, so a release-mode JS exception can never silently kill the process
-// ("opens then instantly exits"). See lib/crash.ts.
+// Must be the first import in the app. lib/textEncoding installs the TextEncoder/TextDecoder
+// globals Hermes lacks — the previous watermark chain (fast-png → iobuffer, now removed) constructed
+// them at module scope and killed cold boot with "Cannot read property 'ErrorBoundary' of
+// undefined". lib/crash then installs the global error trap before any other module can evaluate,
+// so a release-mode JS exception can never silently kill the process. See lib/crash.ts.
+import '../lib/textEncoding';
 import '../lib/crash';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFonts } from 'expo-font';

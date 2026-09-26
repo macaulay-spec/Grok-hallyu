@@ -13,8 +13,7 @@
     "ios": "expo run:ios",
     "check:edge": "node scripts/check-edge-functions.mjs",
     "validate:db": "node docs/backend/validate-schema.mjs",
-    "check": "npm run typecheck && npm run check:edge && npm run validate:db && npm run test:watermark && npm run test:save",
-    "test:watermark": "node scripts/test-watermark.mjs",
+    "check": "npm run typecheck && npm run check:edge && npm run validate:db && npm run test:save",
     "test:save": "node scripts/verify-save-flow.mjs"
   },
   "dependencies": {
@@ -45,8 +44,6 @@
     "expo-system-ui": "~3.0.7",
     "expo-video-thumbnails": "~8.0.0",
     "expo-web-browser": "~13.0.3",
-    "fast-png": "^6.4.0",
-    "jpeg-js": "^0.4.4",
     "react": "18.2.0",
     "react-dom": "^18.2.0",
     "react-native": "0.74.5",

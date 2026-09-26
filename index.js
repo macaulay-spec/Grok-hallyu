@@ -4,11 +4,18 @@
 // error was swallowed, React never mounted, and nothing ever appeared).
 // This file must only import and register the root — no app components here.
 //
-// lib/crash comes FIRST — before @expo/metro-runtime and before the router is required — so the
+// lib/textEncoding comes FIRST of all: Hermes has no TextEncoder/TextDecoder, and bundled deps
+// (fast-png/iobuffer in the cold-boot chain, Supabase's realtime/auth clients) touch them at
+// module-evaluation time. Without the globals installed first, requiring app/_layout.tsx threw
+// "Property 'TextDecoder' doesn't exist", which then surfaced as "Cannot read property
+// 'ErrorBoundary' of undefined". See lib/textEncoding.ts.
+//
+// lib/crash comes next — before @expo/metro-runtime and before the router is required — so the
 // global ErrorUtils trap is installed before ANY app/route module evaluates. expo-router loads
 // route modules lazily, AFTER this entry returns, so without this a module-init throw in the very
 // first route load could escape the trap and take the process down silently. app/_layout.tsx keeps
 // its own `import '../lib/crash'`; installGlobalErrorTrap is idempotent (first call wins).
+import './lib/textEncoding';
 import './lib/crash';
 import '@expo/metro-runtime';
 import { markBoot, resetBootTrail } from './lib/boot';
