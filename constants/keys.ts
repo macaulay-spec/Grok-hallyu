@@ -53,3 +53,25 @@ export const BACKEND_3_ANON_KEY = env(process.env.EXPO_PUBLIC_BACKEND_3_ANON_KEY
  * Backend #2 remains the only video destination.
  */
 export const BACKEND_3_READY = !!(BACKEND_3_URL && BACKEND_3_ANON_KEY);
+
+/**
+ * Google Sign-In OAuth client IDs (Firebase Auth → Google provider).
+ *
+ * These are PUBLIC identifiers (they ship in the bundle by design, like the Firebase web API
+ * key — an OAuth client ID authenticates nothing by itself; the signed id_token does).
+ *
+ * - WEB client: used by `expo start --web` (popup flow) and as the identity-provider client for
+ *   Firebase credential exchange. Defaults to the project's own web client.
+ * - ANDROID client: REQUIRED for native Google Sign-In. Create it in Google Cloud Console →
+ *   Credentials → OAuth client ID → Android, with package `com.hallyu.app` and the SHA-1 of the
+ *   signing key (debug: `cd android && ./gradlew signingReport`; release: the upload key).
+ *   Until it is set, native Google sign-in reports a clear "not configured" error instead of
+ *   pretending to work — see lib/googleAuth.ts.
+ * - IOS client: same, for a future iOS build (bundle id `com.hallyu.app`).
+ */
+export const GOOGLE_WEB_CLIENT_ID =
+  env(process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID) ??
+  '490855512954-au8e3sco0ru4ptuquadt5qp9ua9flppm.apps.googleusercontent.com';
+export const GOOGLE_ANDROID_CLIENT_ID = env(process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID);
+export const GOOGLE_IOS_CLIENT_ID = env(process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID);
+

@@ -6,7 +6,7 @@ import { Screen, useListPadding } from '../../../components/ui/Screen';
 import { Segmented } from '../../../components/ui/Segmented';
 import { EmptyState } from '../../../components/ui/States';
 import { TopBar } from '../../../components/ui/TopBar';
-import { fetchConnections } from '../../../lib/data/supabaseBackend';
+import { fetchConnections } from '../../../lib/data/firebaseBackend';
 import { useApp, useLoad } from '../../../lib/hooks';
 import { User } from '../../../lib/model';
 

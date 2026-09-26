@@ -18,7 +18,8 @@ import * as sel from '../selectors';
 import { Action, AppState, dispatch, dispatchLocal, getState, Mutation, setDispatchMiddleware, useSlice } from '../store';
 import { Backend, BackendError, PullScope } from './backend';
 import { firebaseBackend } from './firebaseBackend';
-import { supabaseBackend } from './supabaseBackend';
+// NOTE: the legacy Supabase adapter (./supabaseBackend) is NOT imported here on purpose — it is a
+// recovery-only backend that must be registered explicitly via setBackend() by whoever needs it.
 import { track, reportError } from '../analytics';
 
 let backend: Backend = firebaseBackend;

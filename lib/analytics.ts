@@ -8,6 +8,7 @@ export type AnalyticsEvent =
   | 'auth.signin'
   | 'auth.signup'
   | 'auth.guest'
+  | 'auth.delete'
   | 'onboarding.done'
   | 'post.publish'
   | 'post.delete'

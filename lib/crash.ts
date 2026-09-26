@@ -40,7 +40,10 @@ export function installGlobalErrorTrap(): void {
   eu.setGlobalHandler((error, isFatal) => {
     const e = error instanceof Error ? error : new Error(String(error));
     try {
-      if (__DEV__) console.warn(`[hallyu:crash] ${isFatal ? 'fatal' : 'error'}`, e.message, e.stack);
+      // Log in EVERY mode: in release this is the only device-visible trace of a swallowed error
+      // (logcat E/ReactNativeJS "[hallyu:crash]"), which the CI emulator boot gate greps for and
+      // adb triage can see in the field. The Alert below stays the on-screen surface.
+      console.error(`[hallyu:crash] ${isFatal ? 'fatal' : 'error'}`, e.message, e.stack);
       void AsyncStorage.setItem(
         CRASH_KEY,
         JSON.stringify({ name: e.name, message: e.message, stack: e.stack?.slice(0, 2000), at: new Date().toISOString() } satisfies CrashRecord),
@@ -72,3 +75,5 @@ export async function lastCrash(): Promise<CrashRecord | null> {
     return null;
   }
 }
+
+installGlobalErrorTrap();

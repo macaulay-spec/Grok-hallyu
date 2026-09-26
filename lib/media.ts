@@ -17,8 +17,9 @@ import * as FileSystem from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 import { Platform } from 'react-native';
+import { collection, documentId, doc, getDoc, getDocs, query, setDoc, where, limit as fbLimit } from 'firebase/firestore';
 import { BackendError } from './data/backend';
-import { supabase } from './supabase';
+import { fbAuth, fbDb, mapFirebaseError } from './firebase';
 import { burnIntoJpeg, hasWatermarkSource, setWatermarkSource } from './watermark';
 
 const WATERMARK_PNG = require('../assets/branding/watermark.png');
@@ -115,25 +116,66 @@ export async function makePoster(videoUri: string): Promise<string | undefined> 
 }
 
 // ---------------------------------------------------------------------------------------------
-// Download ledger
+// Download ledger — Firestore users/{uid}/downloads/{keyId} (owner-only rules), with the
+// on-device AsyncStorage ledger as the offline/dedupe source of truth.
 // ---------------------------------------------------------------------------------------------
-/** Tell the backend this member is about to download `key`; returns the cumulative count. */
-export async function recordDownload(key: string, postId?: string): Promise<{ counted: boolean; count: number }> {
-  try {
-    const { data, error } = await supabase.rpc('record_download', { p_key: key, p_post_id: postId ?? null });
-    if (!error && data) return { counted: !!data?.counted, count: Number(data?.count ?? 0) };
-  } catch {}
-  return { counted: true, count: 1 };
+function ledgerId(key: string): string {
+  return key.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 150);
 }
 
-/** Which of these media keys has this member already downloaded (saved state + dedupe)? */
+function currentUid(): string | null {
+  try {
+    return fbAuth().currentUser?.uid ?? null;
+  } catch {
+    return null; // Firebase unavailable — callers degrade to the local ledger
+  }
+}
+
+/**
+ * Tell the backend this member is about to download `key`; returns the cumulative count.
+ * THROWS a BackendError when the ledger write fails — a download is never silently "recorded"
+ * against a backend that rejected the write. Guests (no account) skip the remote ledger honestly
+ * and are tracked by the on-device ledger only.
+ */
+export async function recordDownload(key: string, postId?: string): Promise<{ counted: boolean; count: number }> {
+  const uid = currentUid();
+  if (!uid) return { counted: false, count: 1 };
+  const db = fbDb();
+  const ref = doc(db, 'users', uid, 'downloads', ledgerId(key));
+  const ts = new Date().toISOString();
+  try {
+    const prev = (await getDoc(ref).catch(() => null))?.data() as { count?: number; firstAt?: string } | undefined;
+    const count = (prev?.count ?? 0) + 1;
+    await setDoc(ref, { key, postId: postId ?? null, count, firstAt: prev?.firstAt ?? ts, lastAt: ts }, { merge: true });
+    return { counted: true, count };
+  } catch (e) {
+    throw mapFirebaseError(e, 'Download ledger');
+  }
+}
+
+/**
+ * Which of these media keys has this member already downloaded (saved state + dedupe)?
+ * Reads the member's Firestore ledger; when the backend is unreachable it falls back to the
+ * on-device ledger (the honest local truth) instead of failing the UI.
+ */
 export async function downloadState(keys: string[]): Promise<Record<string, boolean>> {
   if (!keys.length) return {};
-  try {
-    const { data } = await supabase.rpc('download_state', { p_keys: keys });
-    if (data) return data as Record<string, boolean>;
-  } catch {}
-  return {};
+  const out: Record<string, boolean> = {};
+  const uid = currentUid();
+  if (uid) {
+    try {
+      const ids = keys.map(ledgerId).slice(0, 30);
+      const snap = await getDocs(query(collection(fbDb(), 'users', uid, 'downloads'), where(documentId(), 'in', ids), fbLimit(30)));
+      const found = new Set(snap.docs.map((d) => d.id));
+      for (const k of keys) out[k] = found.has(ledgerId(k));
+      return out;
+    } catch (e) {
+      console.warn('[hallyu:media] downloadState falling back to device ledger:', (e as Error)?.message ?? e);
+    }
+  }
+  const done = await readDone();
+  for (const k of keys) out[k] = !!done[k];
+  return out;
 }
 
 type DoneMap = Record<string, string>;
@@ -199,7 +241,8 @@ export interface SaveVideoProgress {
  *  - permissions are requested first and refusal surfaces as a distinct error;
  *  - progress streams through `onProgress`; `signal` aborts cleanly (pause the resumable);
  *  - interrupted downloads resume instead of restarting (resumable downloader);
- *  - the backend ledger is told exactly once (record_download) before the transfer.
+ *  - the Firestore download ledger is written exactly once before the transfer — if that write
+ *    fails the save fails honestly (never "downloaded" while the backend rejected the record).
  */
 export async function saveVideo(opts: { key: string; url: string; postId?: string; onProgress?: (p: SaveVideoProgress) => void; signal?: AbortSignal }): Promise<{ saved: boolean; already?: boolean }> {
   const { key, url, postId, onProgress, signal } = opts;
@@ -211,7 +254,7 @@ export async function saveVideo(opts: { key: string; url: string; postId?: strin
   if (done[key]) return { saved: true, already: true };
   if (signal?.aborted) throw new BackendError('Cancelled', false);
 
-  // Counted once server-side, before the transfer, so the ledger survives a client crash mid-download.
+  // Counted once in Firestore, before the transfer, so the ledger survives a client crash mid-download.
   await recordDownload(key, postId);
 
   const target = `${FileSystem.cacheDirectory}hallyu_${key.replace(/[^A-Za-z0-9]/g, '_')}.mp4`;

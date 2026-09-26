@@ -1,0 +1,20 @@
+{
+  "projects": {
+    "default": "zesty-structure-gcf5x"
+  },
+  "firestore": {
+    "database": "ai-studio-grokhallyu-4c476fa2-ed9d-495f-a176-30f839145a57",
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  },
+  "emulators": {
+    "auth": { "port": 9099 },
+    "firestore": { "port": 8080 },
+    "storage": { "port": 9199 },
+    "ui": { "enabled": false },
+    "singleProjectMode": true
+  }
+}
