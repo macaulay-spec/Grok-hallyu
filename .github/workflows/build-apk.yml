@@ -9,7 +9,7 @@ on:
     paths-ignore:
       - "supabase/**"
       - "docs/**"
-      - "*.md"
+      - "**/*.md"
 
 concurrency:
   group: apk-${{ github.ref }}
@@ -95,14 +95,8 @@ jobs:
           test -f android/settings.gradle
           test -f android/build.gradle
 
-      - name: Show Android tool versions
-        working-directory: android
-        run: |
-          ./gradlew --version
-          echo "ANDROID_HOME=${ANDROID_HOME}"
-          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT}"
-          ls -la "$ANDROID_SDK_ROOT/ndk" || true
-
+      # Cache MUST be populated before the first `./gradlew` invocation below, otherwise the
+      # wrapper/caches it's meant to preserve get created outside the cache and never restored.
       - name: Cache Gradle
         uses: actions/cache@v4
         with:
@@ -112,6 +106,14 @@ jobs:
           key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle*', 'android/**/gradle-wrapper.properties') }}
           restore-keys: |
             gradle-${{ runner.os }}-
+
+      - name: Show Android tool versions
+        working-directory: android
+        run: |
+          ./gradlew --version
+          echo "ANDROID_HOME=${ANDROID_HOME}"
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT}"
+          ls -la "$ANDROID_SDK_ROOT/ndk" || true
 
       - name: Build release APK
         working-directory: android
@@ -124,10 +126,11 @@ jobs:
           set -euo pipefail
           chmod +x gradlew
 
+          # NOTE: --info intentionally omitted. On a RN Android build it produces 30–80 MB of
+          # stdout, GitHub truncates step logs at ~4 MB, and the actual Gradle error is lost.
           ./gradlew assembleRelease \
             --no-daemon \
             --stacktrace \
-            --info \
             --warning-mode all
 
           test -f app/build/outputs/apk/release/app-release.apk
@@ -153,8 +156,9 @@ jobs:
           "$BT/apksigner" verify --print-certs "$APK" | head -3
 
           echo "— embedded JS bundle —"
-          unzip -l "$APK" | grep -q "assets/index.android.bundle" || {
-            echo "::error::assets/index.android.bundle missing — the app would white-screen on launch."
+          # Hermes emits assets/index.android.bundle.hbc; classic emits assets/index.android.bundle.
+          unzip -l "$APK" | grep -qE 'assets/index\.android\.bundle(\.hbc)?$' || {
+            echo "::error::JS bundle missing (expected assets/index.android.bundle[.hbc]) — the app would white-screen on launch."
             exit 1
           }
           echo "JS bundle: present"
@@ -205,8 +209,10 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+      # Guarded so a pre-prebuild failure (checkout / npm ci / typecheck / lint) doesn't bury the
+      # real error under a cwd crash from a missing android/ directory.
       - name: Print Gradle diagnostics on failure
-        if: failure()
+        if: failure() && hashFiles('android/gradlew') != ''
         working-directory: android
         run: |
           echo "Gradle version:"
@@ -244,12 +250,18 @@ jobs:
         run: |
           set -euo pipefail
 
-          TAG="apk-${{ github.run_number }}"
+          # Tag by short SHA so re-runs of the same commit don't stack duplicate releases.
+          TAG="apk-${GITHUB_SHA::7}"
 
-          gh release create "$TAG" hallyu.apk \
-            --title "Hallyu APK #${{ github.run_number }}" \
-            --notes "Installable Android APK (${APK_SIZE}).
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists — uploading asset with --clobber."
+            gh release upload "$TAG" hallyu.apk --clobber
+          else
+            gh release create "$TAG" hallyu.apk \
+              --title "Hallyu APK ${GITHUB_SHA::7}" \
+              --notes "Installable Android APK (${APK_SIZE}).
 
-          Connected to live Supabase backend via constants/keys.ts.
+          Connected to live Firebase backend via constants/keys.ts.
 
           Install: download APK → allow unknown apps → open file."
+          fi
