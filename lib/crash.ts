@@ -72,3 +72,5 @@ export async function lastCrash(): Promise<CrashRecord | null> {
     return null;
   }
 }
+
+installGlobalErrorTrap();

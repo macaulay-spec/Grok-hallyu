@@ -15,8 +15,7 @@
     "validate:db": "node docs/backend/validate-schema.mjs",
     "check": "npm run typecheck && npm run check:edge && npm run validate:db && npm run test:watermark && npm run test:save",
     "test:watermark": "node scripts/test-watermark.mjs",
-    "test:save": "node scripts/verify-save-flow.mjs",
-    "postinstall": "node scripts/patch-cors.mjs"
+    "test:save": "node scripts/verify-save-flow.mjs"
   },
   "dependencies": {
     "@expo/cli": "^0.18.31",
@@ -47,7 +46,6 @@
     "expo-video-thumbnails": "~8.0.0",
     "expo-web-browser": "~13.0.3",
     "fast-png": "^6.4.0",
-    "firebase": "^12.19.0",
     "jpeg-js": "^0.4.4",
     "react": "18.2.0",
     "react-dom": "^18.2.0",

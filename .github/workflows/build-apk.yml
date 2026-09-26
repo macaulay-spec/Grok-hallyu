@@ -72,48 +72,6 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Ensure google-services.json exists
-        run: |
-          if [ ! -f "google-services.json" ]; then
-            echo "Creating fallback google-services.json for build runner..."
-            cat << 'EOF' > google-services.json
-          {
-            "project_info": {
-              "project_number": "490855512954",
-              "project_id": "zesty-structure-gcf5x",
-              "storage_bucket": "zesty-structure-gcf5x.firebasestorage.app"
-            },
-            "client": [
-              {
-                "client_info": {
-                  "mobilesdk_app_id": "1:490855512954:android:2b71d71e9384902007b4c3",
-                  "android_client_info": {
-                    "package_name": "com.hallyu.app"
-                  }
-                },
-                "oauth_client": [
-                  {
-                    "client_id": "490855512954-au8e3sco0ru4ptuquadt5qp9ua9flppm.apps.googleusercontent.com",
-                    "client_type": 3
-                  }
-                ],
-                "api_key": [
-                  {
-                    "current_key": "AIzaSyDq1QdyEMJj6u50LpLbjpgkkOPMOAdeboM"
-                  }
-                ],
-                "services": {
-                  "appinvite_service": {
-                    "other_platform_oauth_client": []
-                  }
-                }
-              }
-            ],
-            "configuration_version": "1"
-          }
-          EOF
-          fi
-
       - name: Expo prebuild
         run: npx expo prebuild --platform android --clean --no-install
 
