@@ -28,7 +28,7 @@
         "authorHandle": { "type": "string" },
         "authorName": { "type": "string" },
         "authorAvatar": { "type": "string" },
-        "type": { "type": "string", "enum": ["post", "review", "clip", "question"] },
+        "type": { "type": "string", "enum": ["post", "review", "short", "discussion", "recommendation", "clip", "question"] },
         "body": { "type": "string", "maxLength": 5000 },
         "dramaId": { "type": "string" },
         "dramaTitle": { "type": "string" },
@@ -39,7 +39,7 @@
         "createdAt": { "type": "string" },
         "updatedAt": { "type": "string" }
       },
-      "required": ["id", "userId", "body", "type"]
+      "required": ["id", "userId", "type"]
     },
     "Comment": {
       "title": "Post Comment",
@@ -59,7 +59,7 @@
     },
     "Like": {
       "title": "Post Like",
-      "description": "User like record on a post",
+      "description": "User like record on a post or comment",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
@@ -77,12 +77,79 @@
         "id": { "type": "string" },
         "userId": { "type": "string" },
         "dramaId": { "type": "string" },
-        "status": { "type": "string", "enum": ["watching", "plan_to_watch", "completed", "dropped"] },
+        "status": { "type": "string", "enum": ["watching", "plan_to_watch", "completed", "dropped", "want"] },
         "rating": { "type": "number" },
         "currentEpisode": { "type": "number" },
+        "note": { "type": "string" },
         "updatedAt": { "type": "string" }
       },
-      "required": ["id", "userId", "dramaId", "status"]
+      "required": ["id", "userId", "dramaId"]
+    },
+    "Follow": {
+      "title": "Follow Relation",
+      "description": "Follow relationship for user, drama, actor, or collection",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "kind": { "type": "string" },
+        "targetId": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "kind", "targetId"]
+    },
+    "Saved": {
+      "title": "Saved Post",
+      "description": "User bookmark for a post",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "postId": { "type": "string" },
+        "userId": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "postId", "userId"]
+    },
+    "Collection": {
+      "title": "Drama Collection",
+      "description": "Custom drama shelf / list",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "title"]
+    },
+    "Notification": {
+      "title": "User Notification",
+      "description": "In-app notification alert",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "type": { "type": "string" },
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId"]
+    },
+    "Report": {
+      "title": "User Report",
+      "description": "Content or user report for moderation",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "reporterId": { "type": "string" },
+        "targetType": { "type": "string" },
+        "reason": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "reporterId", "reason"]
     }
   },
   "firestore": {
@@ -90,9 +157,37 @@
       "schema": "User",
       "description": "User profiles"
     },
+    "/users/{userId}/watchlist/{watchlistId}": {
+      "schema": "WatchlistItem",
+      "description": "User watchlist items"
+    },
+    "/users/{userId}/saved/{postId}": {
+      "schema": "Saved",
+      "description": "User saved posts"
+    },
+    "/users/{userId}/follows/{followId}": {
+      "schema": "Follow",
+      "description": "User follows"
+    },
+    "/users/{userId}/collections/{collectionId}": {
+      "schema": "Collection",
+      "description": "User custom collections"
+    },
+    "/users/{userId}/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "User notifications"
+    },
+    "/users/{userId}/blocks/{blockedUserId}": {
+      "schema": "User",
+      "description": "User block records"
+    },
+    "/users/{userId}/mutes/{muteId}": {
+      "schema": "User",
+      "description": "User mute records"
+    },
     "/posts/{postId}": {
       "schema": "Post",
-      "description": "All community posts, reviews, and video clips"
+      "description": "Community posts, reviews, and video clips"
     },
     "/posts/{postId}/comments/{commentId}": {
       "schema": "Comment",
@@ -102,9 +197,13 @@
       "schema": "Like",
       "description": "Likes on specific posts"
     },
-    "/users/{userId}/watchlist/{watchlistId}": {
-      "schema": "WatchlistItem",
-      "description": "User personal drama watchlist"
+    "/collections/{collectionId}": {
+      "schema": "Collection",
+      "description": "Public community collections"
+    },
+    "/reports/{reportId}": {
+      "schema": "Report",
+      "description": "User moderation reports"
     }
   }
 }

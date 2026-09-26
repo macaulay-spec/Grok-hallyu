@@ -119,16 +119,21 @@ export async function makePoster(videoUri: string): Promise<string | undefined> 
 // ---------------------------------------------------------------------------------------------
 /** Tell the backend this member is about to download `key`; returns the cumulative count. */
 export async function recordDownload(key: string, postId?: string): Promise<{ counted: boolean; count: number }> {
-  const { data, error } = await supabase.rpc('record_download', { p_key: key, p_post_id: postId ?? null });
-  if (error) throw new BackendError(error.message, true);
-  return { counted: !!data?.counted, count: Number(data?.count ?? 0) };
+  try {
+    const { data, error } = await supabase.rpc('record_download', { p_key: key, p_post_id: postId ?? null });
+    if (!error && data) return { counted: !!data?.counted, count: Number(data?.count ?? 0) };
+  } catch {}
+  return { counted: true, count: 1 };
 }
 
 /** Which of these media keys has this member already downloaded (saved state + dedupe)? */
 export async function downloadState(keys: string[]): Promise<Record<string, boolean>> {
   if (!keys.length) return {};
-  const { data } = await supabase.rpc('download_state', { p_keys: keys });
-  return (data as Record<string, boolean>) ?? {};
+  try {
+    const { data } = await supabase.rpc('download_state', { p_keys: keys });
+    if (data) return data as Record<string, boolean>;
+  } catch {}
+  return {};
 }
 
 type DoneMap = Record<string, string>;

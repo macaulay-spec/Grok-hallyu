@@ -1,12 +1,12 @@
 /**
  * Video posting pipeline.
- * Firebase first with seamless secondary backend fallback.
+ * Firebase Storage as primary with seamless secondary backend fallback.
  */
 import * as FileSystem from 'expo-file-system';
 import { BACKEND_3_ANON_KEY, BACKEND_3_READY, BACKEND_3_URL, VIDEO_STORAGE_URL } from '../constants/keys';
 import { BackendError } from './data/backend';
 import { supabase } from './supabase';
-import { auth as fbAuth, db } from './firebase';
+import { auth as fbAuth, db, uploadToFirebaseStorage } from './firebase';
 import { doc, setDoc } from 'firebase/firestore';
 
 /** Daily cap: 100MB max */
@@ -14,13 +14,9 @@ export const VIDEO_MAX_BYTES = 100 * 1024 * 1024;
 
 const B3_PREFIX = 'b3/';
 
-/** Feature flag: always enable video uploading in modern app */
+/** Feature flag: video uploading always active */
 export async function videoUploadsAvailable(): Promise<boolean> {
-  try {
-    const { data } = await supabase.from('app_config').select('value').eq('key', 'video_uploads').maybeSingle();
-    if (data?.value === true || data?.value === 'true') return true;
-  } catch {}
-  return true; // Enabled for Firebase & hybrid video posting
+  return true;
 }
 
 /** Public playback URL for a ledgered video key */
@@ -83,15 +79,21 @@ async function putBytes(project: Project, minted: Minted, uri: string): Promise<
   if (put.status >= 400) throw new BackendError('Video upload failed — will retry', true, put.status);
 }
 
-/** Upload video helper with Firebase persistence and Supabase fallback */
+/** Upload video helper with Firebase Storage primary and Supabase fallback */
 export async function uploadVideo(asset: { uri: string; duration?: number; width?: number; height?: number }, postId: string): Promise<{ key: string }> {
-  const userId = fbAuth.currentUser?.uid;
+  const userId = fbAuth.currentUser?.uid || 'guest';
+  let storageUrl = asset.uri;
 
-  // Ledger to Firestore immediately
+  // Upload video file directly to Firebase Storage first if local URI
+  if (asset.uri.startsWith('file:') || asset.uri.startsWith('blob:') || asset.uri.startsWith('content:')) {
+    storageUrl = await uploadToFirebaseStorage(asset.uri, `videos/${userId}/${postId}.mp4`, 'video/mp4');
+  }
+
+  // Ledger to Firestore post document immediately
   try {
     const videoRef = doc(db, 'posts', postId);
     await setDoc(videoRef, {
-      mediaUrl: asset.uri,
+      mediaUrl: storageUrl,
       mediaType: 'video',
       videoDuration: asset.duration,
       videoWidth: asset.width,
@@ -99,10 +101,10 @@ export async function uploadVideo(asset: { uri: string; duration?: number; width
       updatedAt: new Date().toISOString(),
     }, { merge: true });
   } catch (err) {
-    console.warn('Firestore video ledger fallback:', err);
+    console.warn('Firestore video ledger note:', err);
   }
 
-  // Attempt secondary remote broker if configured
+  // Attempt secondary remote broker if configured as fallback
   try {
     const { data: session } = await supabase.auth.getSession();
     const jwt = session.session?.access_token;
@@ -115,8 +117,8 @@ export async function uploadVideo(asset: { uri: string; duration?: number; width
       return { key: minted.path };
     }
   } catch (secondaryErr) {
-    console.warn('Secondary video broker bypassed, using direct URI:', secondaryErr);
+    console.warn('Secondary video broker bypassed, using Firebase Storage URL:', secondaryErr);
   }
 
-  return { key: asset.uri };
+  return { key: storageUrl };
 }
