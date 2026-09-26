@@ -158,46 +158,20 @@ jobs:
 
       # Automated emulator boot check: verifies the release APK installs and launches on a clean Android environment
       # without crashing or ANRing before or during JavaScript initialization.
+      # Hard gate: installs the release APK on a clean emulator, cold-starts it, and asserts the
+      # app reached its own `[hallyu:boot] index:redirect` marker with no JS crash / FATAL / ANR.
+      # The logic lives in a committed POSIX-sh file because the action runs a multi-line inline
+      # `script:` one line at a time with /usr/bin/sh (dash); the previous inline version died on
+      # `set -o pipefail` before installing anything, and `continue-on-error` hid that.
       - name: Verify release APK boot on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
-        continue-on-error: true
         with:
           api-level: 30
           target: default
           arch: x86_64
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: |
-            set -euo pipefail
-            APK="android/app/build/outputs/apk/release/app-release.apk"
-            echo "Installing release APK: $APK"
-            adb install -r "$APK"
-
-            echo "Clearing logcat buffer..."
-            adb logcat -c
-
-            echo "Launching app (com.hallyu.app/.MainActivity)..."
-            adb shell am start -n com.hallyu.app/.MainActivity
-
-            echo "Waiting 15 seconds for startup window..."
-            sleep 15
-
-            echo "Capturing logcat errors (*:E) and full logcat..."
-            adb logcat -d *:E > logcat-errors.txt || true
-            adb logcat -d > logcat-full.txt || true
-
-            echo "=== LOGCAT ERRORS (*:E) ==="
-            cat logcat-errors.txt || true
-            echo "==========================="
-
-            echo "Checking for FATAL EXCEPTION or ANR..."
-            if grep -E "FATAL EXCEPTION|ANR in" logcat-full.txt; then
-              echo "::error::Detected FATAL EXCEPTION or ANR during launch window!"
-              grep -C 5 -E "FATAL EXCEPTION|ANR in" logcat-full.txt
-              exit 1
-            fi
-
-            echo "Emulator boot check passed: No FATAL EXCEPTION or ANR detected."
+          script: sh scripts/ci/boot-check.sh
 
       - name: Upload emulator boot logcat artifact
         if: always()
@@ -207,6 +181,7 @@ jobs:
           path: |
             logcat-errors.txt
             logcat-full.txt
+            logcat-boot-trail.txt
           if-no-files-found: ignore
           retention-days: 7
 

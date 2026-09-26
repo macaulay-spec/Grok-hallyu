@@ -11,6 +11,14 @@ const t0 = Date.now();
  */
 export function markBoot(phase: string): void {
   const line = `+${Date.now() - t0}ms ${phase}`;
+  // Trace in every mode: Metro sees it in dev, `adb logcat` sees it in release, and the CI
+  // emulator boot gate asserts on these markers ("[hallyu:boot] index:redirect") so a green
+  // build can never again hide a stuck splash or a swallowed navigation failure.
+  try {
+    console.log(`[hallyu:boot] ${line}`);
+  } catch {
+    /* boot markers must never throw */
+  }
   try {
     void (async () => {
       const raw = await AsyncStorage.getItem(KEY).catch(() => null);
