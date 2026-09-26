@@ -232,8 +232,19 @@ Supabase-side data only.
 
 `.github/workflows/build-apk.yml`: `npm ci` → typecheck → lint → firebase-backend unit tests →
 `expo prebuild --clean` → `gradlew assembleRelease` → install-safety check → **hard** emulator
-boot gate (POSIX-sh, no `continue-on-error`): the release APK must install, cold-start, print
-`[hallyu:boot] … index:redirect` within ~48 s, and must NOT print `[hallyu:crash]`,
+boot gate (no `continue-on-error`).
+
+The boot gate logic lives in **`scripts/ci/boot-check.sh`** and the workflow invokes it as one
+command (`script: sh scripts/ci/boot-check.sh`). This is structural, not stylistic:
+`reactivecircus/android-emulator-runner` splits a multi-line `script:` input **line-by-line** and
+runs every line as a separate `sh -c` process (`src/script-parser.ts` in the action), so inline
+functions/`if`/`while` blocks get shredded — that is the proven root cause of the historical
+gate failures (exit 127 = `note: not found` in a fresh shell; exit 2 = stray `fi`). Never move
+shell logic back inline in that step.
+
+The gate asserts the release APK installs, the package is present, cold start prints
+`[hallyu:boot] … index:redirect` within ~60 s, and that logcat contains NO `[hallyu:crash]`,
 `Attempted to navigate before mounting`, `index:nav-failed`, `FATAL EXCEPTION` or `ANR in`.
+Logcat evidence is uploaded as the `boot-test-logcat` artifact on every run.
 No `google-services.json` exists or is needed: the Firebase JS SDK takes the public web config —
 the missing-file reference in `app.json` that used to break the Android build is gone.

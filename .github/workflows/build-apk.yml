@@ -170,14 +170,19 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm || true
 
-      # Automated emulator boot check: verifies the release APK installs and launches on a clean
-      # Android environment, AND — via the app's own logcat traces — that cold start completes:
-      #   * "[hallyu:boot] index:redirect" must appear (splash left, landed on welcome/tabs),
-      #   * "[hallyu:crash]" (the global trap firing) or "Attempted to navigate" or
-      #     "index:nav-failed" must NOT appear (a swallowed JS error = failed build, no more
-      #     green-with-errors-underneath),
+      # Automated emulator boot check: verifies the release APK installs and cold-starts on a
+      # clean Android environment, AND — via the app's own logcat traces — that startup completes:
+      #   * "[hallyu:boot] index:redirect" must appear within ~60s (splash left, routed),
+      #   * "[hallyu:crash]" (global trap firing), "Attempted to navigate before mounting" and
+      #     "index:nav-failed" must NOT appear (a swallowed JS error = failed build),
       #   * no FATAL EXCEPTION / ANR.
       # Hard gate (no continue-on-error): if this step is red, the APK is broken. Period.
+      #
+      # The logic lives in scripts/ci/boot-check.sh and is invoked as ONE command, because this
+      # action splits a multi-line `script:` input line-by-line into separate `sh -c` processes
+      # (src/script-parser.ts) — inline functions/if/while blocks get shredded (that was the
+      # historical exit-127 "note: not found" and exit-2 stray-"fi" gate failures). NEVER move
+      # shell logic back inline here.
       - name: Verify release APK boot on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -186,86 +191,7 @@ jobs:
           arch: x86_64
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: |
-            # POSIX sh ONLY. This action executes the script as `/usr/bin/sh -e ...` (dash, with
-            # -e IMPOSED externally). Hard-won rules from runs 36138512922 / 36139864397 /
-            # 36141310662:
-            #   * no bashisms — 'set -o pipefail' once killed every run on line 1 (exit 2);
-            #   * $GITHUB_WORKSPACE is EMPTY in this context — run 3 proved it ("start OUT="),
-            #     so paths built from it became nonexistent "/android/..." — locate the APK
-            #     with find instead and derive the workspace from its real path;
-            #   * -e is imposed by the action — EVERY fallible command must use the guarded
-            #     'cmd || rc=$?' form, never a bare command, or the script dies mid-check
-            #     (run 3 died at a plain 'ls' with exit 2).
-            set -u
-            note() { echo "::notice::[boot-check] $*"; }
-
-            APK=$(find /home/runner/work -type f -name app-release.apk -path "*/outputs/apk/release/*" 2>/dev/null | head -1) || APK=""
-            note "apk-locate found=${APK:+yes}"
-            if [ -z "$APK" ]; then
-              echo "::error::[boot-check] could not locate app-release.apk under /home/runner/work — falling back to cwd-relative path"
-              APK="android/app/build/outputs/apk/release/app-release.apk"
-            fi
-            case "$APK" in
-              /*) OUT=$(echo "$APK" | sed 's|/android/app/build.*||') ;;
-              *) OUT="." ;;
-            esac
-            note "workspace-derived len=$(echo "$OUT" | wc -c)"
-
-            rc=0; adb devices || rc=$?; note "stage=adb-devices exit=$rc"
-
-            FAILED=0
-            rc=0; adb install -r "$APK" || rc=$?; note "stage=install exit=$rc"
-            if [ "$rc" != "0" ]; then echo "::error::[boot-check] adb install failed exit=$rc"; FAILED=1; fi
-
-            rc=0; adb wait-for-device shell 'while [ "$(getprop sys.boot_completed)" != "1" ]; do sleep 1; done' || rc=$?; note "stage=boot-wait exit=$rc"
-
-            rc=0; adb logcat -c || rc=$?; note "stage=logcat-clear exit=$rc"
-
-            rc=0; adb shell am start -n com.hallyu.app/.MainActivity || rc=$?; note "stage=am-start exit=$rc"
-            if [ "$rc" != "0" ]; then echo "::error::[boot-check] am start failed exit=$rc"; FAILED=1; fi
-
-            # Poll for the app's own boot marker: cold start must leave the splash and redirect
-            # within ~48s (designed worst case: font gate 1.2s + auth ceiling 1.6s + bailout 6s).
-            FOUND=""
-            i=0
-            while [ "$i" -lt 24 ]; do
-              sleep 2
-              i=$((i+1))
-              # NOTE: the real line is "[hallyu:boot] +<N>ms index:redirect..." — the pattern
-              # must tolerate the elapsed-time field between prefix and phase.
-              if adb logcat -d 2>/dev/null | grep -q "\[hallyu:boot\].*index:redirect"; then FOUND="yes"; break; fi
-            done
-            note "stage=poll polls=$i found=${FOUND:-no}"
-
-            rc=0; adb logcat -d > "$OUT/logcat-full.txt" 2>/dev/null || rc=$?; note "stage=capture-full exit=$rc"
-            rc=0; adb logcat -d "*:E" > "$OUT/logcat-errors.txt" 2>/dev/null || rc=$?
-            rc=0; adb logcat -d 2>/dev/null | grep "\[hallyu:boot\]" > "$OUT/logcat-boot-trail.txt" || rc=$?
-            rc=0; ls -l "$OUT"/logcat-*.txt || rc=$?; note "stage=capture exit=$rc"
-
-            echo "=== BOOT TRAIL ==="
-            cat "$OUT/logcat-boot-trail.txt" 2>/dev/null || true
-            echo "=== LOGCAT ERRORS (*:E) ==="
-            cat "$OUT/logcat-errors.txt" 2>/dev/null || true
-            echo "==========================="
-
-            if grep -E "FATAL EXCEPTION|ANR in" "$OUT/logcat-full.txt" 2>/dev/null; then
-              echo "::error::[boot-check] FATAL EXCEPTION or ANR during launch window"
-              grep -E "FATAL EXCEPTION.*|ANR in.*" "$OUT/logcat-full.txt" 2>/dev/null | head -4 | while IFS= read -r l; do echo "::error::[fatal-line] $l"; done
-              FAILED=1
-            fi
-            if grep -E "\[hallyu:crash\]|Attempted to navigate before mounting|index:nav-failed" "$OUT/logcat-full.txt" 2>/dev/null; then
-              echo "::error::[boot-check] swallowed JS error during launch — crash trap fired or navigation failed"
-              grep -E "\[hallyu:crash\].*|Attempted to navigate.*|index:nav-failed.*" "$OUT/logcat-full.txt" 2>/dev/null | head -6 | while IFS= read -r l; do echo "::error::[crash-line] $l"; done
-              FAILED=1
-            fi
-            if [ -z "$FOUND" ]; then
-              echo "::error::[boot-check] cold start never reached [hallyu:boot] index:redirect within ~48s"
-              tail -12 "$OUT/logcat-boot-trail.txt" 2>/dev/null | while IFS= read -r l; do echo "::error::[boot-trail] $l"; done
-              FAILED=1
-            fi
-            if [ "$FAILED" != "0" ]; then exit 1; fi
-            note "PASSED — reached redirect, no JS crash, no FATAL/ANR"
+          script: sh scripts/ci/boot-check.sh
 
       - name: Upload emulator boot logcat artifact
         if: always()

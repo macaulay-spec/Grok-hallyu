@@ -125,8 +125,12 @@ ok('ErrorBoundary: leaf module (react/react-native imports only)', /^import .* f
 
 // --- CI gate integrity (mandate #18)
 const wf = read('.github/workflows/build-apk.yml');
+const bootCheck = read('scripts/ci/boot-check.sh');
 ok('workflow: emulator boot gate is HARD (no continue-on-error)', !/continue-on-error:\s*true/.test(wf));
-ok('workflow: gate asserts boot marker + crash-marker absence', wf.includes('hallyu:boot') && wf.includes('index:redirect') && wf.includes('hallyu:crash'));
+ok('workflow: boot gate runs the committed script as ONE command', /script:\s*sh scripts\/ci\/boot-check\.sh/.test(wf));
+ok('workflow: no multi-line inline script in emulator gate (action splits it line-by-line!)', !/script:\s*\|/.test(wf));
+ok('boot-check: asserts boot marker + crash-marker absence + FATAL/ANR', bootCheck.includes('hallyu:boot') && bootCheck.includes('index:redirect') && bootCheck.includes('hallyu:crash') && bootCheck.includes('FATAL EXCEPTION') && bootCheck.includes('ANR in'));
+ok('boot-check: exits non-zero on any failed assertion', /exit 1/.test(bootCheck) && /exit 0/.test(bootCheck));
 ok('workflow: typecheck runs before build', wf.indexOf('npm run typecheck') < wf.indexOf('assembleRelease'));
 
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nAll firebase-backend checks passed.');
