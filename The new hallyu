@@ -1,0 +1,1466 @@
+HALLYU — COMPLETE UI/UX + MOTION IMPLEMENTATION BRIEF
+
+Product: Hallyu
+Tagline: Where Fandoms Meet.
+Platform: Mobile — Expo / React Native
+Product type: Social entertainment community
+Core worlds: K-Dramas · C-Dramas · Anime · Hollywood
+
+Goal
+
+Build Hallyu as a premium, cinematic social entertainment platform, not a database, not a streaming clone, and not a generic social-media feed.
+
+Hallyu brings entertainment fandoms into one community.
+
+Users discover movies, series, anime, people, creators and communities, then discuss, react, recommend, save and share what they love.
+
+The interface should feel:
+
+Cinematic · Social · Premium · Dark · Fast · Immersive · Human
+
+---
+
+0. NORTH STAR
+
+Hallyu should feel like entering a private entertainment world where the content and the people around it exist together.
+
+The central idea:
+
+«Discover what you love. Find people who love it too.»
+
+The four initial entertainment worlds are:
+
+🇰🇷 K-Dramas
+
+🇨🇳 C-Dramas
+
+🇯🇵 Anime
+
+🇺🇸 Hollywood
+
+These are NOT four separate applications.
+
+They are four major fandom worlds inside one Hallyu ecosystem.
+
+Users can belong to one, several, or all four.
+
+Core product loop
+
+Discover → React → Discuss → Follow → Create → Discover
+
+The community is not an extra feature attached to entertainment discovery.
+
+The community IS the product.
+
+Anti-goals
+
+Do NOT make Hallyu:
+
+- A Netflix clone
+- A TikTok clone
+- A Reddit clone
+- An IMDb clone
+- A Letterboxd clone
+- A generic social-media app
+- A database with comments attached
+- A generic AI-looking interface
+- Purple-gradient "AI startup" UI
+- An overloaded dashboard
+- Excessively glassy
+- Visually noisy
+
+---
+
+1. DESIGN TOKENS
+
+Implement the design system before building individual screens.
+
+colors:
+  canvas:        #0A0A0A
+  surface:       #121214
+  surface2:      #1A1A1E
+  border:        #2A2A30
+
+  text:          #FAFAFA
+  textSecondary: #A1A1AA
+  textTertiary:  #6B6B75
+
+  accent:        #E11D48
+  accentMuted:   rgba(225, 29, 72, 0.20)
+
+  success:       #34D399
+  warning:       #FBBF24
+  danger:        #F87171
+
+  overlay:       rgba(0, 0, 0, 0.55)
+
+spacing:
+  base: 4
+  values: 8, 12, 16, 20, 24, 32, 40, 48
+
+screen margins:
+  compact: 16
+  standard: 20
+  large: 24
+
+radius:
+  sm: 8
+  md: 12
+  lg: 16
+  xl: 20
+  full: 9999
+
+type:
+  display: 32/38 bold
+  title: 22/28 semibold
+  headline: 18/24 semibold
+  body: 16/24 regular
+  callout: 15/20 medium
+  caption: 13/18 regular
+  overline: 11/14 semibold
+
+Use minimal shadows.
+
+Prefer:
+
+surface contrast + borders + spacing
+
+over heavy shadows.
+
+---
+
+2. MOTION SYSTEM
+
+Motion should communicate hierarchy and interaction.
+
+Never animate something merely because the framework can.
+
+All possible animations should use:
+
+useNativeDriver: true
+
+for opacity and transform.
+
+Respect:
+
+reduceMotion
+
+If enabled, reduce animation to near-instant opacity changes or disable nonessential motion.
+
+Durations
+
+instant: 100ms
+fast:    160ms
+base:    220ms
+medium:  280ms
+slow:    360ms
+
+Navigation
+
+Interaction| Motion
+Stack push| slide from right, 260ms
+Stack pop| slide right, 240ms
+Tab switch| content fade, 180ms
+Modal| slide from bottom, 280ms
+Fullscreen media| fade, 220ms
+Auth| fade, 240ms
+Content hub| image fade + content rise
+Community| content fade
+Search| soft fade/slide
+
+Micro-interactions
+
+Button:
+
+scale 0.97 → 1
+
+Fandom chip:
+
+scale 0.96 → 1
+
+Reaction:
+
+scale 0.5 → 1.15 → 1
+
+Follow:
+
+label crossfade
+background → accentMuted
+
+Spoiler:
+
+opacity + maxHeight expansion
+
+Poster:
+
+scale 0.98 on press
+
+Sheet:
+
+translateY → 0
+spring
+
+Skeleton:
+
+opacity 0.35 ↔ 0.7
+
+---
+
+3. HALLYU APP SHELL
+
+Root background:
+
+#0A0A0A
+
+Status bar:
+
+light-content
+
+Bottom navigation
+
+Five destinations:
+
+Home
+
+Personalized Hallyu world.
+
+Explore
+
+Discover content, trends and people.
+
+Create
+
+Publish something.
+
+Activity
+
+Social activity and notifications.
+
+You
+
+Personal entertainment identity.
+
+Create is visually emphasized with a 48×48 accent button.
+
+Create must NEVER open a blank screen.
+
+Tapping Create immediately opens:
+
+Create Post / Create Discussion / Recommendation / Media
+
+---
+
+4. HALLYU IDENTITY
+
+Hallyu should visually communicate that users belong to multiple fandom worlds.
+
+Users can have:
+
+My Fandoms
+
+K-Drama
+Anime
+Hollywood
+C-Drama
+
+The interface can use fandom labels/chips throughout the application.
+
+However:
+
+Never turn the four fandoms into four separate apps.
+
+The default Hallyu experience remains:
+
+ALL
+
+Users can filter when they want a specific fandom.
+
+---
+
+5. ONBOARDING
+
+Welcome
+
+Full-screen cinematic imagery representing the four entertainment worlds.
+
+Headline:
+
+Where fandoms meet.
+
+Supporting copy:
+
+Discover what you love. Find people who love it too.
+
+Buttons:
+
+Create account
+
+Sign in
+
+Optional:
+
+Continue as guest
+
+---
+
+6. FANDOM SELECTION
+
+Question:
+
+What are you into?
+
+Four visual selections:
+
+🇰🇷 K-Dramas
+🇨🇳 C-Dramas
+🇯🇵 Anime
+🇺🇸 Hollywood
+
+Multiple selections are required.
+
+A user might choose:
+
+Anime
+K-Dramas
+Hollywood
+
+or all four.
+
+Selected state:
+
+accentMuted background
+accent border
+accent text
+
+---
+
+7. GENRE PREFERENCES
+
+Question:
+
+What keeps you watching?
+
+Romance
+Action
+Comedy
+Thriller
+Fantasy
+Mystery
+Horror
+Sci-Fi
+Drama
+Adventure
+Crime
+Historical
+School
+Supernatural
+Slice of Life
+
+Multiple selections.
+
+This feeds personalization.
+
+---
+
+8. FIND YOUR PEOPLE
+
+Show suggested:
+
+- Communities
+- Creators
+- Users
+- Fandoms
+
+Examples:
+
+Anime World
+
+K-Drama Lovers
+
+Marvel Fans
+
+C-Drama Central
+
+Romance Fans
+
+Shōnen Community
+
+User can follow/join immediately.
+
+---
+
+9. HOME — THE CORE EXPERIENCE
+
+Home is not a database dashboard.
+
+It is the user's personalized Hallyu world.
+
+Header:
+
+Hallyu
+
+Search
+Notifications
+
+Then:
+
+For You
+
+The primary feed.
+
+Content can include:
+
+- Posts
+- Discussions
+- Recommendations
+- Short videos
+- Images
+- Polls
+- Trending conversations
+- Content discoveries
+- Creator posts
+
+---
+
+Suggested Home structure
+
+1. For You
+
+Personalized social feed.
+
+2. Trending on Hallyu
+
+What the community is discussing right now.
+
+3. Your Fandoms
+
+Horizontal fandom shortcuts:
+
+K-Drama
+C-Drama
+Anime
+Hollywood
+
+4. Because You Like...
+
+Cross-fandom recommendations.
+
+Example:
+
+Because you love psychological anime
+
+→ Korean thriller
+→ Hollywood series
+→ C-drama mystery
+
+5. Following
+
+Posts from people and communities the user follows.
+
+6. Continue Watching
+
+Optional entertainment tracking rail.
+
+This is no longer the central identity of the application.
+
+---
+
+10. CROSS-FANDOM DISCOVERY
+
+This is a major Hallyu differentiator.
+
+Recommendations should not be trapped inside one category.
+
+Example:
+
+You liked this K-Drama.
+
+Try this Anime.
+Similar themes.
+Similar character dynamics.
+
+Or:
+
+Fans of this Anime
+also enjoyed this C-Drama.
+
+The interface should make cross-category discovery feel natural rather than forced.
+
+---
+
+11. EXPLORE
+
+Explore is the discovery engine.
+
+Header:
+
+Explore
+
+Search field.
+
+Sections:
+
+Trending
+
+What's popular across Hallyu.
+
+Fandoms
+
+K-Drama
+C-Drama
+Anime
+Hollywood
+
+Popular Now
+
+Movies
+Series
+Anime
+
+Trending Communities
+
+Trending Creators
+
+New & Noticed
+
+Hidden Gems
+
+Because You Like...
+
+Most Discussed
+
+Popular This Week
+
+---
+
+12. SEARCH
+
+Search should cover the entire Hallyu ecosystem.
+
+Search:
+
+- Movies
+- Series
+- Anime
+- K-Dramas
+- C-Dramas
+- Actors
+- Creators
+- Users
+- Communities
+- Posts
+
+Default segments:
+
+All
+Content
+People
+Communities
+Posts
+
+Idle state:
+
+- Recent searches
+- Trending searches
+- Popular content
+
+Offline:
+
+Show cached results where available and a subtle offline notice.
+
+---
+
+13. CONTENT HUB
+
+Replace the old "Drama Hub" with a universal:
+
+CONTENT HUB
+
+It must work for:
+
+- K-Drama
+- C-Drama
+- Anime
+- Hollywood movie
+- Hollywood series
+
+The layout adapts to the content type.
+
+Hero
+
+Full-bleed backdrop.
+
+Gradient into canvas.
+
+Back button.
+
+Share.
+
+Poster.
+
+Title.
+
+Metadata.
+
+Genres.
+
+Description.
+
+---
+
+Content actions
+
+Watchlist
+Follow
+Share
+
+---
+
+Content sections
+
+Depending on content:
+
+Overview
+
+Synopsis, genres, metadata and related content.
+
+Episodes
+
+For episodic content.
+
+Community
+
+Posts and discussions related to the title.
+
+Cast / Characters
+
+Relevant people.
+
+Related
+
+Similar content.
+
+---
+
+14. COMMUNITY
+
+Communities are a first-class feature.
+
+Examples:
+
+Anime World
+
+K-Drama Lovers
+
+C-Drama Central
+
+Marvel Fans
+
+Romance Fans
+
+Horror Fans
+
+One Piece
+
+A community contains:
+
+Cover.
+
+Name.
+
+Description.
+
+Members.
+
+Join button.
+
+Feed.
+
+Popular.
+
+Latest.
+
+Media.
+
+Pinned posts.
+
+---
+
+15. COMMUNITY FEED
+
+Community feed should support:
+
+Posts
+Discussions
+Polls
+Images
+Videos
+Recommendations
+
+Users should feel like they entered a focused fandom space.
+
+Navigation:
+
+Popular | Latest | Media
+
+---
+
+16. POST CARD
+
+Post card:
+
+Avatar
+Name
+Time
+Fandom/content context
+
+Post text
+
+Media
+
+React
+Comment
+Save
+Share
+
+Context should be visible whenever possible.
+
+Example:
+
+K-Drama · Queen of Tears
+
+or:
+
+Anime · One Piece
+
+or:
+
+Hollywood · Marvel
+
+Tapping the context opens the relevant Content Hub.
+
+---
+
+17. CREATE
+
+Create opens as a bottom sheet.
+
+Options:
+
+Post
+
+General social post.
+
+Discussion
+
+Start a conversation.
+
+Recommendation
+
+Recommend something.
+
+Poll
+
+Ask the community.
+
+Media
+
+Photo/video content.
+
+Every creation flow can optionally attach:
+
+Content
+
+Search for:
+
+Movie
+Series
+Anime
+K-Drama
+C-Drama
+Hollywood
+
+Optional:
+
+Community
+
+Optional:
+
+Spoiler warning
+
+---
+
+18. SPOILER SYSTEM
+
+Entertainment communities need serious spoiler protection.
+
+Posts can be marked:
+
+Contains spoilers
+
+Display:
+
+⚠ Episode 8 spoiler
+
+Reveal
+
+Content remains hidden until the user chooses to reveal it.
+
+Spoiler settings can be controlled from preferences.
+
+---
+
+19. CONTENT DISCUSSION
+
+Every major content page should connect directly to the community.
+
+Example:
+
+A user opens an Anime.
+
+They see:
+
+Community
+
+Then:
+
+- Reactions
+- Discussions
+- Reviews
+- Recommendations
+- Fan theories
+- Polls
+
+This turns static entertainment metadata into a social experience.
+
+---
+
+20. SHORT-FORM MEDIA
+
+Hallyu can support short-form vertical media.
+
+But:
+
+Do not build TikTok inside Hallyu.
+
+The purpose of short-form media is:
+
+- Reviews
+- Reactions
+- Recommendations
+- Fan edits
+- Discussions
+- Fandom humor
+- Creator content
+
+The content should always connect back to:
+
+People + fandom + entertainment.
+
+---
+
+21. PEOPLE / PROFILES
+
+Profiles represent entertainment identity.
+
+Profile:
+
+Avatar
+Name
+@handle
+Bio
+
+Stats:
+
+Followers
+Following
+
+My Fandoms
+
+Example:
+
+Anime · K-Drama · Hollywood
+
+Content
+
+Posts
+Media
+Reviews
+
+Collections
+
+Saved lists / public collections.
+
+Watchlist
+
+User's entertainment activity.
+
+---
+
+22. CREATOR PROFILES
+
+Creators can publish:
+
+Posts
+Videos
+Recommendations
+Reviews
+
+Users can follow creators.
+
+Future creator tools can include analytics and monetization.
+
+Do not overload v1.
+
+---
+
+23. WATCHLIST
+
+Universal watchlist.
+
+Segments:
+
+Want
+Watching
+Completed
+Dropped
+
+Works for:
+
+Movies
+Series
+Anime
+K-Dramas
+C-Dramas
+Hollywood
+
+Each item:
+
+Poster
+Title
+Type
+Progress/status
+
+---
+
+24. COLLECTIONS
+
+Users can create collections.
+
+Examples:
+
+Best Psychological Anime
+
+Comfort K-Dramas
+
+Movies for Rainy Nights
+
+My Favorite Villains
+
+Collection detail:
+
+Cover.
+
+Title.
+
+Description.
+
+Content grid/list.
+
+Share.
+
+Follow.
+
+---
+
+25. ACTIVITY
+
+Activity contains:
+
+Likes
+Comments
+Replies
+Follows
+Mentions
+Community activity
+Content updates
+
+Group by day/type where useful.
+
+Unread:
+
+Accent indicator.
+
+Tapping an activity deep-links directly to the relevant content.
+
+---
+
+26. NOTIFICATIONS
+
+Notifications should remain useful rather than becoming an endless red-dot factory.
+
+Examples:
+
+Someone replied to your post.
+
+Someone followed you.
+
+Someone mentioned you.
+
+A community you follow is trending.
+
+New content related to something you follow.
+
+Someone interacted with your recommendation.
+
+---
+
+27. YOU
+
+Profile-focused personal space.
+
+Header:
+
+Avatar.
+
+Name.
+
+@handle.
+
+Bio.
+
+Fandoms.
+
+Stats.
+
+Tabs:
+
+Posts | Media | Collections | Watchlist
+
+Settings button.
+
+Guest state:
+
+Create your Hallyu identity
+
+Create account.
+
+Sign in.
+
+---
+
+28. SETTINGS
+
+Grouped sections:
+
+Account
+
+Profile
+Security
+
+Preferences
+
+Fandoms
+Genres
+Language
+Appearance
+
+Content
+
+Spoilers
+Content preferences
+Muted topics
+
+Notifications
+
+Push notifications
+Community notifications
+
+Privacy
+
+Blocked users
+Visibility
+
+Support
+
+Help
+Report a problem
+
+About
+
+Hallyu
+Terms
+Privacy
+
+Danger zone separated visually.
+
+---
+
+29. OFFLINE / LOADING / ERROR
+
+Every screen must have deliberate states.
+
+State| Behavior
+Loading| Layout-matched skeleton
+Empty| Helpful EmptyState + CTA
+Error| Inline message + Retry
+Offline| Cached content + offline banner
+Success| Toast/check feedback
+
+Never leave users staring at an infinite spinner.
+
+Never display technical error codes to normal users.
+
+---
+
+30. EMPTY STATES
+
+Empty states should help users understand what to do next.
+
+Examples:
+
+No communities
+
+Find your people.
+
+Explore fandom communities and join the conversation.
+
+Button:
+
+Explore Communities
+
+No watchlist
+
+Nothing saved yet.
+
+Find something worth watching.
+
+Button:
+
+Explore
+
+No posts
+
+Start the conversation.
+
+Share what you're watching.
+
+Button:
+
+Create Post
+
+---
+
+31. PERFORMANCE
+
+The interface must prioritize real mobile performance.
+
+Use:
+
+- FlatList / FlashList where appropriate
+- Image caching
+- Lazy loading
+- Pagination
+- Skeleton placeholders
+- Optimistic interactions where safe
+- Minimal re-renders
+- Native-driven animation
+- Avoid unnecessary blur
+- Avoid huge full-resolution images
+- Avoid animation overload
+
+Premium does not mean expensive computation.
+
+---
+
+32. ACCESSIBILITY
+
+Support:
+
+- Dynamic text sizing
+- Screen readers
+- Sufficient contrast
+- Large touch targets
+- Reduce motion
+- Clear focus states
+- Descriptive labels
+
+Do not sacrifice usability for aesthetics.
+
+---
+
+33. VISUAL LANGUAGE
+
+Hallyu should feel like:
+
+A cinematic entertainment world that happens to be social.
+
+Not:
+
+A social network with movie posters.
+
+Use:
+
+- Deep black canvas
+- Crimson accent
+- Strong typography
+- Cinematic imagery
+- Controlled depth
+- Subtle borders
+- Minimal shadows
+- Large visual moments
+- Smooth transitions
+- Quiet interface hierarchy
+
+One focal point per screen.
+
+---
+
+34. NAVIGATION
+
+ROOT
+
+Home
+Explore
+Create
+Activity
+You
+
+Stack:
+
+Search
+Content Hub
+Community
+Post Detail
+Profile
+Creator
+Watchlist
+Collections
+Collection Detail
+Settings
+Edit Profile
+Media
+Shorts
+
+Modals:
+
+Create
+Share
+Report
+Collection
+Spoiler
+Filters
+
+Create tab must intercept tab navigation and open the creation flow.
+
+Never navigate to a blank Create page.
+
+---
+
+35. IMPLEMENTATION ORDER
+
+Phase 1
+
+Design tokens.
+
+Typography.
+
+Buttons.
+
+Inputs.
+
+Cards.
+
+Top bars.
+
+Navigation.
+
+Phase 2
+
+Motion system.
+
+Reduce-motion behavior.
+
+Haptics.
+
+Sheets.
+
+Transitions.
+
+Phase 3
+
+App shell.
+
+Home.
+
+Explore.
+
+Activity.
+
+You.
+
+Phase 4
+
+Content Hub.
+
+Community.
+
+Post Card.
+
+Post Detail.
+
+Search.
+
+Phase 5
+
+Create.
+
+Watchlist.
+
+Collections.
+
+Profiles.
+
+Creator experience.
+
+Phase 6
+
+Empty states.
+
+Loading.
+
+Error.
+
+Offline.
+
+Accessibility.
+
+Phase 7
+
+Final motion and interaction polish.
+
+Performance pass.
+
+Visual consistency pass.
+
+---
+
+36. ACCEPTANCE — "FEELS LIKE HALLYU"
+
+The application should satisfy these principles:
+
+Identity
+
+Opening the app immediately communicates:
+
+Hallyu = Where Fandoms Meet.
+
+Community
+
+The user sees people and conversations, not just content metadata.
+
+Diversity
+
+K-Dramas, C-Dramas, Anime and Hollywood feel equally legitimate inside the ecosystem.
+
+Personalization
+
+A user can have multiple fandom identities.
+
+Discovery
+
+The app can introduce users to content outside their existing category.
+
+Content
+
+Every movie, series or anime can connect back to community activity.
+
+Creation
+
+Create is always immediately accessible.
+
+Motion
+
+Interactions feel responsive without becoming distracting.
+
+States
+
+Loading, empty, offline and error states feel intentional.
+
+Performance
+
+The app remains fast on real mobile hardware.
+
+Visual quality
+
+The UI feels premium because it is restrained, not because every component has a glow, blur and seventeen gradients.
+
+---
+
+37. THE HALLYU PRODUCT LOOP
+
+Everything should reinforce this:
+
+DISCOVER
+    ↓
+FIND SOMETHING YOU LOVE
+    ↓
+REACT
+    ↓
+DISCUSS
+    ↓
+FIND PEOPLE
+    ↓
+FOLLOW
+    ↓
+CREATE
+    ↓
+DISCOVER SOMETHING ELSE
+
+The user should continuously move between:
+
+Content ↔ People ↔ Communities
+
+That relationship is the foundation of Hallyu.
+
+---
+
+38. FINAL PRODUCT DEFINITION
+
+HALLYU
+
+WHERE FANDOMS MEET.
+
+One community.
+
+Four initial entertainment worlds:
+
+K-Dramas · C-Dramas · Anime · Hollywood
+
+Users do not have to choose one.
+
+They can love all four.
+
+They can discover something completely new.
+
+They can discuss it with people who understand why they care.
+
+They can create.
+
+They can follow.
+
+They can recommend.
+
+They can build their own entertainment identity.
+
+The product should make entertainment discovery feel social and make fandom feel connected.
+
+Do not build four communities inside one app.
+
+Build one community where four fandom worlds naturally meet.
+
+---
+
+ONE-LINE AGENT PROMPT
+
+Rebuild Hallyu as a premium cinematic dark social entertainment platform built around “Where Fandoms Meet”, unifying K-Dramas, C-Dramas, Anime and Hollywood inside one personalized community: implement the token system, native-safe motion, five-tab shell, fandom-based onboarding, personalized Home, cross-fandom discovery, universal Content Hub, communities, social posts, creator profiles, Watchlist, Collections, Explore, Search, Activity, You, Create flows, spoiler protection, and complete loading/empty/error/offline states while keeping the interface restrained, fast, accessible and unmistakably Hallyu rather than copying Netflix, TikTok, Reddit or IMDb.
