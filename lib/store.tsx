@@ -5,7 +5,7 @@ import { useStoreWithEqualityFn } from 'zustand/traditional';
 import { mergePending, mergePendingMap, mergePendingPrefs, pendingIds, pendingPrefKeys } from './data/pending';
 import { markBoot } from './boot';
 import { uid } from './format';
-import { Actor, Collection, Comment, Draft, Drama, Notification, NotificationGroup, Post, ReactionCounts, ReactionKind, SpoilerProtection, User, WatchStatus, WatchlistItem } from './model';
+import { Actor, Collection, Comment, Draft, Drama, FandomId, Notification, NotificationGroup, Post, ReactionCounts, ReactionKind, SpoilerProtection, User, WatchStatus, WatchlistItem } from './model';
 
 const STORAGE_KEY = 'hallyu.state.v4';
 
@@ -53,7 +53,7 @@ export interface FeedPage {
 
 export interface AppState {
   hydrated: boolean;
-  onboarding: { done: boolean; step: number; intent?: Intent; genres: string[] };
+  onboarding: { done: boolean; step: number; intent?: Intent; genres: string[]; /** the worlds the member picked — empty means ALL, which is the default */ fandoms: FandomId[] };
   prefs: Prefs;
   profile: User;
   follows: { users: string[]; dramas: string[]; actors: string[]; collections: string[] };
@@ -106,7 +106,7 @@ const defaultPrefs: Prefs = {
 export function initialState(): AppState {
   return {
     hydrated: false,
-    onboarding: { done: false, step: 0, genres: [] },
+    onboarding: { done: false, step: 0, genres: [], fandoms: [] },
     prefs: defaultPrefs,
     profile: emptyProfile(),
     follows: { users: [], dramas: [], actors: [], collections: [] },
@@ -141,7 +141,7 @@ function emptyProfile(): User {
 
 /** A brand-new member (after sign-up) starts empty: this is what the first-run states are designed for. */
 export function freshMemberState(profile: User): AppState {
-  return { ...initialState(), hydrated: true, profile, onboarding: { done: false, step: 0, genres: [] } };
+  return { ...initialState(), hydrated: true, profile, onboarding: { done: false, step: 0, genres: [], fandoms: [] } };
 }
 
 export const GUEST_ID = 'guest';
@@ -150,7 +150,7 @@ export const GUEST_ID = 'guest';
 export function guestState(): AppState {
   return {
     ...freshMemberState({ ...emptyProfile(), id: GUEST_ID, handle: 'guest', displayName: 'Guest' }),
-    onboarding: { done: true, step: 0, genres: [] },
+    onboarding: { done: true, step: 0, genres: [], fandoms: [] },
   };
 }
 

@@ -8,6 +8,7 @@ import { Text } from '../../components/ui/Text';
 import { TextField } from '../../components/ui/TextField';
 import { TopBar } from '../../components/ui/TopBar';
 import { space } from '../../constants/theme';
+import { FANDOMS } from '../../lib/fandoms';
 import { useApp } from '../../lib/hooks';
 import { SpoilerProtection } from '../../lib/model';
 
@@ -35,6 +36,34 @@ export default function ContentSettings() {
               { key: 'off', label: 'Off', detail: 'Show everything. Spoiler tags still appear.' },
             ]}
           />
+        </SettingsGroup>
+        <SettingsGroup
+          title="Your worlds"
+          footer="Your worlds lead For You and Explore — they never hide the others. Add a world back here any time; Hallyu shows all four when you belong to none."
+        >
+          <View style={{ padding: space.x4, gap: space.x3 }}>
+            <ChipRow>
+              {FANDOMS.map((f) => {
+                const on = (state.profile.fandoms ?? []).includes(f.id);
+                return (
+                  <Chip
+                    key={f.id}
+                    label={`${f.flag} ${f.label}`}
+                    selected={on}
+                    onPress={() => {
+                      const next = on ? (state.profile.fandoms ?? []).filter((x) => x !== f.id) : [...(state.profile.fandoms ?? []), f.id];
+                      dispatch({ type: 'profile', patch: { fandoms: next } });
+                      dispatch({ type: 'onboarding', patch: { fandoms: next } });
+                    }}
+                    accessibilityLabel={`${on ? 'Remove' : 'Add'} ${f.label}`}
+                  />
+                );
+              })}
+            </ChipRow>
+            <Text variant="caption" tone="tertiary">
+              {state.profile.fandoms?.length ? `Following ${state.profile.fandoms.length} of 4 worlds.` : 'No worlds picked — showing all four equally.'}
+            </Text>
+          </View>
         </SettingsGroup>
         <SettingsGroup title="Reactions & feed">
           <SettingsToggle icon="heart-outline" label="One-tap Loved" detail="Tap reacts Loved; long-press picks another. Off = always show the picker." value={p.oneTapReactions} onChange={(v) => dispatch({ type: 'prefs', patch: { oneTapReactions: v } })} />

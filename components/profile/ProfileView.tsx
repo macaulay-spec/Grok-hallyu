@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import { FlatList, Pressable, Share, StyleSheet, View } from 'react-native';
 import { colors, radius, sizes, space } from '../../constants/theme';
+import { Fandom, fandomById, isFandomId } from '../../lib/fandoms';
 import { compact } from '../../lib/format';
 import { useApp } from '../../lib/hooks';
 import { Post, User } from '../../lib/model';
@@ -50,6 +51,7 @@ export function ProfileView({ user, isMe, headerExtra }: { user: User; isMe: boo
   );
   const watching = useMemo(() => currentlyWatching(state, user.id).map((drama) => ({ drama })), [state, user.id]);
   const favorites = (isMe ? state.profile.favoriteDramaIds : user.favoriteDramaIds).map((id) => getDrama(id)).filter(Boolean);
+  const myWorlds: Fandom[] = ((isMe ? state.profile.fandoms : user.fandoms) ?? []).filter(isFandomId).map(fandomById);
 
   const share = () => Share.share({ message: `${user.displayName} on Hallyu — https://hallyu.app/u/${user.handle}` });
 
@@ -97,6 +99,21 @@ export function ProfileView({ user, isMe, headerExtra }: { user: User; isMe: boo
             Add a bio — what you watch, what you love.
           </Text>
         </Pressable>
+      ) : null}
+      {/* My Fandoms — the identity line: which of the four worlds this member belongs to. */}
+      {myWorlds.length ? (
+        <View style={styles.worlds}>
+          {myWorlds.map((f) => (
+            <Pressable key={f.id} onPress={() => router.push(`/world/${f.id}`)} style={[styles.worldChip, { borderColor: f.tint }]} accessibilityRole="button" accessibilityLabel={`${f.label} world`}>
+              <Text variant="caption" accessibilityElementsHidden>
+                {f.flag}
+              </Text>
+              <Text variant="caption" style={{ color: f.tint }}>
+                {f.short}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
       ) : null}
       {(isMe ? state.profile.favoriteGenres : user.favoriteGenres).length ? (
         <Text variant="caption" tone="secondary" style={{ paddingHorizontal: space.margin, marginTop: space.x2 }}>
@@ -393,6 +410,8 @@ function Shelf({ title, children, onSeeAll, actionLabel = 'See all' }: { title: 
 
 const styles = StyleSheet.create({
   head: { flexDirection: 'row', gap: space.x4, paddingHorizontal: space.margin, paddingTop: space.x4, alignItems: 'center' },
+  worlds: { flexDirection: 'row', flexWrap: 'wrap', gap: space.x2, paddingHorizontal: space.margin, marginTop: space.x3 },
+  worldChip: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 28, paddingHorizontal: 10, borderRadius: radius.full, borderWidth: 1, backgroundColor: colors.surface1 },
   stats: { flexDirection: 'row', gap: space.x4, marginTop: space.x2 },
   bio: { paddingHorizontal: space.margin, marginTop: space.x4 },
   actions: { flexDirection: 'row', gap: space.x2, paddingHorizontal: space.margin, marginTop: space.x4, alignItems: 'center' },

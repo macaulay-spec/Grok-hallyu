@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Animated, FlatList, NativeScrollEvent, NativeSyntheticEvent, Pressable, StyleSheet, View } from 'react-native';
 import { FeedViewportProvider, useViewabilityTracker } from '../../components/media/FeedViewport';
 import { DramaRail } from '../../components/drama/DramaCard';
+import { WorldTile } from '../../components/fandom/WorldTile';
 import { PostCard } from '../../components/feed/PostCard';
 import { useTabBarMotion } from '../../components/navigation/TabBarMotion';
 
@@ -28,7 +29,8 @@ import { colors, radius, space } from '../../constants/theme';
 import { useAuth } from '../../lib/auth';
 import { haptic, useApp, useLoad, useReduceMotion } from '../../lib/hooks';
 import { Episode, Post } from '../../lib/model';
-import { airingEpisodes, forYou, following, getDrama, recommendedDramas, recommendedPeople, shorts, trendingDiscussions, upNext } from '../../lib/selectors';
+import { activeWorlds, airingEpisodes, anchorDrama, crossWorldLocal, forYou, following, recommendedDramas, recommendedPeople, shorts, trendingDiscussions, upNext, worldCounts } from '../../lib/selectors';
+import { formatFandomOf } from '../../lib/fandoms';
 import { getState } from '../../lib/store';
 import { catalog } from '../../lib/catalog';
 import { adoptDramas } from '../../lib/catalogSync';
@@ -36,6 +38,8 @@ import { useRemote } from '../../lib/data/sync';
 
 type Row =
   | { key: string; kind: 'post'; post: Post; reason?: string }
+  | { key: string; kind: 'worlds' }
+  | { key: string; kind: 'cross' }
   | { key: string; kind: 'shorts' }
   | { key: string; kind: 'dramas' }
   | { key: string; kind: 'people' }
@@ -142,24 +146,12 @@ function Home() {
   const shortList = useMemo(() => shorts(state), [state]);
   const recs = useMemo(() => recommendedDramas(state, 10), [state]);
   // Live "because you watched" from the catalog, anchored on the title you touched most recently.
-  const anchor = useMemo(() => {
-    const items = Object.values(state.watchlist).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-    for (const w of items) {
-      const d = getDrama(state, w.dramaId);
-      if (d?.provider) return d;
-    }
-    for (const id of state.follows.dramas) {
-      const d = getDrama(state, id);
-      if (d?.provider) return d;
-    }
-    return undefined;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.watchlist, state.follows.dramas, state.importedDramas]);
+  const anchor = useMemo(() => anchorDrama(state), [state]);
   const liveRecs = useLoad(
     async (signal) => {
       if (!anchor?.provider) return [];
       const tracked = new Set(Object.keys(state.watchlist));
-      return adoptDramas(await catalog.recommendations(anchor.provider.id, signal)).filter((d) => !tracked.has(d.id));
+      return adoptDramas(await catalog.recommendations(anchor.provider.id, anchor.mediaType ?? 'tv', signal)).filter((d) => !tracked.has(d.id));
     },
     [anchor?.id],
     !!anchor && !guest && catalog.available,
@@ -176,22 +168,47 @@ function Home() {
   }, [liveRecs.data, anchor, recs]);
   const people = useMemo(() => recommendedPeople(state, 6), [state]);
   const discussions = useMemo(() => trendingDiscussions(state, 4), [state]);
+  // Your worlds: the fandoms you belong to, each a door into everything that world holds.
+  const worlds = useMemo(() => activeWorlds(state), [state]);
+  const counts = useMemo(() => worldCounts(state), [state]);
+  // Cross-fandom discovery — the reason Hallyu is one app and not four. Prefer the live answer (a
+  // real title from another world that shares this one's genres); fall back to what's on the device.
+  const crossLocal = useMemo(() => crossWorldLocal(state, 9), [state]);
+  const crossLive = useLoad(
+    async (signal) => (anchor ? catalog.crossFandom({ fandom: formatFandomOf(anchor), genres: anchor.genres }, signal) : []),
+    [anchor?.id],
+    !!anchor && !guest && catalog.available,
+  );
+  const cross = useMemo(() => {
+    const tracked = new Set(Object.keys(state.watchlist));
+    const picks = (crossLive.data?.length ? crossLive.data : crossLocal).filter((p) => !tracked.has(p.drama.id));
+    return {
+      items: picks.map((p) => p.drama).slice(0, 9),
+      reasons: Object.fromEntries(picks.map((p) => [p.drama.id, p.shared.length ? `Also ${p.shared[0].toLowerCase()}` : `Try ${p.world.short}`])),
+    };
+  }, [crossLive.data, crossLocal, state.watchlist]);
 
   const rows = useMemo<Row[]>(() => {
     const out: Row[] = [];
     if (guest) out.push({ key: 'guest', kind: 'guest' });
+    // Your fandoms sit above the feed: the app should say what it is before it shows you anything.
+    if (tab === 'forYou' && worlds.length) out.push({ key: 'worlds', kind: 'worlds' });
     feed.slice(0, page * PAGE).forEach((r, i) => {
       out.push({ key: r.post.id, kind: 'post', post: r.post, reason: r.reason });
       if (tab === 'forYou') {
         if (i === 2 && shortList.length) out.push({ key: 'shorts', kind: 'shorts' });
         if (i === 5 && recs.length) out.push({ key: 'dramas', kind: 'dramas' });
         if (i === 8 && people.length) out.push({ key: 'people', kind: 'people' });
+        if (i === 9 && cross.items.length) out.push({ key: 'cross', kind: 'cross' });
         if (i === 11 && discussions.length) out.push({ key: 'discussions', kind: 'discussions' });
       }
     });
-    if (tab === 'forYou' && feed.length && feed.length <= 5 && recs.length) out.push({ key: 'dramas', kind: 'dramas' });
+    if (tab === 'forYou' && feed.length && feed.length <= 5) {
+      if (recs.length) out.push({ key: 'dramas', kind: 'dramas' });
+      if (cross.items.length) out.push({ key: 'cross', kind: 'cross' });
+    }
     return out;
-  }, [feed, page, guest, tab, shortList.length, recs.length, people.length, discussions.length]);
+  }, [feed, page, guest, tab, worlds.length, cross.items.length, shortList.length, recs.length, people.length, discussions.length]);
 
   const onRefresh = useCallback(async () => {
     await pull();
@@ -226,6 +243,27 @@ function Home() {
                 Join to follow dramas, track episodes and keep spoilers away from you.
               </Text>
               <Button label="Join Hallyu" size="sm" style={{ marginTop: space.x3 }} onPress={() => router.push('/(auth)/sign-up')} />
+            </View>
+          );
+        case 'worlds':
+          return (
+            <View style={styles.module}>
+              <SectionHeader eyebrow="Your fandoms" title="Your worlds" onAction={() => router.push('/(tabs)/explore')} actionLabel="All worlds" />
+              <FlatList
+                horizontal
+                data={worlds}
+                keyExtractor={(f) => f.id}
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingHorizontal: space.margin, gap: space.gutter }}
+                renderItem={({ item: f }) => <WorldTile world={f} count={counts[f.id] ?? 0} onPress={() => router.push(`/world/${f.id}`)} />}
+              />
+            </View>
+          );
+        case 'cross':
+          return (
+            <View style={styles.module}>
+              <SectionHeader eyebrow={anchor ? `Because you like ${anchor.title}` : 'Across fandoms'} title="A world away" onAction={() => router.push('/(tabs)/explore')} actionLabel="Explore" />
+              <DramaRail dramas={cross.items} reasons={cross.reasons} />
             </View>
           );
         case 'shorts':
@@ -267,7 +305,7 @@ function Home() {
           );
       }
     },
-    [router, shortList, recRail, people, discussions],
+    [router, shortList, recRail, people, discussions, worlds, counts, cross, anchor],
   );
 
   const header = (

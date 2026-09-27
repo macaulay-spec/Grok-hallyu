@@ -36,6 +36,7 @@ import { catalog } from '../../lib/catalog';
 import { compact, countdown, dayLabel, timeOfDay } from '../../lib/format';
 import { haptic, useApp, useLayout, useLoad, useRequireMember } from '../../lib/hooks';
 import { heroInterpolations, useArrive, useHeroSettle, useScrollY, withAlpha } from '../../lib/motion';
+import { dramaFandom, isFilm, runtimeLabel } from '../../lib/fandoms';
 import { CastCredit, emptyReactions, Episode, Post, PostType } from '../../lib/model';
 import { collectionsContaining, isPostVeiled as postVeiled, postsForDrama, relatedDramas } from '../../lib/selectors';
 import { useRemote } from '../../lib/data/sync';
@@ -68,7 +69,9 @@ export default function DramaHub() {
   const twoPane = wc === 'expanded';
   const leftW = twoPane ? Math.min(560, Math.round(width * 0.46)) : width;
   const [tabState, setTab] = useState<Tab>(() => (params.tab && params.tab in LEGACY_TAB ? LEGACY_TAB[params.tab]! : ((params.tab as Tab | undefined) ?? 'overview')));
-  const tab: Tab = twoPane && tabState === 'overview' ? 'community' : tabState;
+  // A film has no episode list: keep the tab out of the bar, and out of reach if it was linked to.
+  const film = !!drama && isFilm(drama);
+  const tab: Tab = film && tabState === 'episodes' ? 'overview' : twoPane && tabState === 'overview' ? 'community' : tabState;
   const [filter, setFilter] = useState<Filter>('all');
   const [sort, setSort] = useState<'top' | 'latest'>(params.tab === 'activity' ? 'latest' : 'top');
   const [safe, setSafe] = useState(false);
@@ -84,9 +87,10 @@ export default function DramaHub() {
   const arriveActions = useArrive(150);
   const heroSettle = useHeroSettle();
 
-  // Thin (search-imported) records get enriched from the catalog provider.
-  const thin = !!drama?.provider && drama.episodes.length === 0 && drama.cast.length === 0;
-  const enrich = useLoad(async (signal) => (drama?.provider ? catalog.getDrama(drama.provider.id, signal) : null), [drama?.id], thin && catalog.available);
+  // Thin (search-imported) records get enriched from the catalog provider. `runtime` is part of the
+  // test because a film has no episodes by definition — without it every film would look thin forever.
+  const thin = !!drama?.provider && !drama.runtime && drama.episodes.length === 0 && drama.cast.length === 0;
+  const enrich = useLoad(async (signal) => (drama?.provider ? catalog.getDrama(drama.provider.id, drama.mediaType ?? 'tv', signal) : null), [drama?.id], thin && catalog.available);
   useEffect(() => {
     if (enrich.data) dispatch({ type: 'import', dramas: [{ ...enrich.data, id: drama!.id }] });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -121,6 +125,7 @@ export default function DramaHub() {
 
   const item = watch(drama.id);
   const following = isFollowing('dramas', drama.id);
+  const world = dramaFandom(drama);
   const notify = state.dramaNotify[drama.id] ?? true;
   const multi = drama.seasons.length > 1;
   const eps = drama.episodes.filter((e) => e.season === season).sort((a, b) => a.number - b.number);
@@ -212,7 +217,8 @@ export default function DramaHub() {
           <Text variant="caption" tone="secondary">
             {drama.year}
             {drama.endYear && drama.endYear !== drama.year ? `–${drama.endYear}` : ''}
-            {drama.network ? ` · ${drama.network}` : ''} · {drama.episodeCount} ep{drama.episodeCount === 1 ? '' : 's'}
+            {drama.network ? ` · ${drama.network}` : ''}
+            {film ? ` · ${runtimeLabel(drama.runtime) ?? 'Film'}` : ` · ${drama.episodeCount} ep${drama.episodeCount === 1 ? '' : 's'}`}
             {drama.status === 'airing' ? ' · Airing' : drama.status === 'upcoming' ? ' · Upcoming' : ''}
           </Text>
           <Text variant="caption" tone="secondary">
@@ -224,6 +230,7 @@ export default function DramaHub() {
       </View>
       <Animated.View style={arriveChips}>
         <ChipRow style={{ paddingHorizontal: space.margin, marginTop: space.x3 }}>
+          <Chip label={`${world.flag} ${world.short}`} size="sm" tone="accent" onPress={() => router.push(`/world/${world.id}`)} />
           {drama.genres.slice(0, 4).map((g) => (
             <Chip key={g} label={g} size="sm" onPress={() => router.push(`/genre/${encodeURIComponent(g)}`)} />
           ))}
@@ -272,11 +279,15 @@ export default function DramaHub() {
         scrollable
         items={[
           ...(twoPane ? [] : [{ key: 'overview' as Tab, label: 'Overview' }]),
-          {
-            key: 'episodes',
-            label: 'Episodes',
-            count: drama.episodes.length || undefined,
-          },
+          ...(film
+            ? []
+            : [
+                {
+                  key: 'episodes' as Tab,
+                  label: 'Episodes',
+                  count: drama.episodes.length || undefined,
+                },
+              ]),
           {
             key: 'community',
             label: 'Community',

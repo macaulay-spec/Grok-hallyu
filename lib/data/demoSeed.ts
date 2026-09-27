@@ -10,7 +10,7 @@
  * Everything is a plain function of "now" so a fresh install always reads as a live product rather
  * than a screenshot: post ages, unread activity and thread ordering are all relative to first run.
  */
-import { Actor, Collection, Comment, Drama, Episode, Notification, Post, ReactionCounts, User, WatchlistItem } from '../model';
+import { Actor, Collection, Comment, Drama, Episode, Format, Notification, Post, ReactionCounts, User, WatchlistItem } from '../model';
 import { AppState, freshMemberState } from '../store';
 
 const MIN = 60_000;
@@ -53,6 +53,18 @@ export const DEMO_ACTORS: Actor[] = [
   { id: 'a-dongwook', name: 'Lee Dong-wook', koreanName: '이동욱', knownFor: ['demo-goblin'], followerCount: 35_800, bio: 'A comic and romantic lead with unusually sharp timing.' },
   { id: 'a-hyoseop', name: 'Ahn Hyo-seop', koreanName: '안효섭', knownFor: ['demo-proposal'], followerCount: 24_300, bio: 'Romantic comedy lead and one of the newer generation of K-drama stars.' },
   { id: 'a-sejeong', name: 'Kim Se-jeong', koreanName: '김세정', knownFor: ['demo-proposal'], followerCount: 26_900, bio: 'Singer turned actor, best known for bright comic heroines.' },
+  // The other three worlds: enough faces that the anime/C-drama/Hollywood hubs have a Cast tab.
+  { id: 'a-xiaozhan', name: 'Xiao Zhan', knownFor: ['world-untamed'], followerCount: 38_600, bio: 'Singer and actor at the centre of the biggest C-drama fandom of the last decade.' },
+  { id: 'a-wangyibo', name: 'Wang Yibo', knownFor: ['world-untamed'], followerCount: 34_200, bio: 'Dancer, racer and actor, best known for playing the coldest man in cultivation.' },
+  { id: 'a-dylanwang', name: 'Dylan Wang', knownFor: ['world-lbfad'], followerCount: 21_700, bio: 'Xianxia lead who made being the villain the fun part.' },
+  { id: 'a-chengyi', name: 'Cheng Yi', knownFor: ['world-lotus'], followerCount: 17_400, bio: 'Wuxia lead with a talent for tired, funny, quietly lethal swordsmen.' },
+  { id: 'a-nakamura', name: 'Yuichi Nakamura', koreanName: undefined, knownFor: ['world-jjk'], followerCount: 29_300, bio: 'Voice actor behind some of modern anime’s most quoted lines.' },
+  { id: 'a-yukikaji', name: 'Yuki Kaji', knownFor: ['world-aot'], followerCount: 27_800, bio: 'One of the defining shōnen voices of his generation.' },
+  { id: 'a-tanezaki', name: 'Atsumi Tanezaki', knownFor: ['world-frieren'], followerCount: 16_900, bio: 'Voice actor with an unusually wide range of leads.' },
+  { id: 'a-cranston', name: 'Bryan Cranston', knownFor: ['world-breakingbad'], followerCount: 33_100, bio: 'The prestige-TV antihero performance every other one is measured against.' },
+  { id: 'a-aaronpaul', name: 'Aaron Paul', knownFor: ['world-breakingbad'], followerCount: 24_600, bio: 'Television’s most heartbreaking sidekick.' },
+  { id: 'a-adamscott', name: 'Adam Scott', knownFor: ['world-severance'], followerCount: 19_200, bio: 'Comedy mainstay turned sci-fi everyman.' },
+  { id: 'a-chalamet', name: 'Timothée Chalamet', knownFor: ['world-dune2'], followerCount: 46_800, bio: 'Film lead of the decade’s biggest science-fiction epic.' },
 ];
 
 export const DEMO_DRAMAS: Drama[] = [
@@ -80,6 +92,10 @@ export const DEMO_DRAMAS: Drama[] = [
     ],
     creators: ['Park Ji-eun'],
     airsOn: 'Sat–Sun 21:00 KST',
+    mediaType: 'tv',
+    format: 'kdrama',
+    originalLanguage: 'ko',
+    region: 'KR',
     followerCount: 184_300,
     posterLocal: require('../../assets/dramas/cloy.png'),
     provider: { name: 'tmdb', id: 94796 },
@@ -109,6 +125,10 @@ export const DEMO_DRAMAS: Drama[] = [
     ],
     creators: ['Kim Eun-sook'],
     airsOn: 'Fri–Sat 20:00 KST',
+    mediaType: 'tv',
+    format: 'kdrama',
+    originalLanguage: 'ko',
+    region: 'KR',
     followerCount: 152_800,
     posterLocal: require('../../assets/dramas/goblin.png'),
     provider: { name: 'tmdb', id: 67915 },
@@ -140,6 +160,10 @@ export const DEMO_DRAMAS: Drama[] = [
     ],
     creators: ['Kim Eun-sook'],
     followerCount: 131_600,
+    mediaType: 'tv',
+    format: 'kdrama',
+    originalLanguage: 'ko',
+    region: 'KR',
     posterLocal: require('../../assets/dramas/glory.png'),
     provider: { name: 'tmdb', id: 136283 },
   },
@@ -165,10 +189,333 @@ export const DEMO_DRAMAS: Drama[] = [
       { actorId: 'a-sejeong', role: 'Shin Ha-ri', order: 1 },
     ],
     followerCount: 96_400,
+    mediaType: 'tv',
+    format: 'kdrama',
+    originalLanguage: 'ko',
+    region: 'KR',
     posterLocal: require('../../assets/dramas/proposal.png'),
     provider: { name: 'tmdb', id: 154825 },
   },
+  ...worldTitles(),
 ];
+
+/**
+ * The other three worlds, seeded so the demo is unmistakably Hallyu and not a K-drama app: C-Dramas,
+ * anime and Hollywood (series *and* films). These are deliberately thinner than the four classics
+ * above — real TMDB ids and real poster art, generated episode lists, no handwritten notes.
+ *
+ * Two of them are also the tests the code needs: `world-parasite` is a film that belongs to the
+ * K-Drama world (so "a film" and "a K-Drama" are not the same axis), and `world-dune2` is a film in
+ * the Hollywood world, whose hub must have no episode list at all.
+ */
+function worldTitles(): Drama[] {
+  return [
+    // ---- C-Dramas --------------------------------------------------------------------------
+    worldTitle({
+      id: 'world-untamed',
+      providerId: 90761,
+      title: 'The Untamed',
+      originalTitle: '陈情令',
+      media: 'tv',
+      format: 'cdrama',
+      language: 'zh',
+      region: 'CN',
+      year: 2019,
+      network: 'Tencent Video',
+      streamingOn: ['Netflix', 'Viki'],
+      genres: ['Fantasy', 'Romance', 'Mystery'],
+      tags: ['xianxia', 'cultivation', 'found family', 'slow burn'],
+      synopsis: 'Two cultivators on opposite sides of a war between clans spend a lifetime circling the same grief, one of them refusing to let the other disappear.',
+      tone: '#33304A',
+      rating: 8.6,
+      episodes: 50,
+      runtime: 45,
+      cast: [
+        ['a-xiaozhan', 'Wei Wuxian'],
+        ['a-wangyibo', 'Lan Wangji'],
+      ],
+      creators: ['Zheng Weiwen'],
+      fans: 96_400,
+      poster: '/8TZbpPpLQVS2i7P7yUVhrFlFsmW.jpg',
+      backdrop: '/ampkwvfwO7o5YMwYAVPKx1PLDaB.jpg',
+    }),
+    worldTitle({
+      id: 'world-lbfad',
+      providerId: 130368,
+      title: 'Love Between Fairy and Devil',
+      originalTitle: '苍兰诀',
+      media: 'tv',
+      format: 'cdrama',
+      language: 'zh',
+      region: 'CN',
+      year: 2022,
+      streamingOn: ['iQIYI'],
+      genres: ['Fantasy', 'Romance', 'Comedy'],
+      tags: ['xianxia', 'body swap', 'enemies to lovers'],
+      synopsis: 'A fairy whose soul is accidentally bound to the realm’s most feared demon discovers that the monster everyone warned her about is the only one who tells her the truth.',
+      tone: '#3A2E3E',
+      rating: 8.3,
+      episodes: 36,
+      runtime: 45,
+      cast: [['a-dylanwang', 'Dongfang Qingcang']],
+      fans: 71_200,
+      poster: '/mNgUuTGkOj19Z09zKa76bE6J5Di.jpg',
+      backdrop: '/pECcUE53TjkrR2VsAgF7JICzH7k.jpg',
+    }),
+    worldTitle({
+      id: 'world-lotus',
+      providerId: 230835,
+      title: 'Mysterious Lotus Casebook',
+      originalTitle: '莲花楼',
+      media: 'tv',
+      format: 'cdrama',
+      language: 'zh',
+      region: 'CN',
+      year: 2023,
+      streamingOn: ['iQIYI'],
+      genres: ['Mystery', 'Historical', 'Action'],
+      tags: ['wuxia', 'detective', 'found family'],
+      synopsis: 'A once-feared swordsman who has quietly retired into medicine keeps getting dragged into murder investigations by a detective who will not take no for an answer.',
+      tone: '#2F3A3A',
+      rating: 8.4,
+      episodes: 40,
+      runtime: 45,
+      cast: [['a-chengyi', 'Li Lianhua']],
+      fans: 58_800,
+      poster: '/jpMyCVieu5JlGT52KzBTOOh9VFo.jpg',
+      backdrop: '/v0It4jPMkYT3H57x6ot4Fd56C8E.jpg',
+    }),
+    // ---- Anime ------------------------------------------------------------------------------
+    worldTitle({
+      id: 'world-jjk',
+      providerId: 95479,
+      title: 'JUJUTSU KAISEN',
+      originalTitle: '呪術廻戦',
+      media: 'tv',
+      format: 'anime',
+      language: 'ja',
+      region: 'JP',
+      year: 2020,
+      status: 'airing',
+      network: 'MBS',
+      streamingOn: ['Crunchyroll', 'Netflix'],
+      genres: ['Action', 'Fantasy', 'Horror'],
+      tags: ['shōnen', 'curses', 'tournament', 'supernatural'],
+      synopsis: 'A high-schooler swallows a cursed relic to save a friend and ends up sharing his body with the most dangerous spirit in Japan, enrolled at the school that hunts them.',
+      tone: '#2E3038',
+      rating: 8.8,
+      episodes: 24,
+      runtime: 24,
+      cast: [['a-nakamura', 'Satoru Gojo']],
+      fans: 138_600,
+      poster: '/6qQzMJG27XOJsyAEEIisoJB45j2.jpg',
+      backdrop: '/qpin8cASXEVtwhzNsprHYFiOAGk.jpg',
+    }),
+    worldTitle({
+      id: 'world-aot',
+      providerId: 1429,
+      title: 'Attack on Titan',
+      originalTitle: '進撃の巨人',
+      media: 'tv',
+      format: 'anime',
+      language: 'ja',
+      region: 'JP',
+      year: 2013,
+      network: 'NHK',
+      streamingOn: ['Crunchyroll'],
+      genres: ['Action', 'Fantasy', 'Mystery'],
+      tags: ['shōnen', 'apocalypse', 'military', 'dark'],
+      synopsis: 'Humanity survives behind three walls and a lie. When the outermost wall falls, a boy joins the last army that can fight back, and the truth turns out to be worse than the monsters.',
+      tone: '#3A3226',
+      rating: 9.1,
+      episodes: 25,
+      runtime: 24,
+      cast: [['a-yukikaji', 'Eren Yeager']],
+      fans: 210_400,
+      poster: '/hTP1DtLGFamjfu8WqjnuQdP1n4i.jpg',
+      backdrop: '/rqbCbjB19amtOtFQbb3K2lgm2zv.jpg',
+    }),
+    worldTitle({
+      id: 'world-frieren',
+      providerId: 209867,
+      title: "Frieren: Beyond Journey's End",
+      originalTitle: '葬送のフリーレン',
+      media: 'tv',
+      format: 'anime',
+      language: 'ja',
+      region: 'JP',
+      year: 2023,
+      streamingOn: ['Crunchyroll'],
+      genres: ['Fantasy', 'Comedy', 'Slice of life'],
+      tags: ['slow burn', 'found family', 'melancholy', 'adventure'],
+      synopsis: 'After the heroes defeat the demon king, their elven mage realises she never knew the people she travelled with. She sets out to meet the humans she outlived.',
+      tone: '#2F3A46',
+      rating: 9.0,
+      episodes: 28,
+      runtime: 24,
+      cast: [['a-tanezaki', 'Frieren']],
+      fans: 132_900,
+      poster: '/dqZENchTd7lp5zht7BdlqM7RBhD.jpg',
+      backdrop: '/rBOnrVlck7BIlGeWVlzYiZeg4l2.jpg',
+    }),
+    // ---- Hollywood: series and films --------------------------------------------------------
+    worldTitle({
+      id: 'world-breakingbad',
+      providerId: 1396,
+      title: 'Breaking Bad',
+      media: 'tv',
+      format: 'hollywood-series',
+      language: 'en',
+      region: 'US',
+      year: 2008,
+      network: 'AMC',
+      streamingOn: ['Netflix'],
+      genres: ['Crime', 'Thriller', 'Melodrama'],
+      tags: ['antihero', 'slow burn', 'prestige tv', 'new mexico'],
+      synopsis: 'A chemistry teacher with a terminal diagnosis starts making the purest drug in the Southwest, and discovers he is very good at being someone else.',
+      tone: '#3A3226',
+      rating: 9.3,
+      episodes: 62,
+      runtime: 47,
+      cast: [['a-cranston', 'Walter White'], ['a-aaronpaul', 'Jesse Pinkman']],
+      creators: ['Vince Gilligan'],
+      fans: 168_200,
+      poster: '/anFx9aTOOYqgS3v7x3R84Kz67ly.jpg',
+      backdrop: '/tsRy63Mu5cu8etL1X7ZLyf7UP1M.jpg',
+    }),
+    worldTitle({
+      id: 'world-severance',
+      providerId: 95396,
+      title: 'Severance',
+      media: 'tv',
+      format: 'hollywood-series',
+      language: 'en',
+      region: 'US',
+      year: 2022,
+      status: 'airing',
+      network: 'Apple TV+',
+      streamingOn: ['Apple TV+'],
+      genres: ['Sci-fi', 'Thriller', 'Mystery'],
+      tags: ['dystopia', 'workplace', 'prestige tv', 'theories'],
+      synopsis: 'Employees at Lumon consent to a surgical procedure that splits their memories between work and home, until one of them starts asking why the work is worth forgetting.',
+      tone: '#2E3440',
+      rating: 8.7,
+      episodes: 19,
+      runtime: 50,
+      cast: [['a-adamscott', 'Mark Scout']],
+      fans: 104_500,
+      poster: '/pPHpeI2X1qEd1CS1SeyrdhZ4qnT.jpg',
+      backdrop: '/ixgFmf1X59PUZam2qbAfskx2gQr.jpg',
+    }),
+    worldTitle({
+      id: 'world-dune2',
+      providerId: 693134,
+      title: 'Dune: Part Two',
+      media: 'movie',
+      format: 'hollywood-movie',
+      language: 'en',
+      region: 'US',
+      year: 2024,
+      genres: ['Sci-fi', 'Action', 'Adventure'],
+      tags: ['epic', 'desert', 'prophecy', 'franchise'],
+      synopsis: 'Paul Atreides unites with the Fremen to wage war on the house that destroyed his family, and finds himself becoming the thing he feared in the prophecy.',
+      tone: '#3A3226',
+      rating: 8.2,
+      runtime: 167,
+      cast: [['a-chalamet', 'Paul Atreides']],
+      creators: ['Denis Villeneuve'],
+      fans: 92_700,
+      poster: '/6izwz7rsy95ARzTR3poZ8H6c5pp.jpg',
+      backdrop: '/eZ239CUp1d6OryZEBPnO2n87gMG.jpg',
+    }),
+    // A film inside the K-Drama world: the hub must drop Episodes, the chip must still say K-Drama.
+    worldTitle({
+      id: 'world-parasite',
+      providerId: 496243,
+      title: 'Parasite',
+      originalTitle: '기생충',
+      media: 'movie',
+      format: 'kdrama',
+      language: 'ko',
+      region: 'KR',
+      year: 2019,
+      genres: ['Thriller', 'Melodrama', 'Comedy'],
+      tags: ['class', 'satire', 'twist', 'awards'],
+      synopsis: 'A family with no money talks its way into the household of a family with too much of it, and the arrangement holds right up until it does not.',
+      tone: '#33303A',
+      rating: 8.5,
+      runtime: 133,
+      cast: [],
+      creators: ['Bong Joon-ho'],
+      fans: 143_100,
+      poster: '/7IiTTgloJzvGI1TAYymCfbfl3vT.jpg',
+      backdrop: '/TU9NIjwzjoKPwQHoHshkFcQUCG.jpg',
+    }),
+  ];
+}
+
+interface WorldTitleSeed {
+  id: string;
+  providerId: number;
+  title: string;
+  originalTitle?: string;
+  media: 'tv' | 'movie';
+  format: Format;
+  language: string;
+  region: string;
+  year: number;
+  status?: Drama['status'];
+  network?: string;
+  streamingOn?: string[];
+  genres: string[];
+  tags: string[];
+  synopsis: string;
+  tone: string;
+  rating: number;
+  /** episode count for series — the list is generated, the count is real */
+  episodes?: number;
+  /** episode runtime for series, feature runtime for films */
+  runtime?: number;
+  cast: [string, string][];
+  creators?: string[];
+  fans: number;
+  /** TMDB poster path — art streams from image.tmdb.org; `tone` is the offline fallback. */
+  poster: string;
+  /** TMDB backdrop path, so the Content Hub hero is a real wide still and not a stretched poster. */
+  backdrop?: string;
+}
+
+/** One world title, with the boilerplate (seasons, episode list, cast order) filled in. */
+function worldTitle(t: WorldTitleSeed): Drama {
+  return {
+    id: t.id,
+    title: t.title,
+    originalTitle: t.originalTitle,
+    mediaType: t.media,
+    format: t.format,
+    originalLanguage: t.language,
+    region: t.region,
+    year: t.year,
+    status: t.status ?? 'completed',
+    network: t.network,
+    streamingOn: t.streamingOn,
+    genres: t.genres,
+    tags: t.tags,
+    synopsis: t.synopsis,
+    posterUrl: `https://image.tmdb.org/t/p/w342${t.poster}`,
+    backdropUrl: t.backdrop ? `https://image.tmdb.org/t/p/w780${t.backdrop}` : undefined,
+    tone: t.tone,
+    rating: t.rating,
+    runtime: t.media === 'movie' ? t.runtime : undefined,
+    episodeCount: t.episodes ?? 0,
+    seasons: t.episodes ? [{ number: 1, episodeCount: t.episodes, year: t.year }] : [],
+    episodes: t.episodes ? weekly(t.id, 1, t.episodes, `${t.year}-01-10T12:00:00Z`, t.runtime ?? 45) : [],
+    cast: t.cast.map(([actorId, role], i) => ({ actorId, role, order: i })),
+    creators: t.creators,
+    followerCount: t.fans,
+    provider: { name: 'tmdb', id: t.providerId },
+  };
+}
 
 /** Creators who author the seeded posts. `id`s are stable so threads survive a re-seed. */
 export const DEMO_USERS: User[] = [
@@ -257,10 +604,35 @@ export const DEMO_USERS: User[] = [
     displayName: 'Ria',
     bio: 'Watches for the second leads. They always deserved better.',
     favoriteGenres: ['Romance', 'Youth', 'Melodrama'],
-    favoriteDramaIds: ['demo-cloy', 'demo-proposal'],
+    favoriteDramaIds: ['demo-cloy', 'demo-proposal', 'world-untamed'],
     followers: 2_760,
     following: 143,
     joinedAt: ago(220 * DAY),
+  },
+  {
+    id: 'u-kaede',
+    handle: 'kaede',
+    displayName: 'Kaede',
+    bio: 'Seasonal simulcast every week. Anime first, everything else second.',
+    fandoms: ['anime', 'kdrama'],
+    favoriteGenres: ['Action', 'Fantasy', 'Youth'],
+    favoriteDramaIds: ['world-jjk', 'world-frieren'],
+    followers: 3_140,
+    following: 167,
+    joinedAt: ago(240 * DAY),
+    verified: true,
+  },
+  {
+    id: 'u-marcus',
+    handle: 'marcusfilm',
+    displayName: 'Marcus',
+    bio: 'Prestige series, late screenings, and one Severance rewatch a month.',
+    fandoms: ['hollywood', 'kdrama'],
+    favoriteGenres: ['Thriller', 'Sci-fi', 'Melodrama'],
+    favoriteDramaIds: ['world-severance', 'world-dune2'],
+    followers: 2_050,
+    following: 91,
+    joinedAt: ago(200 * DAY),
   },
 ];
 
@@ -271,6 +643,95 @@ export const DEMO_USERS: User[] = [
  */
 export function demoPosts(): Post[] {
   return [
+    // ---- cross-world threads: the demo must show one community, four fandoms ------------------
+    {
+      id: 'demo-w-01',
+      type: 'discussion',
+      authorId: 'u-marcus',
+      createdAt: ago(50 * MIN),
+      title: 'Severance is the best made-for-theories show since Lost, and it knows it',
+      kind: 'theory',
+      body:
+        'Every set on that floor is doing work. Watch what happens to the art when you rewind: the paintings change, the numbers change, and nobody in the room reacts. The show is not hiding a twist, it is handing you one frame at a time.',
+      spoiler: 'episode',
+      context: { dramaId: 'world-severance', season: 2, episode: 4 },
+      hashtags: ['severance', 'theories', 'prestige'],
+      mentions: [],
+      reactions: rx({ loved: 318, screamed: 96, furious: 12 }),
+      commentCount: 0,
+      saveCount: 88,
+      shareCount: 29,
+    },
+    {
+      id: 'demo-w-02',
+      type: 'recommendation',
+      authorId: 'u-haneul',
+      createdAt: ago(3 * HOUR),
+      body:
+        'K-Drama → anime, same ache: a boy who inherited something he never asked for, a mentor who is far too relaxed about all of it, and fights that are really about grief. If Goblin broke you, this is the next one.',
+      spoiler: 'none',
+      context: { dramaId: 'world-jjk', secondaryDramaId: 'demo-goblin' },
+      hashtags: ['ifYourLiked', 'crossover', 'slowburn'],
+      mentions: [],
+      reactions: rx({ loved: 214, screamed: 61, swooned: 33 }),
+      commentCount: 0,
+      saveCount: 96,
+      shareCount: 34,
+    },
+    {
+      id: 'demo-w-03',
+      type: 'review',
+      authorId: 'u-kaede',
+      createdAt: ago(6 * HOUR),
+      title: 'Frieren — the fantasy story about the part after the adventure',
+      rating: 10,
+      verdict: 'A show about grief that never once raises its voice.',
+      body:
+        'Most fantasy ends where this one begins. It is patient in a way that is genuinely rare: an episode can be two people walking and one line of dialogue, and it still lands harder than any finale this year.',
+      spoiler: 'none',
+      context: { dramaId: 'world-frieren' },
+      hashtags: ['frieren', 'anime', 'review'],
+      mentions: [],
+      reactions: rx({ loved: 402, cried: 173, swooned: 58 }),
+      commentCount: 0,
+      saveCount: 151,
+      shareCount: 44,
+    },
+    {
+      id: 'demo-w-04',
+      type: 'review',
+      authorId: 'u-ria',
+      createdAt: ago(9 * HOUR),
+      title: 'The Untamed earns its fifty episodes',
+      rating: 9,
+      verdict: 'Two people refusing to say the obvious thing for fifty hours, and it works.',
+      body:
+        'It is slower than anything you are used to, and it is worth it: the whole first act is setup for the way these two look at each other in the last ten episodes. Bring patience, leave with a new fandom.',
+      spoiler: 'none',
+      context: { dramaId: 'world-untamed' },
+      hashtags: ['cdrama', 'untamed', 'review'],
+      mentions: [],
+      reactions: rx({ loved: 276, swooned: 129, cried: 44 }),
+      commentCount: 0,
+      saveCount: 112,
+      shareCount: 38,
+    },
+    {
+      id: 'demo-w-05',
+      type: 'post',
+      authorId: 'u-mina',
+      createdAt: ago(20 * HOUR),
+      body:
+        'Watched Dune: Part Two on a phone at 2am and the sand still felt like it weighed something. Films do not need twelve episodes — two and a half hours with a real ending is its own kind of relief.',
+      spoiler: 'none',
+      context: { dramaId: 'world-dune2' },
+      hashtags: ['film', 'dune', 'cinema'],
+      mentions: [],
+      reactions: rx({ loved: 187, screamed: 24 }),
+      commentCount: 0,
+      saveCount: 41,
+      shareCount: 17,
+    },
     {
       id: 'demo-p-01',
       type: 'discussion',
@@ -689,6 +1150,33 @@ export function demoCollections(): Collection[] {
       followerCount: 612,
       updatedAt: ago(11 * DAY),
     },
+    {
+      id: 'demo-col-03',
+      ownerId: 'u-kaede',
+      title: 'Best psychological anime to start with',
+      description: 'Shows that are about people first and powers second.',
+      visibility: 'public',
+      items: [
+        { dramaId: 'world-aot', note: 'Start here. It lies to you kindly.', addedAt: ago(70 * DAY) },
+        { dramaId: 'world-jjk', note: 'The fight scenes are the dessert, not the meal.', addedAt: ago(30 * DAY) },
+        { dramaId: 'world-frieren', note: 'Technically the softest one here. Still devastating.', addedAt: ago(14 * DAY) },
+      ],
+      followerCount: 986,
+      updatedAt: ago(3 * DAY),
+    },
+    {
+      id: 'demo-col-04',
+      ownerId: 'u-marcus',
+      title: 'One night, one film',
+      description: 'Under three hours, no commitment, still a whole conversation afterwards.',
+      visibility: 'public',
+      items: [
+        { dramaId: 'world-dune2', note: 'Loud, enormous, exactly right at midnight.', addedAt: ago(40 * DAY) },
+        { dramaId: 'world-parasite', note: 'Watch it with someone who has not seen it. Say nothing.', addedAt: ago(21 * DAY) },
+      ],
+      followerCount: 448,
+      updatedAt: ago(9 * DAY),
+    },
   ];
 }
 
@@ -795,8 +1283,9 @@ export function demoMemberState(): AppState {
     handle: 'you',
     displayName: 'You',
     bio: 'Slow burns, sad endings, and one drama on the go at all times.',
+    fandoms: ['kdrama', 'anime', 'hollywood'],
     favoriteGenres: ['Fantasy', 'Romance', 'Thriller'],
-    favoriteDramaIds: ['demo-goblin', 'demo-glory'],
+    favoriteDramaIds: ['demo-goblin', 'demo-glory', 'world-jjk'],
     followers: 128,
     following: 5,
     joinedAt: ago(90 * DAY),
@@ -813,14 +1302,18 @@ export function demoMemberState(): AppState {
     },
     'demo-cloy': { dramaId: 'demo-cloy', status: 'completed', season: 1, currentEpisode: 16, addedAt: ago(120 * DAY), updatedAt: ago(60 * DAY), completedAt: ago(60 * DAY) },
     'demo-proposal': { dramaId: 'demo-proposal', status: 'want', season: 1, currentEpisode: 0, addedAt: ago(6 * DAY), updatedAt: ago(6 * DAY) },
+    // The most recent thing touched: this is what "Up next" and cross-world discovery anchor on, so
+    // the demo opens with an anime in progress rather than three K-dramas and nothing else.
+    'world-jjk': { dramaId: 'world-jjk', status: 'watching', season: 1, currentEpisode: 3, note: 'Two episodes a night, no exceptions.', addedAt: ago(3 * DAY), updatedAt: ago(3 * HOUR) },
+    'world-untamed': { dramaId: 'world-untamed', status: 'want', season: 1, currentEpisode: 0, addedAt: ago(1 * DAY), updatedAt: ago(1 * DAY) },
   };
   const base = freshMemberState(profile);
   return {
     ...base,
     prefs: { ...base.prefs, guidelinesAccepted: true, termsVersion: 1 },
-    onboarding: { done: true, step: 0, intent: 'discover', genres: ['Fantasy', 'Romance', 'Thriller'] },
+    onboarding: { done: true, step: 0, intent: 'discover', genres: ['Fantasy', 'Romance', 'Thriller'], fandoms: ['kdrama', 'anime', 'hollywood'] },
     watchlist,
-    follows: { users: ['u-haneul', 'u-soyeon'], dramas: ['demo-goblin', 'demo-glory'], actors: ['a-gongyoo'], collections: ['demo-col-01'] },
+    follows: { users: ['u-haneul', 'u-soyeon', 'u-kaede', 'u-marcus'], dramas: ['demo-goblin', 'demo-glory', 'world-jjk'], actors: ['a-gongyoo'], collections: ['demo-col-01'] },
     dramaNotify: { 'demo-goblin': true },
     recentSearches: ['slow burn', '#goblin'],
     lastSeenActivity: ago(2 * DAY),

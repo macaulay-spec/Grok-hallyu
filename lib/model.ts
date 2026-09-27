@@ -3,6 +3,18 @@
  */
 export type ID = string;
 
+/**
+ * The entertainment worlds Hallyu unifies. One app, one community, four fandoms — never four apps.
+ * A member can belong to one, several or all of them (see the "What are you into?" onboarding step).
+ */
+export type FandomId = 'kdrama' | 'cdrama' | 'anime' | 'hollywood';
+
+/** Which TMDB endpoint a record came from. */
+export type MediaType = 'tv' | 'movie';
+
+/** How a title actually is — used for labels, rails and section layout (a film has no episodes). */
+export type Format = 'kdrama' | 'cdrama' | 'anime' | 'hollywood-series' | 'hollywood-movie';
+
 export type SpoilerLevel = 'none' | 'episode' | 'season' | 'ending';
 export type SpoilerProtection = 'strict' | 'balanced' | 'off';
 export type WatchStatus = 'want' | 'watching' | 'completed' | 'dropped';
@@ -31,6 +43,8 @@ export interface User {
   displayName: string;
   avatarUrl?: string;
   bio?: string;
+  /** The worlds this member belongs to, shown on their profile as "Anime · K-Drama · Hollywood". */
+  fandoms?: FandomId[];
   favoriteGenres: string[];
   favoriteDramaIds: ID[];
   followers: number;
@@ -69,6 +83,14 @@ export interface Drama {
   id: ID; // slug
   title: string;
   originalTitle?: string;
+  /** Film or series — a film hub has no episodes. Records from the catalog always carry this. */
+  mediaType?: MediaType;
+  /** Which world this title belongs to (K-Drama, C-Drama, Anime, Hollywood). */
+  format?: Format;
+  originalLanguage?: string;
+  region?: string;
+  /** Feature-film runtime in minutes (series carry per-episode runtimes instead). */
+  runtime?: number;
   year: number;
   endYear?: number;
   status: DramaStatus;
@@ -111,6 +133,27 @@ export interface PostContext {
   episode?: number; // episode number within season
   actorIds?: ID[];
   secondaryDramaId?: ID; // "if you liked …" for recommendations
+  /** When set, the post belongs to a fandom community as well as (optionally) a title. */
+  communityId?: ID;
+}
+
+/**
+ * A fandom space. Communities are the social half of a world: a K-Drama room, an anime room, a
+ * movie-night room. The feed lives on the community page (Popular | Latest | Media).
+ */
+export interface Community {
+  id: ID;
+  name: string;
+  /** The world this community sits in — drives the chip and the default rail it appears on. */
+  fandom: FandomId;
+  description: string;
+  coverTone: string;
+  coverUrl?: string;
+  /** Optional anchor title for universe-specific rooms (One Piece, Marvel…). */
+  dramaId?: ID;
+  memberCount: number;
+  postCount: number;
+  createdAt: string;
 }
 
 export interface Post {
@@ -182,6 +225,8 @@ export interface Collection {
 export interface Notification {
   id: ID;
   group: NotificationGroup;
+  /** Notifications can point at a community too ("a community you follow is trending"). */
+  communityId?: ID;
   kind: 'reaction' | 'comment' | 'reply' | 'follow' | 'mention' | 'episode_aired' | 'episode_live' | 'drama_trending' | 'collection_saved' | 'system';
   actorIds?: ID[];
   postId?: ID;

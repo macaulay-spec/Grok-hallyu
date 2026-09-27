@@ -88,13 +88,13 @@ export default function DramasStep() {
 
   return (
     <OnboardingFrame
-      step={2}
+      step={3}
       title="Which of these have you watched?"
       subtitle="Tap a poster, then say where you are. That’s how we keep spoilers away from you."
       skippable={false}
       helper={count ? `${count} added to your watchlist · anything you’re watching is followed too` : wall.loading && !wall.data ? 'Loading what’s trending…' : 'Pick a few — or none, that’s fine'}
       onContinue={() => {
-        dispatch({ type: 'onboarding', patch: { step: 2 } });
+        dispatch({ type: 'onboarding', patch: { step: 3 } });
         router.push('/(onboarding)/people');
       }}
       scroll={false}

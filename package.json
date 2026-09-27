@@ -11,8 +11,9 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "ios": "expo run:ios",
-    "check": "npm run typecheck && npm run lint && npm run test:save",
-    "test:save": "node scripts/verify-save-flow.mjs"
+    "check": "npm run typecheck && npm run lint && npm run test:save && npm run test:fandoms",
+    "test:save": "node scripts/verify-save-flow.mjs",
+    "test:fandoms": "node scripts/verify-fandoms.mjs"
   },
   "dependencies": {
     "@expo/cli": "^0.18.31",

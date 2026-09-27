@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, Share, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 import { aspect, colors, radius, space } from '../../constants/theme';
+import { dramaLabel } from '../../lib/fandoms';
 import { compact, seasonEpisodeLabel, timeAgo } from '../../lib/format';
 import { haptic, useApp, useLayout, useRequireMember } from '../../lib/hooks';
 import { DiscussionKind, Post } from '../../lib/model';
@@ -245,6 +246,13 @@ function PostCardBase({ post, reason, detail, hideContext, style, onOpenComments
             accessibilityLabel={`${drama.title}${epLabel ? ` ${epLabel}` : ''}`}
           >
             <Poster drama={drama} width={28} rounded={4} />
+            {/* World first, then the title: "Anime · Frieren" — the context the brief asks for. */}
+            <Text variant="caption" tone="secondary" numberOfLines={1}>
+              {dramaLabel(drama)}
+            </Text>
+            <Text variant="caption" tone="tertiary" accessibilityElementsHidden>
+              ·
+            </Text>
             <Text variant="label" numberOfLines={1} style={{ flexShrink: 1 }}>
               {drama.title}
             </Text>

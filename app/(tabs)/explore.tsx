@@ -18,12 +18,14 @@ import { InlineNotice } from '../../components/ui/States';
 import { Tap } from '../../components/ui/Tap';
 import { Text } from '../../components/ui/Text';
 import { TopBar } from '../../components/ui/TopBar';
+import { WorldTile } from '../../components/fandom/WorldTile';
 import { colors, radius, space } from '../../constants/theme';
 import { catalog, invalidateCatalogLists, friendlyCatalogCopy } from '../../lib/catalog';
+import { FANDOMS } from '../../lib/fandoms';
 import { adoptActors, adoptDramas } from '../../lib/catalogSync';
 import { Loadable, useApp, useCatalogHealth, useLayout, useLoad, useNetwork } from '../../lib/hooks';
 import { Actor, Drama, GENRES } from '../../lib/model';
-import { publicCollections, shorts, trendingDiscussions, trendingHashtags } from '../../lib/selectors';
+import { publicCollections, shorts, trendingDiscussions, trendingHashtags, worldCounts } from '../../lib/selectors';
 
 const NETFLIX = 8; // TMDB watch-provider id
 
@@ -70,6 +72,7 @@ export default function Explore() {
   const discussions = useMemo(() => trendingDiscussions(state, 3), [state]);
   const collections = useMemo(() => publicCollections(state).slice(0, 8), [state]);
   const shortList = useMemo(() => shorts(state), [state]);
+  const counts = useMemo(() => worldCounts(state), [state]);
 
   const lead = trending.data?.[0];
   const heroW = Math.min(width - space.margin * 2, 640);
@@ -80,7 +83,21 @@ export default function Explore() {
     <Screen header={<TopBar mode="root" title="Explore" large />}>
       <ScrollScreen tabbed onScroll={tabBar.onScroll} scrollEventThrottle={16} refreshControl={refresh.control}>
         <View style={{ paddingHorizontal: space.margin, marginBottom: space.x6 }}>
-          <SearchField asButton placeholder="Dramas, actors, people, posts…" onPressButton={() => router.push('/search')} />
+          <SearchField asButton placeholder="Films, series, anime, actors, people…" onPressButton={() => router.push('/search')} />
+        </View>
+
+        {/* The four worlds: Hallyu's identity, and the fastest way into any of them. */}
+        <View style={styles.section}>
+          <SectionHeader eyebrow="Fandoms" title="Four worlds, one community" subtitle="Hallyu shows you all four at once. Step into one when that is what you want." />
+          <FlatList
+            horizontal
+            data={FANDOMS}
+            keyExtractor={(f) => f.id}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: space.margin, gap: space.gutter }}
+            initialNumToRender={4}
+            renderItem={({ item: f }) => <WorldTile world={f} count={counts[f.id] ?? 0} onPress={() => router.push(`/world/${f.id}`)} />}
+          />
         </View>
 
         {!catalog.available ? (
@@ -139,7 +156,7 @@ export default function Explore() {
           <Skeleton width={heroW} height={heroH} radius={radius.lg} style={{ alignSelf: 'center', marginBottom: space.section }} />
         ) : null}
 
-        <LiveRail eyebrow="Trending" title="Everyone’s talking about" state={trending} slice={[1]} size="m" onAction={() => router.push('/trending')} />
+        <LiveRail eyebrow="Trending" title="Everyone’s talking about" subtitle="K-Dramas, C-Dramas, anime and Hollywood together" state={trending} slice={[1]} size="m" onAction={() => router.push('/trending')} />
 
         <LiveRail eyebrow="This week" title="New episodes airing" live state={airing} size="l" onAction={() => router.push('/schedule')} actionLabel="Schedule" />
 

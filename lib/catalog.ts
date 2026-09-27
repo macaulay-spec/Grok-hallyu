@@ -9,7 +9,8 @@
  */
 import { Platform } from 'react-native';
 import { TMDB_ACCESS_TOKEN, TMDB_API_KEY } from '../constants/keys';
-import { Actor, Drama, Episode } from './model';
+import { FANDOMS, Fandom, fandomById, formatFandomOf, inferFormat } from './fandoms';
+import { Actor, Drama, Episode, FandomId, MediaType } from './model';
 
 // Credentials live in constants/keys.ts (wired into the app; env overrides only when non-empty).
 export const TMDB_TOKEN = TMDB_ACCESS_TOKEN;
@@ -33,40 +34,83 @@ export interface ResolveHint {
   providerId?: number;
 }
 
+/** A "why you should watch this" card: a title from another world, matched on shared genres. */
+export interface CrossWorldPick {
+  drama: Drama;
+  world: Fandom;
+  /** Genres the anchor and this title have in common (may be empty — it is still a world away). */
+  shared: string[];
+}
+
 export interface CatalogProvider {
   readonly name: string;
   readonly available: boolean;
+  /** Search across every world: K-Drama, C-Drama, anime, film and series. */
   searchDramas(query: string, signal?: AbortSignal): Promise<Drama[]>;
   searchActors(query: string, signal?: AbortSignal): Promise<Actor[]>;
-  /** Full record: seasons, latest-season episodes, aggregate cast. */
-  getDrama(providerId: number, signal?: AbortSignal): Promise<Drama | null>;
-  /** Person + TV credits (Korean titles only). */
+  /** Full record: seasons, latest-season episodes, aggregate cast (films: credits + runtime). */
+  getDrama(providerId: number, media?: MediaType, signal?: AbortSignal): Promise<Drama | null>;
+  /** Person + credits across film and television. */
   getActor(providerId: number, signal?: AbortSignal): Promise<ActorDetail | null>;
   /** Find the catalog record for a locally-seeded title (used to attach real art + ids). */
   resolveDrama(hint: ResolveHint, signal?: AbortSignal): Promise<Drama | null>;
   /** Find a person by name (used to attach headshots to seeded actors). */
   resolveActor(name: string, koreanName?: string, signal?: AbortSignal): Promise<Actor | null>;
 
-  // ---- Editorial lists (Explore, onboarding, genre pages). All Korean TV, thin records. ----
-  /** Most-talked-about K-dramas this week. */
+  // ---- Editorial lists (Explore, onboarding, genre pages). Thin records, all four worlds. ----
+  /** Most-talked-about titles this week, interleaved so every world is represented. */
   trending(signal?: AbortSignal): Promise<Drama[]>;
-  /** Popular K-dramas, paged (20 per page). */
+  /** Popular titles across all worlds, paged. */
   popular(page?: number, signal?: AbortSignal): Promise<Drama[]>;
-  /** Titles with an episode airing in the next `days` days. */
+  /** Titles with an episode airing in the next `days` days (series only). */
   airingSoon(days?: number, signal?: AbortSignal): Promise<Drama[]>;
-  /** Highest-rated K-dramas with a meaningful vote count. */
+  /** Highest-rated titles with a meaningful vote count. */
   topRated(page?: number, signal?: AbortSignal): Promise<Drama[]>;
   /** Premieres from today onwards. */
   upcoming(signal?: AbortSignal): Promise<Drama[]>;
-  /** Discover by one of the app's genres (mapped to TMDB genres/keywords). */
-  byGenre(genre: string, page?: number, signal?: AbortSignal): Promise<Drama[]>;
-  /** K-dramas on a streaming service (TMDB watch-provider id, e.g. 8 = Netflix). */
-  onProvider(providerId: number, signal?: AbortSignal): Promise<Drama[]>;
-  /** People trending this week who are known for Korean TV. */
+  /** Discover by one of the app's genres, across every world. */
+  byGenre(genre: string, page?: number, signal?: AbortSignal, fandom?: FandomId): Promise<Drama[]>;
+  /** Titles on a streaming service (TMDB watch-provider id, e.g. 8 = Netflix). */
+  onProvider(providerId: number, signal?: AbortSignal, fandom?: FandomId): Promise<Drama[]>;
+  /** One world on its own: the K-Drama rail, the Anime rail, the Hollywood film rail. */
+  byFandom(fandom: FandomId, sort?: 'trending' | 'popular' | 'top' | 'new', page?: number, signal?: AbortSignal): Promise<Drama[]>;
+  /**
+   * Cross-fandom discovery — Hallyu's differentiator. Given a title the member just watched, return
+   * a few titles from each *other* world, best genre overlap first, so a K-Drama can send you into
+   * anime and a Hollywood film can send you into C-Drama.
+   */
+  crossFandom(anchor: { fandom: FandomId; genres: string[] }, signal?: AbortSignal): Promise<CrossWorldPick[]>;
+  /** People trending across every world. */
   trendingPeople(signal?: AbortSignal): Promise<Actor[]>;
-  /** "If you liked X" — TMDB recommendations, Korean only. */
-  recommendations(providerId: number, signal?: AbortSignal): Promise<Drama[]>;
+  /** "If you liked X" — TMDB recommendations, any world. */
+  recommendations(providerId: number, media?: MediaType, signal?: AbortSignal): Promise<Drama[]>;
 }
+
+/** Movie genre names land in the same vocabulary as the app's, so filters work across worlds. */
+const MOVIE_GENRE_MAP: Record<number, string> = {
+  28: 'Action',
+  12: 'Adventure',
+  16: 'Animation',
+  35: 'Comedy',
+  80: 'Crime',
+  99: 'Documentary',
+  18: 'Melodrama',
+  10751: 'Family',
+  14: 'Fantasy',
+  36: 'Historical',
+  27: 'Horror',
+  10402: 'Musical',
+  9648: 'Mystery',
+  10749: 'Romance',
+  878: 'Sci-fi',
+  53: 'Thriller',
+  10752: 'Historical',
+  37: 'Western',
+};
+
+/** The languages the four worlds are read from — anything else has no world in Hallyu (yet). */
+const WORLD_LANGUAGES = new Set(['en', 'ko', 'zh', 'cn', 'yue', 'nan', 'ja']);
+const hasWorld = (d: Drama): boolean => WORLD_LANGUAGES.has((d.originalLanguage ?? '').toLowerCase());
 
 const GENRE_MAP: Record<number, string> = {
   10759: 'Action',
@@ -237,6 +281,27 @@ interface TmdbTv {
   [seasonKey: `season/${number}`]: { episodes?: TmdbEpisode[] } | undefined;
 }
 
+interface TmdbMovie {
+  id: number;
+  title: string;
+  original_title: string;
+  overview: string;
+  release_date?: string;
+  poster_path?: string | null;
+  backdrop_path?: string | null;
+  genre_ids?: number[];
+  genres?: { id: number; name: string }[];
+  original_language?: string;
+  vote_average?: number;
+  vote_count?: number;
+  popularity?: number;
+  runtime?: number | null;
+  status?: string;
+  tagline?: string;
+  /** present when `credits` was appended */
+  credits?: { cast: { id: number; name: string; character?: string; order?: number }[] };
+}
+
 interface TmdbPerson {
   id: number;
   name: string;
@@ -251,15 +316,18 @@ interface TmdbPerson {
   tv_credits?: { cast: (TmdbTv & { character?: string; episode_count?: number })[] };
 }
 
-const isKorean = (t: Pick<TmdbTv, 'origin_country' | 'original_language'>) => !!t.origin_country?.includes('KR') || t.original_language === 'ko';
-
 function airIso(date?: string | null): string | undefined {
   if (!date) return undefined;
   return new Date(`${date}${DEFAULT_AIR_TIME_KST}`).toISOString();
 }
 
 function mapGenre(g: string): string {
-  return g === 'Drama' ? 'Melodrama' : g === 'Sci-Fi & Fantasy' ? 'Fantasy' : g === 'Action & Adventure' ? 'Action' : g === 'War & Politics' ? 'Historical' : g === 'Soap' ? 'Melodrama' : g;
+  if (g === 'Drama') return 'Melodrama';
+  if (g === 'Sci-Fi & Fantasy' || g === 'Science Fiction') return 'Sci-fi';
+  if (g === 'Action & Adventure') return 'Action';
+  if (g === 'War & Politics' || g === 'History' || g === 'War') return 'Historical';
+  if (g === 'Soap') return 'Melodrama';
+  return g;
 }
 
 function mapEpisode(dramaId: string, e: TmdbEpisode): Episode {
@@ -276,8 +344,11 @@ function mapEpisode(dramaId: string, e: TmdbEpisode): Episode {
   };
 }
 
+const formatOfTv = (t: TmdbTv) => inferFormat({ media: 'tv', language: t.original_language, countries: t.origin_country, genres: t.genres?.map((g) => g.name) ?? (t.genre_ids ?? []).map((g) => GENRE_MAP[g]).filter((x): x is string => !!x) });
+
 function mapTv(t: TmdbTv): Drama {
   const id = `tmdb-${t.id}`;
+  const fmt = formatOfTv(t);
   const year = t.first_air_date ? Number(t.first_air_date.slice(0, 4)) : new Date().getFullYear();
   const notStarted = !t.first_air_date || new Date(t.first_air_date) > new Date();
   const status: Drama['status'] = t.status === 'In Production' || t.status === 'Planned' || notStarted ? 'upcoming' : t.in_production || t.status === 'Returning Series' ? 'airing' : 'completed';
@@ -296,6 +367,10 @@ function mapTv(t: TmdbTv): Drama {
     id,
     title: t.name,
     originalTitle: t.original_name !== t.name ? t.original_name : undefined,
+    mediaType: 'tv',
+    format: fmt,
+    originalLanguage: t.original_language,
+    region: t.origin_country?.[0],
     year,
     endYear: status === 'completed' && t.last_air_date ? Number(t.last_air_date.slice(0, 4)) : undefined,
     status,
@@ -317,6 +392,38 @@ function mapTv(t: TmdbTv): Drama {
   };
 }
 
+/** A film: no seasons, no episodes — a runtime, a cast and the same social layer around it. */
+function mapMovie(m: TmdbMovie): Drama {
+  const year = m.release_date ? Number(m.release_date.slice(0, 4)) : new Date().getFullYear();
+  const notYet = !m.release_date || new Date(m.release_date) > new Date();
+  const genreNames = m.genres?.map((g) => g.name) ?? (m.genre_ids ?? []).map((g) => MOVIE_GENRE_MAP[g]).filter((x): x is string => !!x);
+  const cast = (m.credits?.cast ?? []).slice(0, 16).map((c, i) => ({ actorId: `tmdb-${c.id}`, role: c.character || 'Cast', order: i }));
+  return {
+    id: `tmdb-${m.id}`,
+    title: m.title,
+    originalTitle: m.original_title !== m.title ? m.original_title : undefined,
+    mediaType: 'movie',
+    format: inferFormat({ media: 'movie', language: m.original_language, genres: genreNames }),
+    originalLanguage: m.original_language,
+    year,
+    endYear: year,
+    status: notYet ? 'upcoming' : 'completed',
+    genres: genreNames.length ? [...new Set(genreNames.map(mapGenre))] : ['Melodrama'],
+    synopsis: m.overview || 'No synopsis yet.',
+    posterUrl: m.poster_path ? `${TMDB_IMG}/w342${m.poster_path}` : undefined,
+    backdropUrl: m.backdrop_path ? `${TMDB_IMG}/w780${m.backdrop_path}` : undefined,
+    tone: toneFor(m.id),
+    runtime: m.runtime ?? undefined,
+    rating: m.vote_average && (m.vote_count ?? 0) >= 20 ? Math.round(m.vote_average * 10) / 10 : undefined,
+    episodeCount: 0,
+    seasons: [],
+    episodes: [],
+    cast,
+    followerCount: Math.round((m.popularity ?? 10) * 40),
+    provider: { name: 'tmdb', id: m.id },
+  };
+}
+
 function mapPerson(p: TmdbPerson): Actor {
   const koreanName = p.original_name && p.original_name !== p.name ? p.original_name : p.also_known_as?.find((n) => /[\u3131-\uD79D]/.test(n));
   return {
@@ -326,7 +433,7 @@ function mapPerson(p: TmdbPerson): Actor {
     photoUrl: p.profile_path ? `${TMDB_IMG}/w342${p.profile_path}` : undefined,
     bio: p.biography || undefined,
     birthDate: p.birthday ?? undefined,
-    knownFor: (p.known_for ?? []).filter((k) => k.media_type !== 'movie' && isKorean(k)).map((k) => `tmdb-${k.id}`),
+    knownFor: (p.known_for ?? []).map((k) => `tmdb-${k.id}`),
     followerCount: Math.round((p.popularity ?? 5) * 30),
     provider: { name: 'tmdb', id: p.id },
   };
@@ -341,30 +448,58 @@ function seasonsToAppend(t: TmdbTv): number[] {
 }
 
 /**
- * The app's editorial genres → TMDB discover filters. TMDB's TV taxonomy has no Romance/Thriller/
- * Historical, so those lean on keywords (looked up once by name, so ids never go stale).
+ * The app's editorial genres → TMDB discover filters, per medium: films and series use different
+ * genre ids (Romance is 10749 for films and not a TV genre at all), so each genre carries both —
+ * and TV's gaps lean on keywords, looked up once by name so the ids never go stale.
  */
-const GENRE_QUERY: Record<string, { genres?: number[]; keywords?: string[] }> = {
-  Romance: { keywords: ['romance', 'love'] },
-  Thriller: { keywords: ['thriller', 'suspense'] },
-  Fantasy: { genres: [10765] },
-  Comedy: { genres: [35] },
-  Melodrama: { genres: [18], keywords: ['melodrama'] },
-  Crime: { genres: [80] },
-  Historical: { keywords: ['joseon dynasty', 'historical drama', 'sageuk'] },
+const GENRE_QUERY: Record<string, { tv?: number[]; movie?: number[]; keywords?: string[] }> = {
+  Romance: { movie: [10749], keywords: ['romance', 'love'] },
+  Thriller: { movie: [53], keywords: ['thriller', 'suspense'] },
+  Fantasy: { tv: [10765], movie: [14] },
+  Comedy: { tv: [35], movie: [35] },
+  Melodrama: { tv: [18], movie: [18], keywords: ['melodrama'] },
+  Crime: { tv: [80], movie: [80] },
+  Historical: { movie: [36], keywords: ['joseon dynasty', 'historical drama', 'sageuk'] },
   'Slice of life': { keywords: ['slice of life'] },
-  Mystery: { genres: [9648] },
-  Action: { genres: [10759] },
+  Mystery: { tv: [9648], movie: [9648] },
+  Action: { tv: [10759], movie: [28] },
   Medical: { keywords: ['hospital', 'doctor', 'medical drama'] },
   Legal: { keywords: ['lawyer', 'legal drama', 'prosecutor'] },
   Youth: { keywords: ['high school', 'coming of age', 'youth'] },
-  Family: { genres: [10751] },
-  Horror: { keywords: ['horror', 'zombie', 'ghost'] },
-  'Sci-fi': { genres: [10765], keywords: ['science fiction', 'time travel'] },
+  Family: { tv: [10751], movie: [10751] },
+  Horror: { movie: [27], keywords: ['horror', 'zombie', 'ghost'] },
+  'Sci-fi': { tv: [10765], movie: [878], keywords: ['science fiction', 'time travel'] },
 };
 
-const KR = { with_origin_country: 'KR', include_adult: 'false', include_null_first_air_dates: 'false' };
 const isoDay = (offsetDays = 0) => new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10);
+
+type DiscoverMode = 'popular' | 'top' | 'new' | 'airing';
+
+/**
+ * Per-medium discover parameters. TMDB names its date fields differently for films and series
+ * (`primary_release_date` vs `first_air_date`), and a 7.5-rated film needs many more votes than a
+ * 7.5-rated series to be worth showing, so the thresholds differ too.
+ */
+function modeParams(mode: DiscoverMode, media: MediaType, days = 7): Record<string, string> {
+  const dateKey = media === 'movie' ? 'primary_release_date' : 'first_air_date';
+  switch (mode) {
+    case 'top':
+      return { sort_by: 'vote_average.desc', 'vote_count.gte': media === 'movie' ? '500' : '150' };
+    case 'new':
+      return { [`${dateKey}.gte`]: isoDay(1), [`${dateKey}.lte`]: isoDay(120), sort_by: 'popularity.desc' };
+    case 'airing':
+      return { [`${dateKey}.gte`]: isoDay(0), [`${dateKey}.lte`]: isoDay(days), sort_by: 'popularity.desc' };
+    default:
+      return { sort_by: 'popularity.desc' };
+  }
+}
+
+/** Round-robin N lists, so a mixed rail leads with every world instead of one of them. */
+function interleave<T>(lists: T[][], perList = 8): T[] {
+  const out: T[] = [];
+  for (let i = 0; i < perList; i++) for (const l of lists) if (l[i] !== undefined) out.push(l[i]!);
+  return out;
+}
 
 /** Tiny TTL memo so Explore/onboarding don't re-hit TMDB on every mount. */
 const memoStore = new Map<string, { at: number; value: Promise<unknown> }>();
@@ -399,9 +534,46 @@ function keywordId(name: string, signal?: AbortSignal): Promise<number | null> {
   return p;
 }
 
-async function discover(params: Record<string, string>, signal?: AbortSignal): Promise<Drama[]> {
-  const data = await tmdb<{ results: TmdbTv[] }>('/discover/tv', { ...KR, ...params }, signal);
-  return data.results.filter(isKorean).map(mapTv);
+/** One world, read from the one or two TMDB endpoints it lives on. */
+async function discoverWorld(f: Fandom, paramsFor: (media: MediaType) => Record<string, string>, signal?: AbortSignal): Promise<Drama[]> {
+  const lists = await Promise.all(
+    f.queries.map(async (q) => {
+      const data = await tmdb<{ results: (TmdbTv & TmdbMovie)[] }>(`/discover/${q.media}`, { include_adult: 'false', ...q.params, ...paramsFor(q.media) }, signal);
+      return data.results.map((r) => (q.media === 'movie' ? mapMovie(r as unknown as TmdbMovie) : mapTv(r as unknown as TmdbTv)));
+    }),
+  );
+  const seen = new Set<string>();
+  return lists.flat().filter((d) => (seen.has(d.id) ? false : (seen.add(d.id), true)));
+}
+
+/**
+ * Every world at once — the default Hallyu list. The four are read in parallel (Hollywood twice,
+ * film and series) and interleaved, so the first four cards can be a K-Drama, a C-Drama, an anime
+ * and a film. `seriesOnly` skips the film endpoints for episode-schedule lists.
+ */
+async function discoverMixed(paramsFor: (media: MediaType) => Record<string, string>, opts: { perWorld?: number; seriesOnly?: boolean } = {}, signal?: AbortSignal): Promise<Drama[]> {
+  const worlds = FANDOMS.map((f) => ({ f, queries: opts.seriesOnly ? f.queries.filter((q) => q.media === 'tv') : f.queries })).filter((x) => x.queries.length);
+  const results = await Promise.allSettled(worlds.map((w) => discoverWorld({ ...w.f, queries: w.queries }, paramsFor, signal)));
+  const lists = results.map((r) => (r.status === 'fulfilled' ? r.value : []));
+  if (!lists.some((l) => l.length)) {
+    const first = results.find((r) => r.status === 'rejected');
+    if (first?.status === 'rejected' && (first.reason as Error)?.name === 'AbortError') throw first.reason;
+    throw new CatalogError('Catalog unavailable', 0);
+  }
+  return interleave(lists, opts.perWorld ?? 8);
+}
+
+/** Genre filters for one medium, keywords included. */
+async function genreParams(genre: string, media: MediaType, signal?: AbortSignal): Promise<Record<string, string>> {
+  const q = GENRE_QUERY[genre] ?? (media === 'movie' ? { movie: [18] } : { tv: [18] });
+  const params: Record<string, string> = { sort_by: 'popularity.desc' };
+  const ids = (media === 'movie' ? q.movie : q.tv) ?? [];
+  if (ids.length) params.with_genres = ids.join(',');
+  if (q.keywords?.length) {
+    const kids = (await Promise.all(q.keywords.map((k) => keywordId(k, signal)))).filter((x): x is number => !!x);
+    if (kids.length) params.with_keywords = kids.join('|'); // OR across keywords
+  }
+  return params;
 }
 
 export const tmdbProvider: CatalogProvider = {
@@ -409,12 +581,14 @@ export const tmdbProvider: CatalogProvider = {
   available: TMDB_TOKEN.length > 0 || TMDB_KEY.length > 0,
 
   async searchDramas(query, signal) {
-    const data = await tmdb<{ results: TmdbTv[] }>('/search/tv', { query, include_adult: 'false' }, signal);
+    // One request searches all four worlds: /search/multi returns series and films together.
+    const data = await tmdb<{ results: (TmdbTv & TmdbMovie & { media_type?: string })[] }>('/search/multi', { query, include_adult: 'false' }, signal);
     return data.results
-      .filter(isKorean)
-      .sort((a, b) => (b.popularity ?? 0) - (a.popularity ?? 0))
-      .slice(0, 10)
-      .map(mapTv);
+      .filter((r) => r.media_type === 'movie' || r.media_type === 'tv')
+      .map((r) => (r.media_type === 'movie' ? mapMovie(r) : mapTv(r)))
+      .filter(hasWorld)
+      .sort((a, b) => b.followerCount - a.followerCount)
+      .slice(0, 20);
   },
 
   async searchActors(query, signal) {
@@ -426,7 +600,11 @@ export const tmdbProvider: CatalogProvider = {
       .map(mapPerson);
   },
 
-  async getDrama(providerId, signal) {
+  async getDrama(providerId, media = 'tv', signal) {
+    if (media === 'movie') {
+      const full = await tmdb<TmdbMovie>(`/movie/${providerId}`, { append_to_response: 'credits' }, signal);
+      return mapMovie(full);
+    }
     const base = await tmdb<TmdbTv>(`/tv/${providerId}`, {}, signal);
     const append = ['aggregate_credits', ...seasonsToAppend(base).map((n) => `season/${n}`)].join(',');
     const full = await tmdb<TmdbTv>(`/tv/${providerId}`, { append_to_response: append }, signal);
@@ -436,7 +614,7 @@ export const tmdbProvider: CatalogProvider = {
   async getActor(providerId, signal) {
     const p = await tmdb<TmdbPerson>(`/person/${providerId}`, { append_to_response: 'tv_credits' }, signal);
     const credits = (p.tv_credits?.cast ?? [])
-      .filter((c) => isKorean(c) && (c.episode_count ?? 1) > 0 && !!c.first_air_date)
+      .filter((c) => (c.episode_count ?? 1) > 0 && !!c.first_air_date)
       .sort((a, b) => (b.first_air_date ?? '').localeCompare(a.first_air_date ?? ''))
       .slice(0, 40)
       .map((c) => ({ ...mapTv(c), cast: [{ actorId: `tmdb-${p.id}`, role: c.character || 'Cast', order: 0 }] }));
@@ -454,7 +632,7 @@ export const tmdbProvider: CatalogProvider = {
     if (hint.providerId) {
       try {
         const t = await tmdb<TmdbTv>(`/tv/${hint.providerId}`, {}, signal);
-        if (exact(t) || (isKorean(t) && yearNear(t))) return mapTv(t);
+        if (exact(t) || yearNear(t)) return mapTv(t);
       } catch (e) {
         if ((e as Error).name === 'AbortError') throw e;
       }
@@ -466,8 +644,7 @@ export const tmdbProvider: CatalogProvider = {
     if (hint.originalTitle) queries.push({ query: hint.originalTitle, include_adult: 'false' });
     for (const params of queries) {
       const data = await tmdb<{ results: TmdbTv[] }>('/search/tv', params, signal);
-      const kr = data.results.filter(isKorean);
-      const hit = kr.find(exact) ?? kr.find(loose);
+      const hit = data.results.find(exact) ?? data.results.find(loose);
       if (hit) return mapTv(hit);
     }
     return null;
@@ -476,57 +653,105 @@ export const tmdbProvider: CatalogProvider = {
   async resolveActor(name, koreanName, signal) {
     const data = await tmdb<{ results: TmdbPerson[] }>('/search/person', { query: name, include_adult: 'false' }, signal);
     const acting = data.results.filter((p) => (p.known_for_department ?? 'Acting') === 'Acting');
-    const byName = acting.find((p) => norm(p.name) === norm(name) || (koreanName && (p.original_name === koreanName || p.also_known_as?.includes(koreanName))));
-    const pick = byName ?? acting.find((p) => (p.known_for ?? []).some((k) => isKorean(k)));
+    const pick = acting.find((p) => norm(p.name) === norm(name) || (koreanName && (p.original_name === koreanName || p.also_known_as?.includes(koreanName)))) ?? acting[0];
     return pick ? mapPerson(pick) : null;
   },
 
   trending(signal) {
     return memo('trending', TEN_MIN, async () => {
-      // /trending is global; Korean titles are a slice of it, so read two pages and top up with popular.
-      const pages = await Promise.all([1, 2].map((page) => tmdb<{ results: TmdbTv[] }>('/trending/tv/week', { page: String(page) }, signal).catch(() => ({ results: [] as TmdbTv[] }))));
-      const kr = pages
-        .flatMap((p) => p.results)
-        .filter(isKorean)
-        .map(mapTv);
-      if (kr.length >= 10) return kr.slice(0, 20);
-      const popular = await discover({ sort_by: 'popularity.desc', page: '1' }, signal);
-      const seen = new Set(kr.map((d) => d.id));
-      return [...kr, ...popular.filter((d) => !seen.has(d.id))].slice(0, 20);
+      // /trending/all/week is already global and already mixed (series and films in one list), so
+      // bucket it by world and interleave: no single world can swallow the rail. Thin worlds top up
+      // from their own discover list.
+      const pages = await Promise.all(
+        [1, 2].map((page) => tmdb<{ results: (TmdbTv & TmdbMovie & { media_type?: string })[] }>('/trending/all/week', { page: String(page) }, signal).catch(() => ({ results: [] }))),
+      );
+      const seen = new Set<string>();
+      const buckets = new Map<FandomId, Drama[]>();
+      for (const r of pages.flatMap((p) => p.results)) {
+        const d = r.media_type === 'movie' ? mapMovie(r) : mapTv(r);
+        if (seen.has(d.id) || !hasWorld(d)) continue;
+        seen.add(d.id);
+        const world = formatFandomOf(d);
+        buckets.set(world, [...(buckets.get(world) ?? []), d]);
+      }
+      const ordered = interleave(FANDOMS.map((f) => (buckets.get(f.id) ?? []).slice(0, 6)));
+      if (ordered.length >= 12) return ordered.slice(0, 20);
+      const topUp = await discoverMixed((media) => modeParams('popular', media), { perWorld: 5 }, signal).catch(() => [] as Drama[]);
+      const have = new Set(ordered.map((d) => d.id));
+      return [...ordered, ...topUp.filter((d) => !have.has(d.id))].slice(0, 20);
     });
   },
 
   popular(page = 1, signal) {
-    return memo(`popular:${page}`, TEN_MIN, () => discover({ sort_by: 'popularity.desc', page: String(page) }, signal));
+    return memo(`popular:${page}`, TEN_MIN, () => discoverMixed((media) => ({ ...modeParams('popular', media), page: String(page) }), {}, signal));
   },
 
   airingSoon(days = 7, signal) {
-    return memo(`airing:${days}`, TEN_MIN, () => discover({ 'air_date.gte': isoDay(0), 'air_date.lte': isoDay(days), sort_by: 'popularity.desc' }, signal));
+    return memo(`airing:${days}`, TEN_MIN, () => discoverMixed((media) => modeParams('airing', media, days), { seriesOnly: true }, signal));
   },
 
   topRated(page = 1, signal) {
-    return memo(`top:${page}`, TEN_MIN, () => discover({ sort_by: 'vote_average.desc', 'vote_count.gte': '150', page: String(page) }, signal));
+    return memo(`top:${page}`, TEN_MIN, () => discoverMixed((media) => ({ ...modeParams('top', media), page: String(page) }), { perWorld: 6 }, signal));
   },
 
   upcoming(signal) {
-    return memo('upcoming', TEN_MIN, () => discover({ 'first_air_date.gte': isoDay(1), 'first_air_date.lte': isoDay(120), sort_by: 'popularity.desc' }, signal));
+    return memo('upcoming', TEN_MIN, () => discoverMixed((media) => modeParams('new', media), {}, signal));
   },
 
-  byGenre(genre, page = 1, signal) {
-    return memo(`genre:${genre}:${page}`, TEN_MIN, async () => {
-      const q = GENRE_QUERY[genre] ?? { genres: [18] };
-      const params: Record<string, string> = { sort_by: 'popularity.desc', page: String(page) };
-      if (q.genres?.length) params.with_genres = q.genres.join(',');
-      if (q.keywords?.length) {
-        const ids = (await Promise.all(q.keywords.map((k) => keywordId(k, signal)))).filter((x): x is number => !!x);
-        if (ids.length) params.with_keywords = ids.join('|'); // OR across keywords
+  byGenre(genre, page = 1, signal, fandom) {
+    return memo(`genre:${genre}:${page}:${fandom ?? 'all'}`, TEN_MIN, async () => {
+      const fetchMedia = async (media: MediaType) => {
+        const params = { include_adult: 'false', ...(await genreParams(genre, media, signal)), page: String(page) };
+        const data = await tmdb<{ results: (TmdbTv & TmdbMovie)[] }>(`/discover/${media}`, params, signal);
+        return data.results.map((r) => (media === 'movie' ? mapMovie(r as unknown as TmdbMovie) : mapTv(r as unknown as TmdbTv)));
+      };
+      if (fandom) {
+        const f = fandomById(fandom);
+        const lists = await Promise.all(f.queries.map((q) => fetchMedia(q.media)));
+        return lists.flat();
       }
-      return discover(params, signal);
+      const [tv, movie] = await Promise.all([fetchMedia('tv'), fetchMedia('movie')]);
+      return interleave([tv, movie], page === 1 ? 10 : 20);
     });
   },
 
-  onProvider(providerId, signal) {
-    return memo(`provider:${providerId}`, TEN_MIN, () => discover({ with_watch_providers: String(providerId), watch_region: 'US', sort_by: 'popularity.desc' }, signal));
+  onProvider(providerId, signal, fandom) {
+    return memo(`provider:${providerId}:${fandom ?? 'all'}`, TEN_MIN, () => {
+      const params = (media: MediaType) => ({ with_watch_providers: String(providerId), watch_region: 'US', ...modeParams('popular', media) });
+      return fandom ? discoverWorld(fandomById(fandom), params, signal) : discoverMixed(params, {}, signal);
+    });
+  },
+
+  /**
+   * One world on its own. "Trending" inside a world ranks by popularity with a floor on votes —
+   * TMDB's global trend list is not split by world, and a title nobody has rated being #1 for
+   * K-Dramas would read as broken.
+   */
+  byFandom(fandom, sort = 'trending', page = 1, signal) {
+    return memo(`world:${fandom}:${sort}:${page}`, TEN_MIN, () =>
+      discoverWorld(
+        fandomById(fandom),
+        (media) => ({ ...(sort === 'trending' ? { sort_by: 'popularity.desc', 'vote_count.gte': media === 'movie' ? '100' : '40' } : modeParams(sort === 'new' ? 'new' : sort === 'top' ? 'top' : 'popular', media)), page: String(page) }),
+        signal,
+      ),
+    );
+  },
+
+  crossFandom(anchor, signal) {
+    return memo(`cross:${anchor.fandom}:${anchor.genres.slice(0, 3).join('|')}`, TEN_MIN, async () => {
+      const others = FANDOMS.filter((f) => f.id !== anchor.fandom);
+      const picks = await Promise.all(
+        others.map(async (world) => {
+          const items = await discoverWorld(world, (media) => modeParams('top', media), signal).catch(() => [] as Drama[]);
+          const overlap = (d: Drama) => d.genres.filter((g) => anchor.genres.includes(g)).length;
+          return [...items]
+            .sort((a, b) => overlap(b) - overlap(a) || b.followerCount - a.followerCount)
+            .slice(0, 3)
+            .map((drama) => ({ drama, world, shared: drama.genres.filter((g) => anchor.genres.includes(g)) }));
+        }),
+      );
+      return picks.flat();
+    });
   },
 
   trendingPeople(signal) {
@@ -536,16 +761,19 @@ export const tmdbProvider: CatalogProvider = {
       return pages
         .flatMap((p) => p.results)
         .filter((p) => (seen.has(p.id) ? false : (seen.add(p.id), true)))
-        .filter((p) => (p.known_for_department ?? 'Acting') === 'Acting' && (p.known_for ?? []).some((k) => k.media_type !== 'movie' && isKorean(k)))
+        .filter((p) => (p.known_for_department ?? 'Acting') === 'Acting')
         .map(mapPerson)
         .slice(0, 16);
     });
   },
 
-  recommendations(providerId, signal) {
-    return memo(`recs:${providerId}`, TEN_MIN, async () => {
-      const data = await tmdb<{ results: TmdbTv[] }>(`/tv/${providerId}/recommendations`, {}, signal);
-      return data.results.filter(isKorean).map(mapTv).slice(0, 12);
+  recommendations(providerId, media = 'tv', signal) {
+    return memo(`recs:${media}:${providerId}`, TEN_MIN, async () => {
+      const data = await tmdb<{ results: (TmdbTv & TmdbMovie)[] }>(`/${media}/${providerId}/recommendations`, {}, signal);
+      return data.results
+        .map((r) => (media === 'movie' ? mapMovie(r as unknown as TmdbMovie) : mapTv(r as unknown as TmdbTv)))
+        .filter(hasWorld)
+        .slice(0, 12);
     });
   },
 };

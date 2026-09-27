@@ -1,5 +1,6 @@
+import { Fandom, fandomById, formatFandomOf, toFandoms } from './fandoms';
 import { now } from './format';
-import { Actor, Collection, Comment, Drama, Episode, Post, ReactionKind, User, WatchlistItem } from './model';
+import { Actor, Collection, Comment, Drama, Episode, FandomId, Post, ReactionKind, User, WatchlistItem } from './model';
 import { isVeiled, Viewer } from './spoiler';
 import { AppState, FeedPage, allActors, allDramas } from './store';
 
@@ -156,6 +157,13 @@ function localForYou(s: AppState): Ranked[] {
       if (d && s.prefs.personalization && d.genres.some((g) => genres.has(g))) {
         w *= 1.25;
         reason = reason ?? `Popular in ${d.genres.find((g) => genres.has(g))}`;
+      }
+      // The worlds the member chose get lifted, never the others hidden — cross-fandom discovery is
+      // the point of Hallyu, it should just take second place to your own fandoms.
+      const mine = myWorlds(s);
+      if (d && mine.length && mine.includes(formatFandomOf(d))) {
+        w *= 1.35;
+        reason = reason ?? `In your ${fandomById(formatFandomOf(d)).short} world`;
       }
       if (d?.status === 'airing') w *= 1.3;
       if (!reason && score(post) > 300) reason = 'Trending in the community';
@@ -515,4 +523,90 @@ export function dramasByGenre(s: AppState, genre: string): Drama[] {
 /** Does this viewer follow whoever authored the post (for the Following-tab empty state). */
 export function followsAnyone(s: AppState): boolean {
   return s.follows.users.length + s.follows.dramas.length + s.follows.actors.length > 0;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Fandoms — the four worlds, as identity and as discovery
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The worlds the member belongs to. Profile wins over the onboarding answer, because the profile is
+ * what they can come back and change later; an empty list means ALL, which is the default Hallyu
+ * experience — never a filter that hides three quarters of the app.
+ */
+export function myWorlds(s: AppState): FandomId[] {
+  return toFandoms(s.profile.fandoms?.length ? s.profile.fandoms : s.onboarding.fandoms);
+}
+
+/** True when the member asked for this world (or for all of them). */
+export function followsWorld(s: AppState, id: FandomId): boolean {
+  const mine = myWorlds(s);
+  return mine.length === 0 || mine.includes(id);
+}
+
+/** How many titles of each world the device holds — rails hide a world they have nothing for. */
+export function worldCounts(s: AppState): Record<FandomId, number> {
+  const out = { kdrama: 0, cdrama: 0, anime: 0, hollywood: 0 } as Record<FandomId, number>;
+  for (const d of allDramas(s)) out[formatFandomOf(d)] += 1;
+  return out;
+}
+
+/** Titles on the device that belong to one world, best first (the offline half of the world page). */
+export function dramasInWorld(s: AppState, id: FandomId, n = 12): Drama[] {
+  const weight = (d: Drama) => (d.rating ?? 0) * 10 + d.followerCount / 500 + (d.status === 'airing' ? 2 : 0);
+  return allDramas(s)
+    .filter((d) => formatFandomOf(d) === id)
+    .sort((a, b) => weight(b) - weight(a))
+    .slice(0, n);
+}
+
+/**
+ * The title the member touched most recently: the last thing they tracked, or failing that the
+ * first drama they follow. This is what "Because you like…" is anchored on.
+ */
+export function anchorDrama(s: AppState): Drama | undefined {
+  const items = Object.values(s.watchlist).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  for (const w of items) {
+    const d = getDrama(s, w.dramaId);
+    if (d) return d;
+  }
+  for (const id of s.follows.dramas) {
+    const d = getDrama(s, id);
+    if (d) return d;
+  }
+  return undefined;
+}
+
+/**
+ * Cross-fandom discovery, offline: from every world other than the anchor's, the titles that share
+ * the most genres with it. With a network the live catalog version (catalog.crossFandom) is used
+ * instead — this is what keeps the rail meaningful with no connection at all.
+ */
+export function crossWorldLocal(s: AppState, n = 9): { drama: Drama; world: Fandom; shared: string[] }[] {
+  const anchor = anchorDrama(s);
+  if (!anchor) return [];
+  const mine = formatFandomOf(anchor);
+  return allDramas(s)
+    .filter((d) => d.id !== anchor.id && formatFandomOf(d) !== mine)
+    .map((d) => ({ drama: d, shared: d.genres.filter((g) => anchor.genres.includes(g)) }))
+    .sort((a, b) => b.shared.length - a.shared.length || b.drama.followerCount - a.drama.followerCount)
+    .slice(0, n)
+    .map((x) => ({ ...x, world: fandomById(formatFandomOf(x.drama)) }));
+}
+
+/** Community posts attached to titles in one world, newest first (the world page's social half). */
+export function postsInWorld(s: AppState, id: FandomId, n = 6): Post[] {
+  const ids = new Set(allDramas(s).filter((d) => formatFandomOf(d) === id).map((d) => d.id));
+  return visiblePosts(s)
+    .filter((p) => !!p.context.dramaId && ids.has(p.context.dramaId) && p.type !== 'short')
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .slice(0, n);
+}
+
+/** The worlds the member actually has titles for — used to build the "Your worlds" rail. */
+export function activeWorlds(s: AppState): Fandom[] {
+  const counts = worldCounts(s);
+  const mine = myWorlds(s);
+  const ids: FandomId[] = mine.length ? mine : (['kdrama', 'cdrama', 'anime', 'hollywood'] as FandomId[]);
+  return ids.map(fandomById).filter((f) => (counts[f.id] ?? 0) > 0);
 }
