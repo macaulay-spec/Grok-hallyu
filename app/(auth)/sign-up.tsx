@@ -6,7 +6,6 @@ import { ScrollScreen, Screen } from '../../components/ui/Screen';
 import { InlineNotice } from '../../components/ui/States';
 import { Text } from '../../components/ui/Text';
 import { TextField } from '../../components/ui/TextField';
-import { useToast } from '../../components/ui/Toast';
 import { TopBar } from '../../components/ui/TopBar';
 import { space } from '../../constants/theme';
 import { AuthError, useAuth } from '../../lib/auth';
@@ -23,7 +22,6 @@ function strength(p: string): { score: 0 | 1 | 2 | 3; label: string } {
 export default function SignUp() {
   const router = useRouter();
   const auth = useAuth();
-  const toast = useToast();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -68,7 +66,7 @@ export default function SignUp() {
           {error?.code === 'exists' ? <Button label="Sign in instead" variant="secondary" block onPress={() => router.replace('/(auth)/sign-in')} /> : null}
         </View>
         <View style={{ marginTop: space.x6, gap: space.x2 }}>
-          <Button label="Continue with Google" icon="logo-google" variant="secondary" block onPress={() => auth.signInWithGoogle().then(() => router.replace('/')).catch((e: AuthError) => e.code !== 'cancelled' && toast.show({ message: e.message, tone: 'danger' }))} />
+          <Button label="Explore the demo" icon="sparkles" variant="secondary" block onPress={() => auth.signInDemo().then(() => router.replace('/'))} />
           <Button label="Already have an account? Sign in" variant="ghost" onPress={() => router.replace('/(auth)/sign-in')} />
         </View>
         <Text variant="caption" tone="tertiary" style={{ marginTop: space.x6 }}>

@@ -33,7 +33,7 @@ export default function Settings() {
             <View style={{ flex: 1 }}>
               <Text variant="titleSmall">{me.displayName}</Text>
               <Text variant="caption" tone="secondary">
-                @{me.handle} · {auth.user?.provider === 'google' ? 'Google' : 'Email'}
+                @{me.handle} · {auth.user?.provider === 'google' ? 'Google' : auth.user?.provider === 'demo' ? 'Demo' : 'Email'}
               </Text>
             </View>
           </View>

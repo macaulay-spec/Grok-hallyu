@@ -205,7 +205,7 @@ export type Action =
   | { type: 'viewerSync'; reactions: Record<string, ReactionKind | null>; saved: Record<string, boolean> }
   | { type: 'me'; payload: MePayload };
 
-/** The `api.me()` snapshot, already mapped to store shapes (see lib/data/supabaseBackend.ts). */
+/** An account snapshot, already mapped to store shapes (see lib/data/demoBackend.ts). */
 export interface MePayload {
   profile?: Partial<User>;
   prefs?: Partial<Prefs>;

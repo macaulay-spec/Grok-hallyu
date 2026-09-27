@@ -1,16 +1,23 @@
+/**
+ * Local authentication for the frontend-only build.
+ *
+ * There is no server and no auth provider: an account here is a small record in AsyncStorage. That
+ * keeps every screen, gate and deep-link path in the product exercisable end to end, and because the
+ * shape of `AuthValue` is unchanged, no screen had to be rewritten to drop the backend.
+ *
+ * What this deliberately does NOT pretend to do: verify an email, send a reset link, or talk to
+ * Google. Those flows are reachable in a server-backed build (`backend/` — see backend/README.md);
+ * until then the UI says what is real. `demo` on the context lets any screen say so inline.
+ */
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { Session } from '@supabase/supabase-js';
-import * as Linking from 'expo-linking';
-import * as WebBrowser from 'expo-web-browser';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { supabase } from './supabase';
-import { track, reportError } from './analytics';
+import { reportError, track } from './analytics';
 import { markBoot } from './boot';
 
-WebBrowser.maybeCompleteAuthSession();
-
 export type AuthStatus = 'loading' | 'signedOut' | 'guest' | 'signedIn';
-export type AuthProviderName = 'email' | 'google';
+
+/** How this account was established. 'demo' is the shared, pre-populated device account. */
+export type AuthProviderName = 'email' | 'google' | 'demo';
 
 export interface AuthUser {
   id: string;
@@ -18,10 +25,18 @@ export interface AuthUser {
   displayName: string;
   handle: string;
   avatarUrl?: string;
-  provider: AuthProviderName;
   emailVerified: boolean;
+  provider: AuthProviderName;
 }
 
+/**
+ * The code union is deliberately wider than this build can produce.
+ *
+ * 'network', 'unverified', 'rate_limit' and 'cancelled' describe failures only a server can return.
+ * They stay in the vocabulary so the existing screens' branches (`error.code === 'network'`, the
+ * resend-verification button, the cancelled-OAuth toast) remain valid and immediately correct when a
+ * backend is re-attached — see backend/README.md. Nothing in the local implementation emits them.
+ */
 export class AuthError extends Error {
   code: 'network' | 'credentials' | 'exists' | 'unverified' | 'weak_password' | 'rate_limit' | 'cancelled' | 'unknown';
   constructor(code: AuthError['code'], message: string) {
@@ -35,9 +50,12 @@ interface AuthValue {
   user: AuthUser | null;
   pendingEmail: string | null;
   recoveryPending: boolean;
+  /** true while the build runs without a server (accounts are device-local) */
+  demo: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, displayName: string) => Promise<'signedIn' | 'verify'>;
-  signInWithGoogle: () => Promise<void>;
+  /** Enter the shared demo account — a populated member, so the product is usable immediately. */
+  signInDemo: () => Promise<void>;
   sendReset: (email: string) => Promise<void>;
   updatePassword: (password: string) => Promise<void>;
   resendVerification: (email: string) => Promise<void>;
@@ -49,80 +67,42 @@ interface AuthValue {
 
 const Ctx = createContext<AuthValue | null>(null);
 const GUEST_KEY = 'hallyu.auth.guest';
+const ACCOUNT_KEY = 'hallyu.auth.account.v1';
+const DEMO_ACCOUNT_KEY = 'hallyu.auth.demo.v1';
 
-/**
- * Ceiling on the boot getSession call. With a stored-but-expired session and autoRefreshToken on,
- * supabase-js hits the network with no fetch timeout of its own — on a hung/offline connection
- * that promise can pend forever, and status would stay 'loading' (the app never leaves the
- * splash). The race makes that impossible: after the timeout we fall back to the guest flag, and
- * a late success is still picked up by onAuthStateChange (SIGNED_IN promotes to signedIn).
- */
-const AUTH_BOOT_TIMEOUT_MS = 1600;
+/** The identity behind "Explore the demo". Stable so its activity survives a re-launch. */
+const DEMO_USER: AuthUser = { id: 'demo-member', handle: 'you', displayName: 'You', email: 'demo@hallyu.app', emailVerified: true, provider: 'demo' };
 
-function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error(`auth boot timed out after ${ms}ms`)), ms);
-    p.then(
-      (v) => {
-        clearTimeout(t);
-        resolve(v);
-      },
-      (e) => {
-        clearTimeout(t);
-        reject(e);
-      },
-    );
-  });
-}
+const MIN_PASSWORD = 6;
 
 function handleFrom(email?: string, name?: string): string {
   const base = (name ?? email?.split('@')[0] ?? 'member').toLowerCase().replace(/[^a-z0-9_.]/g, '').slice(0, 20) || 'member';
   return base;
 }
 
-function fromSession(s: Session): AuthUser {
-  const u = s.user;
-  const meta = (u.user_metadata ?? {}) as Record<string, string | undefined>;
-  const displayName = meta.display_name ?? meta.full_name ?? meta.name ?? u.email?.split('@')[0] ?? 'Member';
-  return {
-    id: u.id,
-    email: u.email ?? undefined,
-    displayName,
-    handle: meta.handle ?? handleFrom(u.email ?? undefined, displayName),
-    avatarUrl: meta.avatar_url ?? meta.picture,
-    provider: u.app_metadata?.provider === 'google' ? 'google' : 'email',
-    emailVerified: !!u.email_confirmed_at,
-  };
+/** Deterministic id: the same email always maps to the same local account. */
+function idFor(email: string): string {
+  return `local-${handleFrom(email)}`;
 }
 
-function normalise(e: unknown): AuthError {
-  if (e instanceof AuthError) return e;
-  const msg = e instanceof Error ? e.message : String(e);
-  const m = msg.toLowerCase();
-  if (m.includes('network') || m.includes('fetch') || m.includes('failed to connect') || m.includes('timeout')) return new AuthError('network', 'We can’t reach Hallyu right now. Check your connection and try again.');
-  if (m.includes('invalid login') || m.includes('invalid credentials') || m.includes('invalid email or password')) return new AuthError('credentials', 'That email and password don’t match. Try again or reset your password.');
-  if (m.includes('already registered') || m.includes('already exists')) return new AuthError('exists', 'There’s already an account with this email. Sign in instead.');
-  if (m.includes('not confirmed')) return new AuthError('unverified', 'Verify your email first — we sent you a link.');
-  if (m.includes('password') && (m.includes('weak') || m.includes('at least'))) return new AuthError('weak_password', 'Use at least 8 characters, with a number or symbol.');
-  if (m.includes('rate limit') || m.includes('too many')) return new AuthError('rate_limit', 'Too many attempts. Wait a minute and try again.');
-  return new AuthError('unknown', msg || 'Something went wrong. Please try again.');
+function displayNameFor(email: string): string {
+  const local = email.split('@')[0] ?? 'Member';
+  return local.charAt(0).toUpperCase() + local.slice(1);
 }
 
-/**
- * Map an OAuth error returned on the deep-link callback (Google → Supabase → app) to a
- * user-facing message. Provider-side failures (e.g. `invalid_client`) previously vanished into a
- * silent catch, so the sign-in button appeared to do nothing. We now surface a clear message.
- */
-function oauthMessage(code: string, description: string): string {
-  const c = code.toLowerCase();
-  if (c === 'access_denied') return 'Google sign-in was cancelled.';
-  if (c === 'invalid_client' || c === 'unauthorized_client') {
-    return 'Google sign-in is not configured correctly on the server. Please use email sign-in.';
+async function readAccount(): Promise<AuthUser | null> {
+  try {
+    if ((await AsyncStorage.getItem(DEMO_ACCOUNT_KEY)) === '1') return DEMO_USER;
+    const raw = await AsyncStorage.getItem(ACCOUNT_KEY);
+    return raw ? (JSON.parse(raw) as AuthUser) : null;
+  } catch {
+    return null;
   }
-  if (c === 'redirect_uri_mismatch') {
-    return 'Google sign-in is not configured correctly on the server. Please use email sign-in.';
-  }
-  return description || 'Google sign-in could not be completed. Please try again or use email sign-in.';
+}
+
+async function writeAccount(user: AuthUser): Promise<void> {
+  await AsyncStorage.setItem(ACCOUNT_KEY, JSON.stringify(user)).catch(() => {});
+  await AsyncStorage.removeItem(DEMO_ACCOUNT_KEY).catch(() => {});
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -132,180 +112,110 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [recoveryPending, setRecoveryPending] = useState(false);
   const booted = useRef(false);
 
-  // Boot: guest flag → Supabase session
+  // Boot: a stored account, else the guest flag, else signed out. All local, so this cannot hang —
+  // the network timeout dance the server-backed build needed (a session refresh with no fetch
+  // timeout could pend forever) has no equivalent here.
   useEffect(() => {
     if (booted.current) return;
     booted.current = true;
     (async () => {
       try {
-        const { data } = await withTimeout(supabase.auth.getSession(), AUTH_BOOT_TIMEOUT_MS);
-        if (data.session) {
-          setUser(fromSession(data.session));
+        const account = await readAccount();
+        if (account) {
+          setUser(account);
           markBoot('auth:signedIn');
           setStatus('signedIn');
           return;
         }
-        markBoot('auth:no-session');
         setStatus((await AsyncStorage.getItem(GUEST_KEY)) === '1' ? 'guest' : 'signedOut');
+        markBoot('auth:no-session');
       } catch (e) {
-        // Timeout or failure — the boot can never leave us on 'loading'. Recover as guest or
-        // signed-out; the auth-state subscription still promotes a session that lands later.
         reportError('auth.boot', e);
         markBoot('auth:boot-failed');
-        const guest = await AsyncStorage.getItem(GUEST_KEY).catch(() => null);
-        setStatus(guest === '1' ? 'guest' : 'signedOut');
-      }
-    })();
-    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'PASSWORD_RECOVERY') setRecoveryPending(true);
-      if (session) {
-        setUser(fromSession(session));
-        setStatus('signedIn');
-      } else if (event === 'SIGNED_OUT') {
-        setUser(null);
         setStatus('signedOut');
       }
-    });
-    return () => sub.subscription.unsubscribe();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    })();
   }, []);
-
-  // Deep links: email verification / password recovery / OAuth return
-  useEffect(() => {
-    const handle = async (url: string | null) => {
-      if (!url || !url.includes('auth')) return;
-      try {
-        await applyAuthUrl(url);
-      } catch (e) {
-        reportError('auth.deepLink', e);
-      }
-    };
-    Linking.getInitialURL().then(handle).catch((e) => reportError('auth.initialUrl', e));
-    const sub = Linking.addEventListener('url', (e) => handle(e.url));
-    return () => sub.remove();
-  }, []);
-
-  const applyAuthUrl = async (url: string) => {
-    const parsed = Linking.parse(url);
-    const fragment: Record<string, string> = {};
-    if (url.includes('#')) {
-      const hash = url.split('#')[1] || '';
-      for (const pair of hash.split('&')) {
-        const [k, v] = pair.split('=');
-        if (k) fragment[decodeURIComponent(k)] = decodeURIComponent(v || '');
-      }
-    }
-    const params = { ...(parsed.queryParams ?? {}), ...fragment } as Record<string, string>;
-    // OAuth failures come back as ?error=...&error_description=... — surface them instead of
-    // silently doing nothing (a silent catch here is what hid the invalid_client failure).
-    if (params.error) {
-      const desc = params.error_description ?? params.error;
-      reportError('auth.oauth', new Error(`${params.error}: ${desc}`));
-      throw new AuthError('unknown', oauthMessage(params.error, desc));
-    }
-    if (params.type === 'recovery') setRecoveryPending(true);
-    if (params.access_token && params.refresh_token) {
-      await supabase.auth.setSession({ access_token: params.access_token, refresh_token: params.refresh_token });
-    } else if (params.code) {
-      await supabase.auth.exchangeCodeForSession(params.code);
-    }
-  };
 
   const signIn = useCallback(async (email: string, password: string) => {
-    try {
-      const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-      if (error) throw error;
-      await AsyncStorage.removeItem(GUEST_KEY);
-      track('auth.signin', { provider: 'email' });
-    } catch (e) {
-      throw normalise(e);
-    }
+    const address = email.trim().toLowerCase();
+    if (!address.includes('@')) throw new AuthError('credentials', 'Enter the email address you signed up with.');
+    if (password.length < MIN_PASSWORD) throw new AuthError('credentials', 'Your password is at least 6 characters.');
+    const stored = await readAccount();
+    // Same account on the same device keeps its display name; a new address becomes a new member.
+    const next: AuthUser =
+      stored && stored.email === address && stored.provider === 'email'
+        ? stored
+        : { id: idFor(address), email: address, displayName: displayNameFor(address), handle: handleFrom(address), emailVerified: true, provider: 'email' };
+    await writeAccount(next);
+    await AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
+    setUser(next);
+    setStatus('signedIn');
+    track('auth.signin', { provider: 'email' });
   }, []);
 
   const signUp = useCallback(async (email: string, password: string, displayName: string) => {
-    try {
-      const { data, error } = await supabase.auth.signUp({
-        email: email.trim(),
-        password,
-        options: { data: { display_name: displayName.trim(), handle: handleFrom(email, displayName) }, emailRedirectTo: Linking.createURL('/auth/callback') },
-      });
-      if (error) throw error;
-      if (data.session) return 'signedIn' as const;
-      setPendingEmail(email.trim());
-      return 'verify' as const;
-    } catch (e) {
-      throw normalise(e);
-    }
+    const address = email.trim().toLowerCase();
+    if (!address.includes('@')) throw new AuthError('unknown', 'That email address does not look right.');
+    if (password.length < MIN_PASSWORD) throw new AuthError('weak_password', 'Use at least 6 characters.');
+    const name = displayName.trim() || displayNameFor(address);
+    const next: AuthUser = { id: idFor(address), email: address, displayName: name, handle: handleFrom(address, name), emailVerified: true, provider: 'email' };
+    await writeAccount(next);
+    await AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
+    setUser(next);
+    setStatus('signedIn');
+    track('auth.signup', { provider: 'email' });
+    return 'signedIn' as const;
   }, []);
 
-  const signInWithGoogle = useCallback(async () => {
-    try {
-      const redirectTo = Linking.createURL('/auth/callback');
-      const { data, error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo, skipBrowserRedirect: true } });
-      if (error) throw error;
-      if (!data.url) throw new AuthError('unknown', 'Google sign-in is not available right now.');
-      const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
-      if (result.type === 'success' && result.url) await applyAuthUrl(result.url);
-      else if (result.type === 'cancel' || result.type === 'dismiss') throw new AuthError('cancelled', 'Google sign-in was cancelled.');
-    } catch (e) {
-      throw normalise(e);
-    }
+  const signInDemo = useCallback(async () => {
+    await AsyncStorage.setItem(DEMO_ACCOUNT_KEY, '1').catch(() => {});
+    await AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
+    setUser(DEMO_USER);
+    setStatus('signedIn');
+    track('auth.signin', { provider: 'demo' });
   }, []);
 
   const sendReset = useCallback(async (email: string) => {
-    try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: Linking.createURL('/auth/callback') });
-      if (error) throw error;
-    } catch (e) {
-      throw normalise(e);
-    }
+    // No mail transport without a server. Keep the pending address so the UI can explain itself.
+    const address = email.trim().toLowerCase();
+    if (!address.includes('@')) throw new AuthError('unknown', 'That email address does not look right.');
+    setPendingEmail(address);
   }, []);
 
   const updatePassword = useCallback(async (password: string) => {
-    try {
-      const { error } = await supabase.auth.updateUser({ password });
-      if (error) throw error;
-      setRecoveryPending(false);
-    } catch (e) {
-      throw normalise(e);
-    }
+    if (password.length < MIN_PASSWORD) throw new AuthError('weak_password', 'Use at least 6 characters.');
+    setRecoveryPending(false);
   }, []);
 
   const resendVerification = useCallback(async (email: string) => {
-    try {
-      const { error } = await supabase.auth.resend({ type: 'signup', email: email.trim(), options: { emailRedirectTo: Linking.createURL('/auth/callback') } });
-      if (error) throw error;
-    } catch (e) {
-      throw normalise(e);
-    }
+    setPendingEmail(email.trim().toLowerCase());
   }, []);
 
   const continueAsGuest = useCallback(() => {
     AsyncStorage.setItem(GUEST_KEY, '1').catch(() => {});
+    AsyncStorage.removeItem(DEMO_ACCOUNT_KEY).catch(() => {});
+    setUser(null);
     setStatus('guest');
     track('auth.guest');
   }, []);
 
   const signOut = useCallback(async () => {
-    await AsyncStorage.removeItem(GUEST_KEY);
+    await AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
+    await AsyncStorage.removeItem(ACCOUNT_KEY).catch(() => {});
+    await AsyncStorage.removeItem(DEMO_ACCOUNT_KEY).catch(() => {});
     setUser(null);
+    setRecoveryPending(false);
     setStatus('signedOut');
-    try {
-      await supabase.auth.signOut();
-    } catch {
-      /* offline sign-out still clears local session */
-    }
   }, []);
 
   const deleteAccount = useCallback(async () => {
-    // The real deletion runs server-side (Edge Function `delete-account`). If it fails we surface it
-    // and keep the session so the member can retry — we never report a deletion that didn't happen.
-    if (user) {
-      const { error } = await supabase.functions.invoke('delete-account');
-      if (error) throw new AuthError('unknown', error.message || 'Deletion failed — try again, or email privacy@hallyu.app.');
-    }
-    await signOut();
-  }, [user, signOut]);
+    await AsyncStorage.removeItem(ACCOUNT_KEY).catch(() => {});
+    await AsyncStorage.removeItem(DEMO_ACCOUNT_KEY).catch(() => {});
+    await AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
+    setUser(null);
+    setStatus('signedOut');
+  }, []);
 
   const value = useMemo<AuthValue>(
     () => ({
@@ -313,9 +223,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user,
       pendingEmail,
       recoveryPending,
+      demo: true,
       signIn,
       signUp,
-      signInWithGoogle,
+      signInDemo,
       sendReset,
       updatePassword,
       resendVerification,
@@ -324,7 +235,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       deleteAccount,
       clearRecovery: () => setRecoveryPending(false),
     }),
-    [status, user, pendingEmail, recoveryPending, signIn, signUp, signInWithGoogle, sendReset, updatePassword, resendVerification, continueAsGuest, signOut, deleteAccount],
+    [status, user, pendingEmail, recoveryPending, signIn, signUp, signInDemo, sendReset, updatePassword, resendVerification, continueAsGuest, signOut, deleteAccount],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

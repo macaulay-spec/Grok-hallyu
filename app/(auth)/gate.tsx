@@ -5,9 +5,8 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '../../components/ui/Button';
 import { Text } from '../../components/ui/Text';
-import { useToast } from '../../components/ui/Toast';
 import { colors, radius, space } from '../../constants/theme';
-import { AuthError, useAuth } from '../../lib/auth';
+import { useAuth } from '../../lib/auth';
 
 type Frame = { icon: React.ComponentProps<typeof Ionicons>['name']; title: string; body: string };
 
@@ -32,7 +31,6 @@ function frameFor(reason: string | undefined): Frame {
 export default function Gate() {
   const router = useRouter();
   const auth = useAuth();
-  const toast = useToast();
   const insets = useSafeAreaInsets();
   const { reason } = useLocalSearchParams<{ reason?: string }>();
   const close = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)'));
@@ -52,8 +50,8 @@ export default function Gate() {
           {frame.body}
         </Text>
         <View style={{ gap: space.x2, marginTop: space.x5 }}>
-          <Button label="Continue with Google" icon="logo-google" variant="secondary" block onPress={() => auth.signInWithGoogle().then(() => close()).catch((e: AuthError) => e.code !== 'cancelled' && toast.show({ message: e.message, tone: 'danger' }))} />
-          <Button label="Continue with email" icon="mail-outline" block onPress={() => router.replace('/(auth)/sign-up')} />
+          <Button label="Explore the demo" icon="sparkles" block onPress={() => auth.signInDemo().then(() => close())} />
+          <Button label="Create an account" icon="mail-outline" variant="secondary" block onPress={() => router.replace('/(auth)/sign-up')} />
           <Button label="I already have an account" variant="ghost" onPress={() => router.replace('/(auth)/sign-in')} />
           <Button label="Not now" variant="ghost" onPress={close} />
         </View>

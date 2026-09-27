@@ -54,7 +54,7 @@ export default function SignIn() {
         </View>
         <View style={{ marginTop: space.x6, gap: space.x2 }}>
           <Button label="Forgot password?" variant="ghost" onPress={() => router.push({ pathname: '/(auth)/forgot', params: { email } })} />
-          <Button label="Continue with Google" icon="logo-google" variant="secondary" block onPress={() => auth.signInWithGoogle().then(() => router.replace('/')).catch((e: AuthError) => e.code !== 'cancelled' && toast.show({ message: e.message, tone: 'danger' }))} />
+          <Button label="Explore the demo" icon="sparkles" variant="secondary" block onPress={() => auth.signInDemo().then(() => router.replace('/'))} />
           <Button label="New here? Create an account" variant="ghost" onPress={() => router.replace('/(auth)/sign-up')} />
         </View>
       </ScrollScreen>

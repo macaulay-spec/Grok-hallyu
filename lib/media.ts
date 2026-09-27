@@ -16,10 +16,11 @@ import * as MediaLibrary from 'expo-media-library';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 import { Platform } from 'react-native';
 import { BackendError } from './data/backend';
-import { supabase } from './supabase';
 
 const ALBUM = 'Hallyu';
 const DOWNLOADS_KEY = 'hallyu.downloads.v1';
+/** Attempt counts are kept apart from the completed-download ledger so a failed transfer can retry. */
+const DOWNLOADS_COUNT_KEY = 'hallyu.downloads.count.v1';
 
 // The on-device download ledger is bound to the active account so a "downloaded" indicator never
 // leaks between members sharing a device. It defaults to 'guest' until AccountSync binds it.
@@ -48,21 +49,38 @@ export async function makePoster(videoUri: string): Promise<string | undefined> 
 // ---------------------------------------------------------------------------------------------
 // Download ledger
 // ---------------------------------------------------------------------------------------------
-/** Tell the backend this member is about to download `key`; returns the cumulative count. */
-export async function recordDownload(key: string, postId?: string): Promise<{ counted: boolean; count: number }> {
-  const { data, error } = await supabase.rpc('record_download', { p_key: key, p_post_id: postId ?? null });
-  if (error) throw new BackendError(error.message, true);
-  return { counted: !!data?.counted, count: Number(data?.count ?? 0) };
+type DoneMap = Record<string, string>;
+
+async function readCounts(): Promise<Record<string, number>> {
+  try {
+    return (JSON.parse((await AsyncStorage.getItem(DOWNLOADS_COUNT_KEY)) ?? '{}') as Record<string, number>) ?? {};
+  } catch {
+    return {};
+  }
 }
 
-/** Which of these media keys has this member already downloaded (saved state + dedupe)? */
+/**
+ * Note an attempt to download `key`; returns that key's cumulative count on this device.
+ *
+ * The server-backed build counted this centrally (so a creator's numbers aggregated across
+ * members). Here the count is device-local, and it is deliberately NOT the completed-download
+ * ledger: `readDone`/`writeDone` are what dedupe saves, and marking those before the transfer
+ * finished would make a failed download report itself as already saved on the next attempt.
+ */
+export async function recordDownload(key: string, _postId?: string): Promise<{ counted: boolean; count: number }> {
+  const counts = await readCounts();
+  counts[key] = (counts[key] ?? 0) + 1;
+  await AsyncStorage.setItem(DOWNLOADS_COUNT_KEY, JSON.stringify(counts)).catch(() => {});
+  return { counted: true, count: counts[key] };
+}
+
+/** Which of these media keys are already saved to this device (drives the saved indicator + dedupe)? */
 export async function downloadState(keys: string[]): Promise<Record<string, boolean>> {
   if (!keys.length) return {};
-  const { data } = await supabase.rpc('download_state', { p_keys: keys });
-  return (data as Record<string, boolean>) ?? {};
+  const done = await readDone();
+  return Object.fromEntries(keys.map((k) => [k, !!done[k]]));
 }
 
-type DoneMap = Record<string, string>;
 async function readDone(): Promise<DoneMap> {
   try {
     return (JSON.parse((await AsyncStorage.getItem(doneKey())) ?? '{}') as DoneMap) ?? {};

@@ -7,7 +7,6 @@ import { Button } from '../../components/ui/Button';
 import { Text } from '../../components/ui/Text';
 import { LivingWall } from '../../components/onboarding/LivingWall';
 import { Wordmark } from '../../components/ui/TopBar';
-import { useToast } from '../../components/ui/Toast';
 import { colors, motion, space } from '../../constants/theme';
 import { useAuth } from '../../lib/auth';
 import { useLayout, useLoad } from '../../lib/hooks';
@@ -22,10 +21,9 @@ import { allDramas, useSlice } from '../../lib/store';
 export default function Welcome() {
   const router = useRouter();
   const auth = useAuth();
-  const toast = useToast();
   const insets = useSafeAreaInsets();
   const { width } = useLayout();
-  const [busy, setBusy] = useState<'google' | null>(null);
+  const [busy, setBusy] = useState<'demo' | null>(null);
   const rise = useRef(new Animated.Value(24)).current;
   const fade = useRef(new Animated.Value(0)).current;
 
@@ -36,14 +34,13 @@ export default function Welcome() {
     ]).start();
   }, [rise, fade]);
 
-  const google = async () => {
-    setBusy('google');
+  // The demo door: a pre-populated local member, so the feed, threads, watchlist and spoiler
+  // machinery are all usable on first launch with no server behind them.
+  const enterDemo = async () => {
+    setBusy('demo');
     try {
-      await auth.signInWithGoogle();
-      router.replace('/');
-    } catch (e) {
-      const err = e as Error & { code?: string };
-      if (err.code !== 'cancelled') toast.show({ message: err.message, tone: 'danger' });
+      await auth.signInDemo();
+      router.replace('/(tabs)');
     } finally {
       setBusy(null);
     }
@@ -86,16 +83,19 @@ export default function Welcome() {
         <Text variant="bodyLarge" tone="secondary" style={{ marginTop: space.x3 }}>
           Where K-drama fans meet — episode by episode, spoiler-safe.
         </Text>
+        <Text variant="caption" tone="tertiary" style={{ marginTop: space.x2 }}>
+          Frontend preview — no account or server needed to look around.
+        </Text>
 
         <View style={{ gap: space.x3, marginTop: space.x8 }}>
-          <Button label="Continue with Google" icon="logo-google" variant="secondary" size="lg" block onPress={google} loading={busy === 'google'} />
-          <Button label="Continue with email" icon="mail-outline" size="lg" block onPress={() => router.push('/(auth)/sign-up')} />
+          <Button label="Explore the demo" icon="sparkles" size="lg" block onPress={enterDemo} loading={busy === 'demo'} />
+          <Button label="Create an account" icon="mail-outline" variant="secondary" size="lg" block onPress={() => router.push('/(auth)/sign-up')} />
           <Button label="I already have an account" variant="ghost" size="md" block onPress={() => router.push('/(auth)/sign-in')} />
         </View>
 
         <View style={styles.guestRow}>
           <Button
-            label="Look around first"
+            label="Browse as a guest"
             variant="ghost"
             size="sm"
             iconRight="arrow-forward"
@@ -107,7 +107,7 @@ export default function Welcome() {
         </View>
 
         <Text variant="caption" tone="tertiary" align="center" style={{ marginTop: space.x4 }}>
-          By continuing you agree to the Terms and acknowledge the Privacy Policy. Be kind, mark your spoilers.
+          Demo build — accounts, posts and watchlists are stored on this device only.
         </Text>
         <View style={styles.tmdb}>
           <Ionicons name="film-outline" size={12} color={colors.textDisabled} />

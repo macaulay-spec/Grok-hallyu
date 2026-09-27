@@ -11,10 +11,15 @@
  *   TypeError: Cannot read property 'ErrorBoundary' of undefined
  * — one crash, two messages, both release-only.
  *
- * The module-scope offenders, reachable from the COLD BOOT require chain
- *   app/_layout.tsx -> lib/media.ts -> lib/watermark.ts -> fast-png -> iobuffer
- * are `fast-png` (`var latin1Decoder = new TextDecoder('latin1')`) and `iobuffer`
- * (`var encoder = new TextEncoder()`). Supabase's Realtime/Auth clients use both too, lazily.
+ * The module-scope offenders on that chain were `fast-png` (`var latin1Decoder = new
+ * TextDecoder('latin1')`) and `iobuffer` (`var encoder = new TextEncoder()`), reached via the now
+ * deleted watermark compositor. Supabase's Realtime/Auth clients use both too, lazily.
+ *
+ * CURRENT STATUS: the offenders are gone — the watermark chain was deleted and the auth/database
+ * clients moved to `backend/`, so nothing in the app constructs these globals today. This stays as a
+ * safety net: Hermes still has neither global, the cost is a no-op at runtime, and the failure mode
+ * it prevents (one lazily-evaluating dependency collapsing the root layout) is invisible until a
+ * release build boots on a device.
  *
  * This must be installed BEFORE any route module can evaluate: it is the first import of both
  * `index.js` (the bundle entry) and `app/_layout.tsx`. It is a strict no-op wherever the globals

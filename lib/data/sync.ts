@@ -17,11 +17,11 @@ import { Post } from '../model';
 import * as sel from '../selectors';
 import { Action, AppState, dispatch, dispatchLocal, getState, Mutation, setDispatchMiddleware, useSlice } from '../store';
 import { Backend, BackendError, PullScope } from './backend';
-import { supabaseBackend } from './supabaseBackend';
+import { demoBackend } from './demoBackend';
 import { track, reportError } from '../analytics';
 
-let backend: Backend = supabaseBackend;
-/** Swap the backend implementation (the Supabase adapter will register itself here; tests inject fakes). */
+let backend: Backend = demoBackend;
+/** Swap the backend implementation (a server-backed adapter registers itself here; tests inject fakes). */
 export function setBackend(b: Backend): void {
   backend = b;
 }
@@ -36,8 +36,14 @@ const MAX_BACKOFF = 60_000;
 // Connectivity
 // ---------------------------------------------------------------------------------------------
 let reachable = true;
+/**
+ * Is the backend usable right now? A backend that does not reach a server (`network === false`, the
+ * demo backend) is always usable — otherwise a device with the radio off would park the whole
+ * outbox behind a connectivity wait that can never be satisfied, and the sync strip would spin
+ * forever over writes that are already saved locally.
+ */
 export function isOnline(_s?: unknown): boolean {
-  return reachable;
+  return backend.network === false || reachable;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -380,7 +386,11 @@ export function installSync(): () => void {
 /** Mount once at the root. Installs the middleware and the connectivity / foreground triggers. */
 export function SyncProvider(): null {
   const hydrated = useSlice((s) => s.hydrated);
-  const authed = useSlice((s) => s.profile.id !== 'guest' && s.profile.id !== 'local');
+  // Depend on the identity itself, not on an "is signed in" boolean. AccountSync REPLACES the state
+  // on sign-in, sign-out and guest entry, which drops pulled content — so the seed has to run again
+  // for the new identity. Keying on the primitive id makes every transition (guest→member,
+  // member→guest, member→member) re-pull; a boolean would miss guest↔guest and member→member.
+  const profileId = useSlice((s) => s.profile.id);
 
   useEffect(() => installSync(), []);
 
@@ -417,7 +427,7 @@ export function SyncProvider(): null {
     void backend.pull('home').catch((e) => reportError('SyncProvider.pullHome', e));
     void backend.pull('activity').catch((e) => reportError('SyncProvider.pullActivity', e));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hydrated, authed]);
+  }, [hydrated, profileId]);
 
   // reconnect → flush (the tick encodes reachability as a dependency-stable primitive)
   const onlineTick = reachable ? 1 : 0;

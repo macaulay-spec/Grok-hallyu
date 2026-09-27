@@ -238,7 +238,8 @@ export default function Composer() {
     if (draft) dispatch({ type: 'deleteDraft', id: draft.id });
     haptic.success();
     toast.show({
-      message: video ? 'Posted — your video is uploading' : type === 'review' ? 'Review published' : type === 'short' ? 'Short posted' : 'Posted',
+      // No upload step in the frontend-only build: a video post keeps the device's own file.
+      message: video ? (type === 'short' ? 'Short posted' : 'Posted with your video') : type === 'review' ? 'Review published' : 'Posted',
       icon: 'checkmark-circle',
       tone: 'success',
       actionLabel: 'View',

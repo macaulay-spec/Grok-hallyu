@@ -11,9 +11,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "ios": "expo run:ios",
-    "check:edge": "node scripts/check-edge-functions.mjs",
-    "validate:db": "node docs/backend/validate-schema.mjs",
-    "check": "npm run typecheck && npm run check:edge && npm run validate:db && npm run test:save",
+    "check": "npm run typecheck && npm run lint && npm run test:save",
     "test:save": "node scripts/verify-save-flow.mjs"
   },
   "dependencies": {

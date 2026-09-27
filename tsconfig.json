@@ -6,5 +6,5 @@
       "@/*": ["./*"]
     }
   },
-  "exclude": ["node_modules", "dist", "android", "ios", "supabase/functions"]
+  "exclude": ["node_modules", "dist", "android", "ios", "supabase/functions", "backend"]
 }

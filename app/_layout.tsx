@@ -21,8 +21,8 @@ import { colors } from '../constants/theme';
 import { reportError } from '../lib/analytics';
 import { AuthProvider, useAuth } from '../lib/auth';
 import { markBoot } from '../lib/boot';
-import { SyncProvider } from '../lib/data/sync';
-import { supabaseBackend } from '../lib/data/supabaseBackend';
+import { SyncProvider, getBackend } from '../lib/data/sync';
+import { demoMemberState } from '../lib/data/demoSeed';
 import { installNotificationHandler, reminderUrl, remindersSupported, syncEpisodeReminders } from '../lib/reminders';
 import { setDownloadScope } from '../lib/media';
 import { freshMemberState, getState, GUEST_ID, guestState, StoreProvider, useHallyu, useSlice, useStore } from '../lib/store';
@@ -166,10 +166,9 @@ export default function RootLayout() {
 
 /**
  * Keeps the local store in step with the signed-in account:
- *  - every account (new or returning) starts from a fresh member state, then pulls its real
- *    snapshot from the backend — there is no seeded/demo state in production
+ *  - "Explore the demo" signs in the pre-populated demo member (see demoMemberState)
+ *  - a real email account starts from a fresh member state — a new account is genuinely empty
  *  - guests/signed-out visitors get the empty guest state; device-only prefs are carried over
- *  - password-recovery deep links jump to the reset screen
  */
 function AccountSync() {
   const auth = useAuth();
@@ -226,24 +225,27 @@ function AccountSync() {
         if (stale()) return;
         if (!seen) AsyncStorage.setItem(key, '1').catch((e) => reportError('AccountSync.markSeen', e));
         reset(
-          freshMemberState({
-            id: u.id,
-            handle: u.handle,
-            displayName: u.displayName,
-            avatarUrl: u.avatarUrl,
-            favoriteGenres: [],
-            favoriteDramaIds: [],
-            followers: 0,
-            following: 0,
-            joinedAt: new Date().toISOString(),
-          }),
+          u.provider === 'demo'
+            ? demoMemberState()
+            : freshMemberState({
+                id: u.id,
+                handle: u.handle,
+                displayName: u.displayName,
+                avatarUrl: u.avatarUrl,
+                favoriteGenres: [],
+                favoriteDramaIds: [],
+                followers: 0,
+                following: 0,
+                joinedAt: new Date().toISOString(),
+              }),
         );
         dispatch({ type: 'prefs', patch: device });
-        // Pull the real account snapshot (profile, graph, watchlist…) and the feeds. The backend
-        // drops any response whose account changed mid-flight, and we re-check here between steps.
-        await supabaseBackend.pull('me');
+        // Pull the account snapshot (profile, graph, watchlist…) and the feeds. The backend drops any
+        // response whose account changed mid-flight, and we re-check here between steps.
+        const backend = getBackend();
+        await backend.pull('me');
         if (stale()) return;
-        await supabaseBackend.pull('home');
+        await backend.pull('home');
         if (stale()) return;
         applied.current = u.id; // mark COMPLETE only after the snapshot and feeds are in
       } catch (e) {

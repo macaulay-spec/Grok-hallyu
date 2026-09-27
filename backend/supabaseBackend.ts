@@ -8,13 +8,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
-import { supabase } from '../supabase';
-import { TMDB_IMG } from '../catalog';
-import { now } from '../format';
-import { Collection, Comment, Drama, Notification, Post, ReactionKind, User, WatchlistItem } from '../model';
-import { Action, MePayload, getState, dispatchLocal } from '../store';
-import { Backend, BackendError, PullOptions, PullScope } from './backend';
-import { uploadVideo, videoUrl } from '../video';
+import { supabase } from './supabase';
+import { TMDB_IMG } from '../lib/catalog';
+import { now } from '../lib/format';
+import { Collection, Comment, Drama, Notification, Post, ReactionKind, User, WatchlistItem } from '../lib/model';
+import { Action, MePayload, getState, dispatchLocal } from '../lib/store';
+import { Backend, BackendError, PullOptions, PullScope } from '../lib/data/backend';
+import { uploadVideo, videoUrl } from './video-upload';
 
 
 // ---------------------------------------------------------------------------------------------
