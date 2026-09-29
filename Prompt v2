@@ -1,0 +1,184 @@
+Audit and fix the existing Hallyu application in:
+
+macaulay-spec/Grok-hallyu
+
+The current project already has its UI/UX, frontend architecture, navigation structure, components, assets, mock/local functionality, and TMDB integration.
+
+The major problem is that the app currently feels stagnant. Many parts of the UI are present visually but are not behaving like a real interactive application.
+
+Your job is to inspect the actual repository and fix the frontend functionality.
+
+Start by understanding the existing implementation rather than assuming what is or is not present.
+
+Audit the entire application and trace how each screen, component, button, card, tab, gesture, modal, sheet and navigation action is connected.
+
+Pay particular attention to:
+
+- Expo Router and route structure
+- Bottom navigation
+- Home interactions
+- Explore and search
+- TMDB-powered content
+- Drama/content details
+- Actor/person details
+- Content discovery
+- Posts and post details
+- Comments and replies
+- Likes/reactions
+- Saves
+- Follow interactions
+- Profiles
+- Create flow
+- Onboarding
+- Settings
+- Modals and bottom sheets
+- Back navigation
+- Loading states
+- Empty states
+- Error states
+- Local/mock state
+- Existing data flow
+- Existing TMDB requests and rendering
+
+For every interactive element, determine what should happen when the user interacts with it, then verify that the implementation actually produces that result.
+
+Find the real cause of anything that is currently dead, disconnected or non-functional.
+
+Examples include:
+
+- buttons with missing or incorrect handlers
+- routes that do not resolve
+- incorrect route parameters
+- broken navigation
+- components that are rendered but not connected to their actions
+- state that does not update the UI
+- modals or sheets that do not open correctly
+- screens that cannot be reached
+- broken back navigation
+- data that is fetched but never rendered
+- TMDB data that is fetched incorrectly or lost between screens
+- loading states that never resolve
+- interactions that visually respond but do not actually change state
+- existing placeholder implementations that need to be connected properly
+
+Use the existing TMDB implementation and existing project architecture. If TMDB is already working in one part of the app, trace how it is implemented and make sure the rest of the relevant frontend flows use it correctly.
+
+Use local state or the project's existing mock data where a backend-dependent action is not available yet, so the prototype can still demonstrate the intended interaction.
+
+Do not redesign the application. Preserve the existing UI/UX and make the current product functional.
+
+Actually run and test the application while working.
+
+Test complete user journeys rather than isolated components:
+
+Launch → Onboarding → Home → Explore → Search → TMDB result → Content detail → Actor/person → Post → Comments → Create → Profile → Settings → Back navigation → Bottom navigation.
+
+Also test repeated interactions, opening and closing screens, changing states, and moving between related screens.
+
+Fix the code rather than merely documenting the problems.
+
+After the fixes, run the available type checks, linting, tests and build checks, then verify the important flows again at runtime.
+
+Finally provide a concise report containing:
+
+1. What was actually broken
+2. Root causes discovered
+3. What you fixed
+4. TMDB/data-flow issues discovered and fixed
+5. Navigation flows verified
+6. Remaining issues, if any
+7. Build/test result
+
+Audit and fix the existing Hallyu application in:
+
+macaulay-spec/Grok-hallyu
+
+The current project already has its UI/UX, frontend architecture, navigation structure, components, assets, mock/local functionality, and TMDB integration.
+
+The major problem is that the app currently feels stagnant. Many parts of the UI are present visually but are not behaving like a real interactive application.
+
+Your job is to inspect the actual repository and fix the frontend functionality.
+
+Start by understanding the existing implementation rather than assuming what is or is not present.
+
+Audit the entire application and trace how each screen, component, button, card, tab, gesture, modal, sheet and navigation action is connected.
+
+Pay particular attention to:
+
+- Expo Router and route structure
+- Bottom navigation
+- Home interactions
+- Explore and search
+- TMDB-powered content
+- Drama/content details
+- Actor/person details
+- Content discovery
+- Posts and post details
+- Comments and replies
+- Likes/reactions
+- Saves
+- Follow interactions
+- Profiles
+- Create flow
+- Onboarding
+- Settings
+- Modals and bottom sheets
+- Back navigation
+- Loading states
+- Empty states
+- Error states
+- Local/mock state
+- Existing data flow
+- Existing TMDB requests and rendering
+
+For every interactive element, determine what should happen when the user interacts with it, then verify that the implementation actually produces that result.
+
+Find the real cause of anything that is currently dead, disconnected or non-functional.
+
+Examples include:
+
+- buttons with missing or incorrect handlers
+- routes that do not resolve
+- incorrect route parameters
+- broken navigation
+- components that are rendered but not connected to their actions
+- state that does not update the UI
+- modals or sheets that do not open correctly
+- screens that cannot be reached
+- broken back navigation
+- data that is fetched but never rendered
+- TMDB data that is fetched incorrectly or lost between screens
+- loading states that never resolve
+- interactions that visually respond but do not actually change state
+- existing placeholder implementations that need to be connected properly
+
+Use the existing TMDB implementation and existing project architecture. If TMDB is already working in one part of the app, trace how it is implemented and make sure the rest of the relevant frontend flows use it correctly.
+
+Use local state or the project's existing mock data where a backend-dependent action is not available yet, so the prototype can still demonstrate the intended interaction.
+
+Do not redesign the application. Preserve the existing UI/UX and make the current product functional.
+
+Actually run and test the application while working.
+
+Test complete user journeys rather than isolated components:
+
+Launch → Onboarding → Home → Explore → Search → TMDB result → Content detail → Actor/person → Post → Comments → Create → Profile → Settings → Back navigation → Bottom navigation.
+
+Also test repeated interactions, opening and closing screens, changing states, and moving between related screens.
+
+Fix the code rather than merely documenting the problems.
+
+After the fixes, run the available type checks, linting, tests and build checks, then verify the important flows again at runtime.
+
+Finally provide a concise report containing:
+
+1. What was actually broken
+2. Root causes discovered
+3. What you fixed
+4. TMDB/data-flow issues discovered and fixed
+5. Navigation flows verified
+6. Remaining issues, if any
+7. Build/test result
+
+The goal is to turn the existing Hallyu frontend from a visually developed but stagnant prototype into a genuinely navigable and interactive application, while preserving the existing design and architecture.
+The goal is to turn the existing Hallyu frontend from a visually developed but stagnant prototype into a genuinely navigable and interactive application, while preserving the existing design and architecture.
