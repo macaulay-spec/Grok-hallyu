@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hallyu — Complete UI/UX Overhaul</title>
+<link rel="stylesheet" href="styles.css">
+<script src="https://sites.super.myninja.ai/_assets/ninja-daytona-script.js"></script>
+</head>
+<body>
+
+<div class="page-head">
+  <div class="kicker">Complete UI/UX Overhaul · v2 "Everything changed"</div>
+  <h1>Hallyu<span class="dot">.</span></h1>
+  <p>Every screen, rebuilt from the ground up — launch to core. True black, crimson only where action lives, six rooms sharing one shell, and a fan identity system that lets people wear their fandom proudly. Below: the full journey in build order, with what changed and why on every screen.</p>
+  <div class="legend">
+    <span>True black #000</span>
+    <span>Crimson = action only</span>
+    <span>Floating glass pill tab bar</span>
+    <span>4 worlds · 6 rooms</span>
+    <span>New: Choose Your Bias</span>
+    <span>Complete states</span>
+  </div>
+</div>
+
+<!-- ============================ 01 · APP ICON + SPLASH ============================ -->
+<div class="section-title"><span class="num">01</span><h2>App icon &amp; Splash</h2><span class="tag">Boot</span></div>
+<div class="grid">
+
+  <div class="phone-wrap">
+    <div class="phone-label">
+      <div class="name"><span class="idx">1a</span>App icon</div>
+      <div class="why">A single crimson dot inside a black squircle — the wordmark's full stop, promoted to an icon. Recognisable at 29px, unmistakable on a home screen full of colourful clutter.</div>
+    </div>
+    <div class="phone" style="background:#0a0a0b">
+      <div class="screen center" style="gap:26px">
+        <div style="width:132px;height:132px;border-radius:30px;background:#000;display:grid;place-items:center;box-shadow:var(--sh-3), inset 0 0 0 1px rgba(255,255,255,0.06)">
+          <div style="font-family:var(--font-display);font-size:52px;font-weight:700;color:#fff">H<span style="color:var(--accent)">.</span></div>
+        </div>
+        <div class="center" style="gap:6px">
+          <div style="font-size:13px;color:var(--text-2)">Hallyu</div>
+          <div style="font-size:11px;color:var(--text-3)">Adaptive · light &amp; dark</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="phone-wrap">
+    <div class="phone-label">
+      <div class="name"><span class="idx">1b</span>Splash</div>
+      <div class="why">Full black, the mark alone, no slogan, no spinner. Mark fades in over 400ms and dissolves into Welcome. If boot exceeds 2s a quiet grey "Starting…" appears — never a spinner in a void.</div>
+    </div>
+    <div class="phone">
+      <div class="screen center">
+        <div style="font-family:var(--font-display);font-size:44px;font-weight:700;animation:fadeup 0.6s var(--ease-enter)">Hallyu<span style="color:var(--accent)">.</span></div>
+        <div style="position:absolute;bottom:60px;font-size:12px;color:var(--text-3)">Starting…</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ============================ 02 · WELCOME ============================ -->
+<div class="section-title"><span class="num">02</span><h2>Welcome</h2><span class="tag">First impression</span></div>
+<div class="grid">
+  <div class="phone-wrap">
+    <div class="phone-label">
+      <div class="name"><span class="idx">2</span>Welcome</div>
+      <div class="why">Confidence, not a collage. Mark up top, the promise in a display serif, then three quiet choices. Buttons stagger in at 100ms. Guest entry is a text link, never a third button — it shouldn't compete.</div>
+    </div>
+    <div class="phone">
+      <div class="screen">
+        <div class="statusbar"><span>9:41</span><div class="right"><span class="bars"><i></i><i></i><i></i><i></i></span><span class="batt"></span></div></div>
+        <div class="body center" style="padding:0 26px;gap:0">
+          <div style="flex:1"></div>
+          <div style="font-family:var(--font-display);font-size:40px;font-weight:700;margin-bottom:14px">Hallyu<span style="color:var(--accent)">.</span></div>
+          <div style="font-family:var(--font-display);font-size:30px;font-weight:600;line-height:1.15;letter-spacing:-0.01em;margin-bottom:auto">Your dramas.<br>Your people.<br>Your world.</div>
+          <div style="width:100%;display:flex;flex-direction:column;gap:12px;padding-bottom:34px">
+            <button class="btn primary block">Create account</button>
+            <button class="btn secondary block">Sign in</button>
+            <div style="text-align:center;font-size:14px;color:var(--text-2);margin-top:6px">Continue as guest</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================ 03 · AUTH ============================ -->
+<div class="section-title"><span class="num">03</span><h2>Sign up · Sign in · Recovery</h2><span class="tag">Auth</span></div>
+<div class="grid">
+
+  <div class="phone-wrap">
+    <div class="phone-label">
+      <div class="name"><span class="idx">3a</span>Create account</div>
+      <div class="why">Large fields, labels above, plain-language errors under the field. Primary button morphs into a crimson spinner on submit. Google sits below a divider — never louder than email.</div>
+    </div>
+    <div class="phone">
+      <div class="screen">
+        <div class="statusbar"><span>9:41</span><div class="right"><span class="bars"><i></i><i></i><i></i><i></i></span><span class="batt"></span></div></div>
+        <div class="body pad" style="padding-top:6px">
+          <div class="row" style="margin-bottom:22px"><span style="font-size:20px;color:var(--text-2)">‹</span></div>
+          <div style="font-family:var(--font-display);font-size:27px;font-weight:700;margin-bottom:6px">Create your account</div>
+          <div class="muted tiny" style="margin-bottom:24px">One account, every world.</div>
+          <div style="display:flex;flex-direction:column;gap:16px">
+            <div><div class="tiny muted" style="margin-bottom:6px">Email</div><div class="card" style="padding:13px 14px">mina@hallyu.app</div></div>
+            <div><div class="tiny muted" style="margin-bottom:6px">Password</div><div class="card row" style="padding:13px 14px;justify-content:space-between"><span>••••••••</span><span style="color:var(--text-2)">👁</span></div></div>
+            <div><div class="tiny muted" style="margin-bottom:6px">Confirm password</div><div class="card" style="padding:13px 14px">••••••••</div></div>
+          </div>
+          <div class="hr" style="margin:22px 0"></div>
+          <button class="btn secondary block">G&nbsp; Continue with Google</button>
+          <div class="spacer"></div>
+          <button class="btn primary block" style="margin-bottom:22px">Create account</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="phone-wrap">
+    <div class="phone-label">
+      <div class="name"><span class="idx">3b</span>Sign in</div>
+      <div class="why">Same shell, fewer fields. "Forgot password?" sits right-aligned on the password label so it's findable without adding a row. Errors are sentences, never codes.</div>
+    </div>
+    <div class="phone">
+      <div class="screen">
+        <div class="statusbar"><span>9:41</span><div class="right"><span class="bars"><i></i><i></i><i></i><i></i></span><span class="batt"></span></div></div>
+        <div class="body pad" style="padding-top:6px">
+          <div class="row" style="margin-bottom:22px"><span style="font-size:20px;color:var(--text-2)">‹</span></div>
+          <div style="font-family:var(--font-display);font-size:27px;font-weight:700;margin-bottom:6px">Welcome back</div>
+          <div class="muted tiny" style="margin-bottom:24px">Your worlds are waiting.</div>
+          <div style="display:flex;flex-direction:column;gap:16px">
+            <div><div class="tiny muted" style="margin-bottom:6px">Email</div><div class="card" style="padding:13px 14px">mina@hallyu.app</div></div>
+            <div>
+              <div class="row" style="justify-content:space-between;margin-bottom:6px"><span class="tiny muted">Password</span><span class="tiny" style="color:var(--accent)">Forgot?</span></div>
+              <div class="card row" style="padding:13px 14px;justify-content:space-between"><span>••••••••</span><span style="color:var(--text-2)">👁</span></div>
+              <div class="tiny" style="color:var(--error);margin-top:6px">That password doesn't match. Try again.</div>
+            </div>
+          </div>
+          <div class="spacer"></div>
+          <button class="btn primary block" style="margin-bottom:22px">Sign in</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="phone-wrap">
+    <div class="phone-label">
+      <div class="name"><span class="idx">3c</span>Password recovery</div>
+      <div class="why">One job per screen. A calm explainer, a single field, and a success state that tells you exactly what happens next ("check your inbox"). No dead ends.</div>
+    </div>
+    <div class="phone">
+      <div class="screen">
+        <div class="statusbar"><span>9:41</span><div class="right"><span class="bars"><i></i><i></i><i></i><i></i></span><span class="batt"></span></div></div>
+        <div class="body pad center" style="padding-top:40px;gap:0">
+          <div style="width:64px;height:64px;border-radius:50%;background:var(--accent-soft);display:grid;place-items:center;font-size:26px;margin-bottom:20px">✉️</div>
+          <div style="font-family:var(--font-display);font-size:25px;font-weight:700;margin-bottom:8px">Reset your password</div>
+          <div class="muted tiny" style="margin-bottom:26px;max-width:240px">Enter your email and we'll send a secure link to set a new one.</div>
+          <div style="width:100%"><div class="tiny muted" style="margin-bottom:6px;text-align:left">Email</div><div class="card" style="padding:13px 14px;text-align:left">mina@hallyu.app</div></div>
+          <div style="width:100%"><button class="btn primary block" style="margin-top:20px">Send reset link</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ============================ 04 · ONBOARDING ============================ -->
+<div class="section-title"><span class="num">04</span><h2>Onboarding — 5 steps</h2><span class="tag">Seed the taste graph</span></div>
+<div class="grid">
+
+  <div class="phone-wrap">
+    <div class="phone-label">
+      <div class="name"><span class="idx">4a</span>Step 1 · Universes</div>
+      <div class="why">"Which worlds do you live in?" Tiles, not tiny chips — each world gets its flag, a one-line promise and its hints. Multi-select, at least one. This is the question the whole app is built on.</div>
+    </div>
+    <div class="phone">
+      <div class="screen">
+        <div class="statusbar"><span>9:41</span><div class="right"><span class="bars"><i></i><i></i><i></i><i></i></span><span class="batt"></span></div></div>
+        <div class="body pad">
+          <div class="row" style="justify-content:space-between;margin-bottom:16px"><span class="tiny muted">Skip</span><span class="tiny muted">1 / 5</span></div>
+          <div style="display:flex;gap:6px;margin-bottom:20px"><i style="flex:1;height:3px;border-radius:2px;background:var(--accent)"></i><i style="flex:1;height:3px;border-radius:2px;background:var(--surface-3)"></i><i style="flex:1;height:3px;border-radius:2px;background:var(--surface-3)"></i><i style="flex:1;height:3px;border-radius:2px;background:var(--surface-3)"></i><i style="flex:1;height:3px;border-radius:2px;background:var(--surface-3)"></i></div>
+          <div class="overline" style="color:var(--accent);margin-bottom:8px">Where fandoms meet</div>
+          <div style="font-family:var(--font-display);font-size:25px;font-weight:700;margin-bottom:8px">What are you into?</div>
+          <div class="muted tiny" style="margin-bottom:20px">Pick as many as you like. Hallyu is one community with four worlds inside it.</div>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div class="card row" style="gap:12px;border-color:var(--accent);background:var(--accent-soft)"><span style="font-size:24px">🇰🇷</span><div style="flex:1"><div style="font-weight:600;color:var(--accent)">K-Dramas</div><div class="tiny muted">Romance, revenge, best-written families on TV</div></div><span style="color:var(--accent)">✓</span></div>
+            <div class="card row" style="gap:12px"><span style="font-size:24px">🇨🇳</span><div style="flex:1"><div style="font-weight:600">C-Dramas</div><div class="tiny muted">Wuxia, xianxia, forty-episode patience</div></div><span style="color:var(--text-3)">○</span></div>
+            <div class="card row" style="gap:12px"><span style="font-size:24px">🇯🇵</span><div style="flex:1"><div style="font-weight:600">Anime</div><div class="tiny muted">Shōnen tournaments, slice-of-life comfort</div></div><span style="color:var(--text-3)">○</span></div>
+            <div class="card row" style="gap:12px"><span style="font-size:24px">🇺🇸</span><div style="flex:1"><div style="font-weight:600">Hollywood</div><div class="tiny muted">Films and prestige series the timeline argues about</div></div><span style="color:var(--text-3)">○</span></div>
+          </div>
+          <div class="spacer"></div>
+          <button class="btn primary block" style="margin:18px 0">Continue with 1 world</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="phone-wrap">
+    <div class="phone-label">
+      <div class="name"><span class="idx">4b</span>Step 3 · Shows you've watched</div>
+      <div class="why">A poster grid from the chosen worlds, tap to add a thin crimson ring, live counter at top ("3 of 5"). Skip is always in the corner — onboarding must never feel like homework.</div>
+    </div>
+    <div class="phone">
+      <div class="screen">
+        <div class="statusbar"><span>9:41</span><div class="right"><span class="bars"><i></i><i></i><i></i><i></i></span><span class="batt"></span></div></div>
+        <div class="body pad">
+          <div class="row" style="justify-content:space-between;margin-bottom:16px"><span class="tiny muted">Skip</span><span class="tiny muted">3 / 5</span></div>
+          <div style="display:flex;gap:6px;margin-bottom:20px"><i style="flex:1;height:3px;border-radius:2px;background:var(--accent)"></i><i style="flex:1;height:3px;border-radius:2px;background:var(--accent)"></i><i style="flex:1;height:3px;border-radius:2px;background:var(--accent)"></i><i style="flex:1;height:3px;border-radius:2px;background:var(--surface-3)"></i><i style="flex:1;height:3px;border-radius:2px;background:var(--surface-3)"></i></div>
+          <div style="font-family:var(--font-display);font-size:25px;font-weight:700;margin-bottom:6px">Pick 5 you've seen</div>
+          <div class="tiny" style="color:var(--accent);margin-bottom:18px;font-weight:600">3 of 5 selected</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+            <div class="poster" style="width:100%;box-shadow:0 0 0 2px var(--accent)"><div class="ph">Goblin</div></div>
+            <div class="poster" style="width:100%"><div class="ph">Crash Landing</div></div>
+            <div class="poster" style="width:100%;box-shadow:0 0 0 2px var(--accent)"><div class="ph">The Glory</div></div>
+            <div class="poster" style="width:100%"><div class="ph">Frieren</div></div>
+            <div class="poster" style="width:100%;box-shadow:0 0 0 2px var(--accent)"><div class="ph">Queen of Tears</div></div>
+            <div class="poster" style="width:100%"><div class="ph">2521</div></div>
+          </div>
+          <div class="spacer"></div>
+          <button class="btn primary block" style="margin:18px 0">Continue</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="phone-wrap">
+    <div class="phone-label">
+      <div class="name"><span class="idx">4c</span>Step 5 · Notifications</div>
+      <div class="why">Value primer before the OS permission dialog — three example notifications show exactly what you'd get. Episodes on, Social on, Highlights off. One crimson "Enter Hallyu".</div>
+    </div>
+    <div class="phone">
+      <div class="screen">
+        <div class="statusbar"><span>9:41</span><div class="right"><span class="bars"><i></i><i></i><i></i><i></i></span><span class="batt"></span></div></div>
+        <div class="body pad">
+          <div class="row" style="justify-content:space-between;margin-bottom:16px"><span class="tiny muted">Skip</span><span class="tiny muted">5 / 5</span></div>
+          <div style="display:flex;gap:6px;margin-bottom:20px"><i style="flex:1;height:3px;border-radius:2px;background:var(--accent)"></i><i style="flex:1;height:3px;border-radius:2px;background:var(--accent)"></i><i style="flex:1;height:3px;border-radius:2px;background:var(--accent)"></i><i style="flex:1;height:3px;border-radius:2px;background:var(--accent)"></i><i style="flex:1;height:3px;border-radius:2px;background:var(--accent)"></i></div>
+          <div style="font-family:var(--font-display);font-size:25px;font-weight:700;margin-bottom:18px">What should we ping you about?</div>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div class="card row" style="justify-content:space-between"><div><div style="font-weight:600;font-size:14px">New episode</div><div class="tiny muted">of a show I'm watching</div></div><span style="width:38px;height:22px;border-radius:11px;background:var(--accent);position:relative"><i style="position:absolute;right:2px;top:2px;width:18px;height:18px;border-radius:50%;background:#fff"></i></span></div>
+            <div class="card row" style="justify-content:space-between"><div><div style="font-weight:600;font-size:14px">Replies</div><div class="tiny muted">to my posts &amp; comments</div></div><span style="width:38px;height:22px;border-radius:11px;background:var(--accent);position:relative"><i style="position:absolute;right:2px;top:2px;width:18px;height:18px;border-radius:50%;background:#fff"></i></span></div>
+            <div class="card row" style="justify-content:space-between"><div><div style="font-weight:600;font-size:14px">Weekly digest</div><div class="tiny muted">what your worlds did</div></div><span style="width:38px;height:22px;border-radius:11px;background:var(--surface-3);position:relative"><i style="position:absolute;left:2px;top:2px;width:18px;height:18px;border-radius:50%;background:#fff"></i></span></div>
+          </div>
+          <div class="spacer"></div>
+          <button class="btn primary block" style="margin:18px 0;box-shadow:0 0 30px rgba(225,29,72,0.5)">Enter Hallyu</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>

@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, StyleSheet, View } from 'react-native';
+import { Animated, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '../../components/ui/Button';
+import { GoogleButton } from '../../components/ui/GoogleButton';
 import { Text } from '../../components/ui/Text';
 import { LivingWall } from '../../components/onboarding/LivingWall';
 import { Wordmark } from '../../components/ui/TopBar';
@@ -15,15 +16,19 @@ import { adoptDramas } from '../../lib/catalogSync';
 import { allDramas, useSlice } from '../../lib/store';
 
 /**
- * Welcome: the promise, two doors (Google / email), a quiet sign-in link and "Look around first".
- * Background is a quiet poster mosaic under a scrim — cinematic, not a gradient.
+ * Welcome — the promise, then the doors.
+ *
+ * The mark leads, the promise is set in the display serif, and the choices arrive as a short stack:
+ * Google, then email, then a quiet sign-in link. "Look around first" is a text link, not a third
+ * button — it should never compete with the two ways in. The background is a quiet poster mosaic
+ * under a scrim: cinematic, never a gradient.
  */
 export default function Welcome() {
   const router = useRouter();
   const auth = useAuth();
   const insets = useSafeAreaInsets();
   const { width } = useLayout();
-  const [busy, setBusy] = useState<'demo' | null>(null);
+  const [googleBusy, setGoogleBusy] = useState(false);
   const rise = useRef(new Animated.Value(24)).current;
   const fade = useRef(new Animated.Value(0)).current;
 
@@ -34,18 +39,19 @@ export default function Welcome() {
     ]).start();
   }, [rise, fade]);
 
-  // The demo door: a pre-populated local member, so the feed, threads, watchlist and spoiler
-  // machinery are all usable on first launch with no server behind them.
-  const enterDemo = async () => {
-    setBusy('demo');
+  // The Google door: the same account shape a server-backed OAuth build would hand back.
+  const continueWithGoogle = async () => {
+    setGoogleBusy(true);
     try {
-      await auth.signInDemo();
-      router.replace('/(tabs)');
+      await auth.signInWithGoogle();
+      router.replace('/');
     } finally {
-      setBusy(null);
+      setGoogleBusy(false);
     }
   };
 
+  // The demo door: a pre-populated local member, so the feed, threads, watchlist and spoiler
+  // machinery are all usable on first launch with no server behind them.
   const importedDramas = useSlice((s) => s.importedDramas);
   const cols = width >= 840 ? 6 : width >= 600 ? 5 : 4;
   const posterW = Math.max(88, Math.floor((width - space.margin * 2 - space.x2 * (cols - 1)) / cols));
@@ -83,27 +89,29 @@ export default function Welcome() {
         <Text variant="bodyLarge" tone="secondary" style={{ marginTop: space.x3 }}>
           Where K-drama fans meet — episode by episode, spoiler-safe.
         </Text>
-        <Text variant="caption" tone="tertiary" style={{ marginTop: space.x2 }}>
-          Frontend preview — no account or server needed to look around.
-        </Text>
 
         <View style={{ gap: space.x3, marginTop: space.x8 }}>
-          <Button label="Explore the demo" icon="sparkles" size="lg" block onPress={enterDemo} loading={busy === 'demo'} />
+          <GoogleButton label="Continue with Google" size="lg" onPress={continueWithGoogle} loading={googleBusy} disabled={googleBusy} />
           <Button label="Create an account" icon="mail-outline" variant="secondary" size="lg" block onPress={() => router.push('/(auth)/sign-up')} />
           <Button label="I already have an account" variant="ghost" size="md" block onPress={() => router.push('/(auth)/sign-in')} />
         </View>
 
         <View style={styles.guestRow}>
-          <Button
-            label="Browse as a guest"
-            variant="ghost"
-            size="sm"
-            iconRight="arrow-forward"
+          <Pressable
             onPress={() => {
               auth.continueAsGuest();
               router.replace('/(tabs)');
             }}
-          />
+            accessibilityRole="button"
+            accessibilityLabel="Browse as a guest"
+            hitSlop={10}
+            style={styles.guestLink}
+          >
+            <Text variant="bodySmall" tone="secondary">
+              Look around first
+            </Text>
+            <Ionicons name="arrow-forward" size={14} color={colors.textSecondary} />
+          </Pressable>
         </View>
 
         <Text variant="caption" tone="tertiary" align="center" style={{ marginTop: space.x4 }}>
@@ -123,6 +131,7 @@ export default function Welcome() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.canvas },
   content: { flex: 1, justifyContent: 'flex-end', paddingHorizontal: space.x6, maxWidth: 560, width: '100%', alignSelf: 'center' },
-  guestRow: { flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap', gap: space.x2, marginTop: space.x3 },
+  guestRow: { flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap', gap: space.x2, marginTop: space.x4 },
+  guestLink: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 10 },
   tmdb: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, marginTop: space.x2 },
 });

@@ -2,13 +2,14 @@ import { useRouter } from 'expo-router';
 import React, { useRef, useState } from 'react';
 import { TextInput, View } from 'react-native';
 import { Button } from '../../components/ui/Button';
+import { GoogleButton } from '../../components/ui/GoogleButton';
 import { ScrollScreen, Screen } from '../../components/ui/Screen';
 import { InlineNotice } from '../../components/ui/States';
 import { Text } from '../../components/ui/Text';
 import { TextField } from '../../components/ui/TextField';
 import { useToast } from '../../components/ui/Toast';
 import { TopBar } from '../../components/ui/TopBar';
-import { space } from '../../constants/theme';
+import { colors, hairline, space } from '../../constants/theme';
 import { AuthError, useAuth } from '../../lib/auth';
 
 export default function SignIn() {
@@ -18,6 +19,7 @@ export default function SignIn() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
+  const [googleBusy, setGoogleBusy] = useState(false);
   const [error, setError] = useState<AuthError | null>(null);
   const passRef = useRef<TextInput>(null);
   const emailOk = /.+@.+\..+/.test(email.trim());
@@ -36,6 +38,16 @@ export default function SignIn() {
     }
   };
 
+  const continueWithGoogle = async () => {
+    setGoogleBusy(true);
+    try {
+      await auth.signInWithGoogle();
+      router.replace('/');
+    } finally {
+      setGoogleBusy(false);
+    }
+  };
+
   return (
     <Screen header={<TopBar title="Sign in" />}>
       <ScrollScreen keyboard column padded>
@@ -45,6 +57,12 @@ export default function SignIn() {
         <Text variant="body" tone="secondary" style={{ marginTop: space.x2, marginBottom: space.x6 }}>
           Your watchlist, your people and tonight’s conversations are right where you left them.
         </Text>
+        <GoogleButton label="Continue with Google" size="lg" onPress={continueWithGoogle} loading={googleBusy} disabled={busy || googleBusy} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.x3, marginVertical: space.x5 }}>
+          <View style={{ flex: 1, height: hairline, backgroundColor: colors.glassBorder }} />
+          <Text variant="caption" tone="tertiary">or sign in with email</Text>
+          <View style={{ flex: 1, height: hairline, backgroundColor: colors.glassBorder }} />
+        </View>
         <View style={{ gap: space.x4 }}>
           <TextField label="Email" value={email} onChangeText={setEmail} autoCapitalize="none" autoComplete="email" keyboardType="email-address" textContentType="emailAddress" returnKeyType="next" onSubmitEditing={() => passRef.current?.focus()} leading="mail-outline" error={email.length > 3 && !emailOk ? 'That doesn’t look like an email address.' : null} />
           <TextField ref={passRef} label="Password" value={password} onChangeText={setPassword} password autoComplete="password" textContentType="password" returnKeyType="go" onSubmitEditing={submit} leading="lock-closed-outline" />

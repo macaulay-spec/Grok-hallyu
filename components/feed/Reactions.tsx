@@ -161,12 +161,20 @@ export function ReactionSummary({ counts, style }: { counts: ReactionCounts; sty
 export function ReactionMeter({ counts, style }: { counts: ReactionCounts; style?: StyleProp<ViewStyle> }) {
   const total = reactionTotal({ reactions: counts });
   const widths = useRef(REACTIONS.map(() => new Animated.Value(0))).current;
+  // Depend on a primitive signature, never on the `counts` object identity. A new-but-equal counts
+  // object (rebuilt upstream on every render) must not restart the animation: with
+  // `useNativeDriver: false` each frame re-renders, and an unstable dependency turns that into an
+  // endless update loop — the "Maximum update depth exceeded" crash. The signature only changes
+  // when the numbers actually change, so the meter animates once per real update.
+  const ratioKey = REACTIONS.map((r) => (total ? (counts[r.kind] ?? 0) / total : 0).toFixed(4)).join(',');
   useEffect(() => {
+    const targets = ratioKey.split(',').map(Number);
     Animated.stagger(
       40,
-      REACTIONS.map((r, i) => Animated.timing(widths[i]!, { toValue: total ? counts[r.kind] / total : 0, duration: motion.long, useNativeDriver: false })),
+      REACTIONS.map((_, i) => Animated.timing(widths[i]!, { toValue: targets[i] ?? 0, duration: motion.long, useNativeDriver: false })),
     ).start();
-  }, [counts, total, widths]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ratioKey, widths]);
   if (!total) {
     return (
       <View style={[styles.meter, style]}>

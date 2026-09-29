@@ -53,13 +53,13 @@ export default function FandomsStep() {
               accessibilityRole="checkbox"
               accessibilityState={{ checked: on }}
               accessibilityLabel={`${f.label}. ${f.tagline}`}
-              style={[styles.tile, on ? { borderColor: colors.accent, backgroundColor: colors.accentSoft } : null]}
+              style={[styles.tile, on ? { borderColor: f.tint, backgroundColor: wash(f.tint) } : null]}
             >
               <Text variant="display" accessibilityElementsHidden>
                 {f.flag}
               </Text>
               <View style={{ flex: 1 }}>
-                <Text variant="title" style={on ? { color: colors.accentText } : undefined}>
+                <Text variant="title" style={on ? { color: f.tint } : undefined}>
                   {f.label}
                 </Text>
                 <Text variant="caption" tone="secondary" style={{ marginTop: 2 }}>
@@ -69,13 +69,19 @@ export default function FandomsStep() {
                   {f.home} · {f.hints.slice(0, 3).join(' · ')}
                 </Text>
               </View>
-              <Ionicons name={on ? 'checkmark-circle' : 'ellipse-outline'} size={22} color={on ? colors.accent : colors.textTertiary} />
+              <Ionicons name={on ? 'checkmark-circle' : 'ellipse-outline'} size={22} color={on ? f.tint : colors.textTertiary} />
             </Pressable>
           );
         })}
       </View>
     </OnboardingFrame>
   );
+}
+
+/** A 14% wash of a world's tint — enough to colour the tile without turning the black canvas into a gradient. */
+function wash(hex: string): string {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, 0.14)`;
 }
 
 const styles = StyleSheet.create({

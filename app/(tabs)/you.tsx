@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React from 'react';
+import React, { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { ProfileView } from '../../components/profile/ProfileView';
 import { Button } from '../../components/ui/Button';
+import { GoogleButton } from '../../components/ui/GoogleButton';
 import { IconButton } from '../../components/ui/IconButton';
 import { Screen } from '../../components/ui/Screen';
 import { Text } from '../../components/ui/Text';
@@ -18,6 +19,16 @@ export default function You() {
   const auth = useAuth();
   const { me, state } = useApp();
   const drafts = state.drafts.length;
+  const [googleBusy, setGoogleBusy] = useState(false);
+
+  const continueWithGoogle = async () => {
+    setGoogleBusy(true);
+    try {
+      await auth.signInWithGoogle();
+    } finally {
+      setGoogleBusy(false);
+    }
+  };
 
   if (auth.status !== 'signedIn') {
     return (
@@ -33,7 +44,8 @@ export default function You() {
             Track what you watch, keep spoilers away, follow your fandoms and post with your people.
           </Text>
           <View style={{ gap: space.x2, marginTop: space.x6, width: '100%' }}>
-            <Button label="Create account" size="lg" block onPress={() => router.push('/(auth)/sign-up')} />
+            <GoogleButton label="Continue with Google" size="lg" onPress={continueWithGoogle} loading={googleBusy} disabled={googleBusy} />
+            <Button label="Create an account" size="lg" block onPress={() => router.push('/(auth)/sign-up')} />
             <Button label="Sign in" variant="secondary" size="lg" block onPress={() => router.push('/(auth)/sign-in')} />
           </View>
           <Text variant="caption" tone="tertiary" align="center" style={{ marginTop: space.x4 }}>
