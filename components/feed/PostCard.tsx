@@ -137,7 +137,7 @@ function PostCardBase({ post, reason, detail, hideContext, style, onOpenComments
             </Text>
           </View>
           <Text variant={detail ? 'headline' : 'title'}>{post.title}</Text>
-          <RichText text={post.body} variant={detail ? 'bodyLarge' : 'body'} numberOfLines={detail ? undefined : 4} tone="secondary" />
+          <RichText text={post.body} variant={detail ? 'bodyLarge' : 'body'} numberOfLines={detail ? undefined : 6} tone="secondary" />
         </>
       ) : post.type === 'review' ? (
         <>
@@ -154,7 +154,7 @@ function PostCardBase({ post, reason, detail, hideContext, style, onOpenComments
               {post.verdict}
             </Text>
           </View>
-          <RichText text={post.body} variant={detail ? 'bodyLarge' : 'body'} numberOfLines={detail ? undefined : 5} tone="secondary" />
+          <RichText text={post.body} variant={detail ? 'bodyLarge' : 'body'} numberOfLines={detail ? undefined : 6} tone="secondary" />
         </>
       ) : post.type === 'recommendation' ? (
         <>
@@ -171,7 +171,7 @@ function PostCardBase({ post, reason, detail, hideContext, style, onOpenComments
       ) : post.type === 'reaction' ? (
         <RichText text={post.body} variant={detail ? 'headline' : 'titleLarge'} numberOfLines={detail ? undefined : 5} />
       ) : (
-        <RichText text={post.body} variant={detail ? 'bodyLarge' : 'body'} numberOfLines={detail ? undefined : 8} />
+        <RichText text={post.body} variant={detail ? 'bodyLarge' : 'body'} numberOfLines={detail ? undefined : 6} />
       )}
       {post.video ? (
         <FeedVideo

@@ -141,10 +141,10 @@ export function SpoilerTag({ level, compact }: { level: SpoilerLevel; compact?: 
 }
 
 const styles = StyleSheet.create({
-  veil: { backgroundColor: colors.veil, borderWidth: 1, borderColor: colors.borderSubtle, borderRadius: radius.md, padding: space.x3, gap: space.x3 },
+  veil: { backgroundColor: colors.glass, borderWidth: 1, borderColor: colors.glassBorder, borderLeftWidth: 3, borderLeftColor: colors.spoiler, borderRadius: radius.md, padding: space.x3, gap: space.x3 },
   veilCompact: { padding: space.x2, gap: space.x2 },
   veilHeader: { flexDirection: 'row', alignItems: 'center', gap: space.x2 },
   veilActions: { flexDirection: 'row', gap: space.x2, flexWrap: 'wrap' },
-  veilBtn: { height: 40, paddingHorizontal: 14, borderRadius: 20, backgroundColor: colors.surface3, alignItems: 'center', justifyContent: 'center' },
+  veilBtn: { height: 40, paddingHorizontal: 16, borderRadius: 20, backgroundColor: colors.glass, borderWidth: 1, borderColor: colors.glassBorder, alignItems: 'center', justifyContent: 'center' },
   tag: { flexDirection: 'row', alignItems: 'center', gap: 4, height: 22, paddingHorizontal: 8, borderRadius: 11, backgroundColor: 'rgba(245,158,11,0.12)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.25)' },
 });

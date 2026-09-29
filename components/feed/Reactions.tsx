@@ -201,6 +201,41 @@ export function ReactionMeter({ counts, style }: { counts: ReactionCounts; style
   );
 }
 
+/** Spec 4.9C — episode reaction row: 44px glass circles with counts; tap pops 1.2 with a haptic. */
+export function ReactionRow({ counts, onPressKind, style }: { counts: ReactionCounts; onPressKind?: (k: ReactionKind) => void; style?: StyleProp<ViewStyle> }) {
+  const reduce = useReduceMotion();
+  const scales = useRef(REACTIONS.map(() => new Animated.Value(1))).current;
+  const pop = (i: number) => {
+    if (reduce) return;
+    scales[i]!.setValue(1.2);
+    Animated.spring(scales[i]!, { toValue: 1, ...springs.snappy }).start();
+  };
+  return (
+    <View style={[styles.rowWrap, style]} accessibilityLabel="Reactions for this episode">
+      {REACTIONS.map((r, i) => (
+        <Pressable
+          key={r.kind}
+          onPress={() => {
+            pop(i);
+            haptic.light();
+            onPressKind?.(r.kind);
+          }}
+          style={styles.rowItem}
+          accessibilityRole="button"
+          accessibilityLabel={`React ${r.label}, ${counts[r.kind]} so far`}
+        >
+          <Animated.View style={[styles.rowCircle, { transform: [{ scale: scales[i]! }] }]}>
+            <ReactionGlyph kind={r.kind} size={18} active />
+          </Animated.View>
+          <Text variant="caption" tone={counts[r.kind] ? 'secondary' : 'tertiary'} numeric>
+            {compact(counts[r.kind])}
+          </Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   btn: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 44, minWidth: 44, paddingHorizontal: 4 },
   glyphHost: { alignItems: 'center', justifyContent: 'center', width: 24, height: 24 },
@@ -213,4 +248,7 @@ const styles = StyleSheet.create({
   meterRow: { flexDirection: 'row', alignItems: 'center', gap: space.x2 },
   meterLabel: { width: 96, flexDirection: 'row', alignItems: 'center', gap: 6 },
   meterTrack: { flex: 1, height: 6, borderRadius: 3, backgroundColor: colors.surface3, overflow: 'hidden' },
+  rowWrap: { flexDirection: 'row', justifyContent: 'space-between' },
+  rowItem: { alignItems: 'center', gap: 4 },
+  rowCircle: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.glass, borderWidth: 1, borderColor: colors.glassBorder },
 });

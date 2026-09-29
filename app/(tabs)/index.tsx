@@ -3,7 +3,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, FlatList, NativeScrollEvent, NativeSyntheticEvent, Pressable, StyleSheet, View } from 'react-native';
 import { FeedViewportProvider, useViewabilityTracker } from '../../components/media/FeedViewport';
-import { DramaRail } from '../../components/drama/DramaCard';
+import { DramaCard, DramaRail } from '../../components/drama/DramaCard';
 import { WorldTile } from '../../components/fandom/WorldTile';
 import { PostCard } from '../../components/feed/PostCard';
 import { useTabBarMotion } from '../../components/navigation/TabBarMotion';
@@ -12,6 +12,7 @@ import { ShortsRail } from '../../components/feed/ShortCard';
 import { episodeState } from '../../components/drama/EpisodeCard';
 import { TonightRail } from '../../components/home/TonightRail';
 import { UpNextRail } from '../../components/home/UpNextRail';
+import { ForYouDeck } from '../../components/home/ForYouDeck';
 import { UserCard } from '../../components/people/UserRow';
 import { Button } from '../../components/ui/Button';
 import { Chip } from '../../components/ui/Chip';
@@ -41,10 +42,13 @@ type Row =
   | { key: string; kind: 'worlds' }
   | { key: string; kind: 'cross' }
   | { key: string; kind: 'shorts' }
-  | { key: string; kind: 'dramas' }
+  | { key: string; kind: 'deck' }
   | { key: string; kind: 'people' }
   | { key: string; kind: 'discussions' }
   | { key: string; kind: 'guest' };
+
+/** Spec 3.4 — universe hues: a whisper of colour per world, a 4% wash over the canvas. */
+const UNIVERSE_TINT: Partial<Record<FandomId, string>> = { cdrama: '#10B981', anime: '#8B5CF6', hollywood: '#F59E0B' };
 
 /**
  * Home — editorial, not a firehose. For You interleaves modules between posts;
@@ -177,6 +181,8 @@ function Home() {
       };
     return { dramas: recs.map((r) => r.drama), reasons: Object.fromEntries(recs.map((r) => [r.drama.id, r.reason])), title: 'Your next obsession', eyebrow: 'For you' };
   }, [liveRecs.data, anchor, recs]);
+  // Spec 4.5E — the swipeable For You deck consumes the top recommendations in place of the rail.
+  const deckItems = useMemo(() => (tab === 'forYou' && !guest ? recRail.dramas.slice(0, 6).map((d) => ({ drama: d, reason: recRail.reasons[d.id] })) : []), [tab, guest, recRail]);
   const people = useMemo(() => recommendedPeople(state, 6), [state]);
   const discussions = useMemo(() => trendingDiscussions(state, 4), [state]);
   // Your worlds: the fandoms you belong to, each a door into everything that world holds.
@@ -205,23 +211,22 @@ function Home() {
     // Inside a universe the feed stays pure posts — no interleaved modules.
     const modules = tab === 'forYou' && universe === 'all';
     // Your fandoms sit above the feed: the app should say what it is before it shows you anything.
+    if (modules && deckItems.length) out.push({ key: 'deck', kind: 'deck' });
     if (modules && worlds.length) out.push({ key: 'worlds', kind: 'worlds' });
     feed.slice(0, page * PAGE).forEach((r, i) => {
       out.push({ key: r.post.id, kind: 'post', post: r.post, reason: r.reason });
       if (modules) {
         if (i === 2 && shortList.length) out.push({ key: 'shorts', kind: 'shorts' });
-        if (i === 5 && recs.length) out.push({ key: 'dramas', kind: 'dramas' });
         if (i === 8 && people.length) out.push({ key: 'people', kind: 'people' });
         if (i === 9 && cross.items.length) out.push({ key: 'cross', kind: 'cross' });
         if (i === 11 && discussions.length) out.push({ key: 'discussions', kind: 'discussions' });
       }
     });
     if (modules && feed.length && feed.length <= 5) {
-      if (recs.length) out.push({ key: 'dramas', kind: 'dramas' });
       if (cross.items.length) out.push({ key: 'cross', kind: 'cross' });
     }
     return out;
-  }, [feed, page, guest, tab, universe, worlds.length, cross.items.length, shortList.length, recs.length, people.length, discussions.length]);
+  }, [feed, page, guest, tab, universe, worlds.length, cross.items.length, shortList.length, people.length, discussions.length, deckItems.length]);
 
   const onRefresh = useCallback(async () => {
     await pull();
@@ -272,6 +277,13 @@ function Home() {
               />
             </View>
           );
+        case 'deck':
+          return (
+            <View style={styles.module}>
+              <SectionHeader eyebrow={recRail.eyebrow} title={recRail.title} onAction={() => router.push('/(tabs)/explore')} actionLabel="Explore" />
+              <ForYouDeck items={deckItems} />
+            </View>
+          );
         case 'cross':
           return (
             <View style={styles.module}>
@@ -284,13 +296,6 @@ function Home() {
             <View style={styles.module}>
               <SectionHeader weight="quiet" title="Watch in a minute" eyebrow="Shorts" onAction={() => router.push('/shorts')} />
               <ShortsRail posts={shortList} />
-            </View>
-          );
-        case 'dramas':
-          return (
-            <View style={styles.module}>
-              <SectionHeader eyebrow={recRail.eyebrow} title={recRail.title} onAction={() => router.push('/(tabs)/explore')} actionLabel="Explore" />
-              <DramaRail dramas={recRail.dramas} reasons={recRail.reasons} />
             </View>
           );
         case 'people':
@@ -318,7 +323,7 @@ function Home() {
           );
       }
     },
-    [router, shortList, recRail, people, discussions, worlds, counts, cross, anchor],
+    [router, shortList, recRail, people, discussions, worlds, counts, cross, anchor, deckItems],
   );
 
   const header = (
@@ -442,16 +447,34 @@ function Home() {
               <ActivityIndicator color={colors.textTertiary} />
             </View>
           ) : rows.length ? (
-            <View style={styles.footer}>
-              <Ionicons name="checkmark-done-outline" size={18} color={colors.textTertiary} />
-              <Text variant="caption" tone="tertiary">
-                You’re caught up. Explore has more.
-              </Text>
-              <Button label="Open Explore" variant="ghost" size="sm" onPress={() => router.push('/(tabs)/explore')} />
-            </View>
+            <>
+              <View style={styles.footer}>
+                <Ionicons name="checkmark-done-outline" size={18} color={colors.textTertiary} />
+                <Text variant="caption" tone="tertiary">
+                  You’re caught up. Explore has more.
+                </Text>
+                <Button label="Open Explore" variant="ghost" size="sm" onPress={() => router.push('/(tabs)/explore')} />
+              </View>
+              {/* Spec 4.5H — infinite discovery tail: a two-column poster grid that never ends. */}
+              {recRail.dramas.length ? (
+                <View>
+                  <SectionHeader eyebrow="Discover" title="Keep exploring" style={{ paddingHorizontal: space.margin }} />
+                  <FlatList
+                    data={[...recRail.dramas, ...cross.items].slice(0, 10)}
+                    keyExtractor={(d) => d.id}
+                    numColumns={2}
+                    scrollEnabled={false}
+                    columnWrapperStyle={styles.tailCol}
+                    renderItem={({ item: d }) => <DramaCard drama={d} size="l" />}
+                  />
+                </View>
+              ) : null}
+            </>
           ) : null
         }
       />
+      {/* Spec 3.4 — the universe tint: felt, not seen. */}
+      {universe !== 'all' && UNIVERSE_TINT[universe] ? <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: UNIVERSE_TINT[universe], opacity: 0.04 }]} /> : null}
       <CoachMarks
         id="home"
         when={rows.length > 0 && tab === 'forYou'}
@@ -479,6 +502,7 @@ const styles = StyleSheet.create({
   guest: { margin: space.margin, marginTop: 0, padding: space.x4, backgroundColor: colors.surface1, borderRadius: radius.lg },
   module: { paddingVertical: space.x5, borderBottomWidth: 1, borderBottomColor: colors.borderSubtle },
   footer: { alignItems: 'center', gap: space.x2, paddingVertical: space.x8 },
+  tailCol: { paddingHorizontal: space.margin, gap: space.gutter, marginBottom: space.x4 },
   pillHost: { position: 'absolute', top: 108, left: 0, right: 0, alignItems: 'center' },
   pill: {
     flexDirection: 'row',

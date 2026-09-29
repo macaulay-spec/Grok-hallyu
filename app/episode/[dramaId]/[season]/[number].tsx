@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Pressable, Share, StyleSheet, View } from 'react-native';
 import { CreateSheet } from '../../../../components/create/CreateSheet';
 import { episodeState } from '../../../../components/drama/EpisodeCard';
@@ -8,7 +8,8 @@ import { ReminderCard } from '../../../../components/drama/Reminder';
 import { LivePulse, LiveReactions } from '../../../../components/feed/LiveReactions';
 import { PostCard } from '../../../../components/feed/PostCard';
 import { FeedAutoplay } from '../../../../components/media/FeedViewport';
-import { ReactionMeter } from '../../../../components/feed/Reactions';
+import { ReactionMeter, ReactionRow } from '../../../../components/feed/Reactions';
+import { ShortsRail } from '../../../../components/feed/ShortCard';
 import { Button } from '../../../../components/ui/Button';
 import { Chip, ChipRow } from '../../../../components/ui/Chip';
 import { IconButton } from '../../../../components/ui/IconButton';
@@ -21,13 +22,59 @@ import { useToast } from '../../../../components/ui/Toast';
 import { TopBar } from '../../../../components/ui/TopBar';
 import { colors, fonts, radius, space } from '../../../../constants/theme';
 import { countdown, dayLabel, runtimeLabel, shortDate, timeOfDay } from '../../../../lib/format';
-import { haptic, useApp, useLayout, useRequireMember } from '../../../../lib/hooks';
+import { haptic, useApp, useLayout, useReduceMotion, useRequireMember } from '../../../../lib/hooks';
 import { heroInterpolations, useScrollY, withAlpha } from '../../../../lib/motion';
 import { emptyReactions, Post } from '../../../../lib/model';
 import { getEpisode, isPostVeiled, postsForEpisode } from '../../../../lib/selectors';
 import { hasWatched } from '../../../../lib/spoiler';
 
 type Filter = 'all' | 'discussion' | 'reaction' | 'short' | 'post';
+
+/** Spec 4.9B — mark-watched pill: surface-1 at rest, crimson when watched; scales down then springs back on toggle. */
+function WatchPill({ watched, onPress }: { watched: boolean; onPress: () => void }) {
+  const reduce = useReduceMotion();
+  const scale = useRef(new Animated.Value(1)).current;
+  const toggle = () => {
+    onPress();
+    if (reduce) return;
+    scale.setValue(0.92);
+    Animated.spring(scale, { toValue: 1, friction: 5, tension: 200, useNativeDriver: true }).start();
+  };
+  return (
+    <Animated.View style={{ flex: 1, transform: [{ scale }] }}>
+      <Pressable
+        onPress={toggle}
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: watched }}
+        accessibilityLabel={watched ? 'Watched — tap to unmark' : 'Mark as watched'}
+        style={[styles.dockWatch, watched ? styles.dockWatchOn : null]}
+      >
+        <Ionicons name={watched ? 'checkmark' : 'checkmark-outline'} size={18} color={watched ? colors.onMedia : colors.textSecondary} />
+        <Text variant="label" style={watched ? { color: colors.onMedia } : null}>
+          {watched ? 'Watched' : 'Mark watched'}
+        </Text>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+/** Spec 4.9B — spoiler stance segmented control: “I’ve watched this / I haven’t”. */
+function SpoilerSeg({ value, onChange }: { value: boolean; onChange: (protect: boolean) => void }) {
+  return (
+    <View style={styles.seg} accessibilityRole="tablist" accessibilityLabel="Spoiler protection">
+      <Pressable onPress={() => onChange(false)} style={[styles.segBtn, !value ? styles.segOn : null]} accessibilityRole="tab" accessibilityState={{ selected: !value }}>
+        <Text variant="caption" numberOfLines={1} style={!value ? styles.segTextOn : styles.segTextOff}>
+          I’ve watched this
+        </Text>
+      </Pressable>
+      <Pressable onPress={() => onChange(true)} style={[styles.segBtn, value ? styles.segOn : null]} accessibilityRole="tab" accessibilityState={{ selected: value }}>
+        <Text variant="caption" numberOfLines={1} style={value ? styles.segTextOn : styles.segTextOff}>
+          I haven’t
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
 
 /**
  * Episode room — the unit of conversation. Watched gate first, then the meter, then the thread.
@@ -50,9 +97,16 @@ export default function EpisodeRoom() {
   const { scrollY, onScroll } = useScrollY();
 
   const drama = getDrama(dramaId);
+
+  // Spec 4.9B: the spoiler stance defaults to your watch progress and follows it when it changes.
+  const watchedEarly = hasWatched(watch(drama?.id ?? ''), season, number);
+  useEffect(() => {
+    setSafe(watchedEarly);
+  }, [watchedEarly]);
   const episode = drama ? getEpisode(drama, season, number) : undefined;
   const posts = useMemo(() => (drama ? postsForEpisode(state, drama.id, season, number) : []), [state, drama, season, number]);
   const typed = useMemo(() => (filter === 'all' ? posts : posts.filter((p) => p.type === filter)), [posts, filter]);
+  const episodeShorts = useMemo(() => posts.filter((p) => p.type === 'short' && p.context.episode === number), [posts, number]);
   const veiledForMe = useMemo(() => typed.filter((p) => isPostVeiled(state, p)).length, [state, typed]);
   const filtered = useMemo(() => (safe && veiledForMe ? typed.filter((p) => !isPostVeiled(state, p)) : typed), [typed, safe, veiledForMe, state]);
   const meter = useMemo(
@@ -92,6 +146,12 @@ export default function EpisodeRoom() {
       haptic.success();
       dispatch({ type: 'progress', dramaId: drama.id, season, episode: number, total });
       toast.show({ message: number >= total ? `${drama.title} completed 🎉` : `Episode ${number} marked watched`, tone: 'success', icon: 'checkmark-circle' });
+    });
+
+  const unwatch = () =>
+    require('change progress', () => {
+      dispatch({ type: 'progress', dramaId: drama.id, season, episode: number - 1, total });
+      toast.show({ message: `Episode ${number} marked unwatched` });
     });
 
   const heroH = Math.min(300, Math.round((width * 9) / 16));
@@ -177,30 +237,10 @@ export default function EpisodeRoom() {
           </View>
         </View>
       ) : (
-        <Pressable
-          onPress={
-            watched
-              ? () =>
-                  require('change progress', () => {
-                    dispatch({ type: 'progress', dramaId: drama.id, season, episode: number - 1, total });
-                    toast.show({ message: `Episode ${number} marked unwatched` });
-                  })
-              : markWatched
-          }
-          style={[styles.watchedRow, watched ? styles.watchedOn : null]}
-          accessibilityRole="checkbox"
-          accessibilityState={{ checked: watched }}
-        >
-          <Ionicons name={watched ? 'checkmark-circle' : 'ellipse-outline'} size={20} color={watched ? colors.success : colors.textSecondary} />
-          <Text variant="label" style={{ flex: 1 }}>
-            {watched ? 'Watched' : 'Mark as watched'}
-          </Text>
-          {watched && next && !hasWatched(item, season, next.number) ? (
-            <Text variant="caption" tone="secondary">
-              Up next: Ep {next.number}
-            </Text>
-          ) : null}
-        </Pressable>
+        <View style={styles.dock}>
+          <WatchPill watched={watched} onPress={watched ? unwatch : markWatched} />
+          <SpoilerSeg value={safe} onChange={setSafe} />
+        </View>
       )}
 
       {episode.synopsis ? (
@@ -218,6 +258,13 @@ export default function EpisodeRoom() {
         </View>
       ) : null}
 
+      {posts.length ? (
+        <View style={{ paddingHorizontal: space.margin, paddingTop: space.x5 }}>
+          <SectionHeader eyebrow="Reactions" title="How did it land?" style={{ paddingHorizontal: 0 }} />
+          <ReactionRow counts={meter} onPressKind={() => require('post', () => setCreate(true))} style={{ marginTop: space.x4 }} />
+        </View>
+      ) : null}
+
       <ChipRow style={{ paddingHorizontal: space.margin, paddingTop: space.x5, paddingBottom: space.x2 }}>
         {(['all', 'discussion', 'reaction', 'post', 'short'] as Filter[]).map((f) => (
           <Chip
@@ -228,20 +275,14 @@ export default function EpisodeRoom() {
             onPress={() => setFilter(f)}
           />
         ))}
-        {veiledForMe ? (
-          <Chip
-            label={safe ? `Safe for me · ${veiledForMe} hidden` : `Safe for me · ${veiledForMe} veiled`}
-            icon={safe ? 'eye-off' : 'eye-off-outline'}
-            size="sm"
-            selected={safe}
-            onPress={() => {
-              haptic.select();
-              setSafe((v) => !v);
-            }}
-            accessibilityLabel={safe ? 'Show veiled posts again' : 'Hide posts that would be veiled for you'}
-          />
-        ) : null}
       </ChipRow>
+
+      {episodeShorts.length ? (
+        <View style={{ paddingTop: space.x5, paddingBottom: space.x2 }}>
+          <SectionHeader eyebrow="Clips" title="From this episode" style={{ paddingHorizontal: space.margin }} />
+          <ShortsRail posts={episodeShorts} width={120} />
+        </View>
+      ) : null}
     </View>
   );
 
@@ -282,15 +323,36 @@ export default function EpisodeRoom() {
               <EmptyState
                 compact
                 icon="chatbubbles-outline"
-                title={st === 'upcoming' ? 'The room opens when it airs' : filter === 'all' ? 'Quiet room, so far' : `No ${filter}s for this episode`}
+                title={st === 'upcoming' ? 'The room opens when it airs' : filter === 'all' ? 'Be the first to react' : `No ${filter}s for this episode`}
                 body={st === 'upcoming' ? 'Follow the drama with alerts on and we’ll bring you back the moment it airs.' : 'Reactions, theories, that one scene — post first and set the tone.'}
                 actionLabel={st === 'upcoming' ? undefined : 'Post about this episode'}
                 onAction={() => require('post', () => setCreate(true))}
               />
             }
             ListFooterComponent={
-              filtered.length ? (
-                <View style={{ padding: space.margin }}>
+              filtered.length || next ? (
+                <View style={{ padding: space.margin, gap: space.x3 }}>
+                  {next ? (
+                    <Pressable
+                      onPress={() => router.replace(`/episode/${drama.id}/${season}/${next.number}`)}
+                      style={styles.nextCard}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Go to episode ${next.number}`}
+                    >
+                      <View style={{ flex: 1, gap: 2 }}>
+                        <Text variant="overline" tone="tertiary">
+                          Next episode
+                        </Text>
+                        <Text variant="title" numberOfLines={1}>
+                          {next.title ?? `Episode ${next.number}`}
+                        </Text>
+                        <Text variant="caption" tone="secondary">
+                          {`S${season} · E${next.number}${next.airDate ? ` · ${shortDate(next.airDate)}` : ''}`}
+                        </Text>
+                      </View>
+                      <Ionicons name="arrow-forward" size={18} color={colors.textTertiary} />
+                    </Pressable>
+                  ) : null}
                   <Button label={`Post about Episode ${number}`} variant="secondary" icon="create-outline" block onPress={() => require('post', () => setCreate(true))} />
                 </View>
               ) : null
@@ -322,4 +384,42 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface1,
   },
   watchedOn: { borderWidth: 1, borderColor: colors.borderSubtle },
+  dock: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.x2,
+    marginHorizontal: space.margin,
+    marginTop: space.x3,
+    padding: space.x2,
+    borderRadius: radius.full,
+    backgroundColor: colors.glass,
+    borderWidth: 1,
+    borderColor: colors.glassBorder,
+  },
+  dockWatch: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space.x2,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.surface1,
+    paddingHorizontal: space.x4,
+  },
+  dockWatchOn: { backgroundColor: colors.accent },
+  seg: { flex: 1.1, flexDirection: 'row', backgroundColor: colors.surface1, borderRadius: 22, padding: 2 },
+  segBtn: { flex: 1, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
+  segOn: { backgroundColor: colors.accent },
+  segTextOn: { color: colors.onMedia },
+  segTextOff: { color: colors.textSecondary },
+  nextCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.x3,
+    padding: space.x4,
+    borderRadius: radius.md,
+    backgroundColor: colors.glass,
+    borderWidth: 1,
+    borderColor: colors.glassBorder,
+  },
 });
