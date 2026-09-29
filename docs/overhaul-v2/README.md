@@ -57,6 +57,19 @@ workspace). The page is safe to serve statically.
 | 18 | Live rooms | Synced player, floating reactions, plain-language lobby. |
 | 19 | System states | Skeleton loading, helpful empties, calm errors, friendly offline, soft guest gate. |
 
+## Shipped in real code (this branch)
+
+The redesign is landing in the app itself, screen by screen, on `overhaul/v2-everything-changed`:
+
+- **Google sign-in** is now a first-class door on every auth surface — `lib/auth.tsx`
+  (`signInWithGoogle`, persisted `google` account, `provider: 'google'`), a reusable
+  `components/ui/GoogleButton.tsx` (white surface, four-colour G at `assets/branding/google-g.png`),
+  and the door placed on **Welcome**, **Sign in**, **Sign up**, the **guest gate sheet**, and the
+  guest **You** tab. Email stays the crimson primary; Google is the quiet white door beside it.
+- **Onboarding** world-picking tiles now carry each fandom's own tint when selected
+  (K-Drama rose, C-Drama amber, Anime blue, Hollywood green) — the four worlds read as four worlds.
+- **ReactionMeter** update-depth crash fixed (stable primitive dependency instead of object identity).
+
 ## Creative additions beyond the brief
 
 - **Fan identity system on the profile** — your four worlds as a tinted constellation under your name.
