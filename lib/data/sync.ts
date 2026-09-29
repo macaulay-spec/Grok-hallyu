@@ -18,9 +18,11 @@ import * as sel from '../selectors';
 import { Action, AppState, dispatch, dispatchLocal, getState, Mutation, setDispatchMiddleware, useSlice } from '../store';
 import { Backend, BackendError, PullScope } from './backend';
 import { demoBackend } from './demoBackend';
+import { rorkBackend, rorkBackendAvailable } from './rorkBackend';
 import { track, reportError } from '../analytics';
 
-let backend: Backend = demoBackend;
+/** The cloud backend is the default when a functions URL is configured; demo otherwise. */
+let backend: Backend = rorkBackendAvailable ? rorkBackend : demoBackend;
 /** Swap the backend implementation (a server-backed adapter registers itself here; tests inject fakes). */
 export function setBackend(b: Backend): void {
   backend = b;
