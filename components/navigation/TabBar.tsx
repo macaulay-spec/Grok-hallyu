@@ -1,12 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { colors, motion, radius, sizes, space } from '../../constants/theme';
+import { colors, motion, radius, shadows, sizes, space } from '../../constants/theme';
 import { haptic, useApp, useLayout, useReduceMotion, useRequireMember } from '../../lib/hooks';
 import { springs } from '../../lib/motion';
+import { Avatar } from '../ui/Avatar';
 import { Text } from '../ui/Text';
 import { CreateSheet } from '../create/CreateSheet';
 import { useTabBarMotion } from './TabBarMotion';
@@ -22,25 +24,31 @@ const TABS: { key: TabKey; label: string; icon: keyof typeof Ionicons.glyphMap; 
 ];
 
 /**
- * Bottom tab bar (compact) / left rail (medium+). Create is a 40dp rounded-square Rose button: a tap
- * opens the composer straight away (type is switchable inside), a long-press opens the type sheet.
- * The active tab shows a Signal dot; Activity shows unread.
+ * Floating glass pill (spec 3.1): hovering 16px above the safe area, glass fill + border,
+ * shadow-2. Active item turns crimson, inactive stays text-2. Create is a 56dp crimson gradient
+ * circle elevated above the pill with a soft glow; You is the member's avatar (24dp); Activity
+ * carries an unread dot. Hides on scroll down, returns on scroll up; a tap flashes the item
+ * for 1.5s. On medium+ widths it becomes the left rail.
  */
 export function TabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
-  const { unread } = useApp();
+  const { unread, me } = useApp();
   const { wc } = useLayout();
   const require = useRequireMember();
   const [create, setCreate] = useState(false);
+  const [flash, setFlash] = useState<TabKey | null>(null);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const router = useRouter();
   const rail = wc !== 'compact';
   const currentKey = state.routes[state.index]?.name as TabKey;
   const { hidden, reveal } = useTabBarMotion();
-  const barH = sizes.tabBar + insets.bottom;
-  const translateY = hidden.interpolate({ inputRange: [0, 1], outputRange: [0, barH + 8] });
+  const translateY = hidden.interpolate({ inputRange: [0, 1], outputRange: [0, 96] });
 
   const go = (key: TabKey) => {
     reveal();
+    setFlash(key);
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setFlash(null), 1500);
     if (key === 'create') {
       haptic.light();
       require('create a post', () => router.push('/create/post'));
@@ -69,7 +77,17 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
       );
     }
     return (
-      <TabItem key={t.key} label={t.label} icon={focused ? t.active : t.icon} focused={focused} rail={rail} unread={t.key === 'activity' ? unread : 0} onPress={() => go(t.key)} />
+      <TabItem
+        key={t.key}
+        label={t.label}
+        icon={focused ? t.active : t.icon}
+        focused={focused}
+        flashed={flash === t.key}
+        rail={rail}
+        unread={t.key === 'activity' ? unread : 0}
+        avatar={t.key === 'you' && me.displayName ? { uri: me.avatarUrl, name: me.displayName } : undefined}
+        onPress={() => go(t.key)}
+      />
     );
   });
 
@@ -84,7 +102,11 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
           <View style={styles.railItems}>{items}</View>
         </View>
       ) : (
-        <Animated.View style={[styles.bar, { paddingBottom: insets.bottom, height: barH, transform: [{ translateY }] }]} accessibilityRole="tablist">
+        <Animated.View
+          pointerEvents="box-none"
+          style={[styles.bar, { bottom: insets.bottom + space.x4, height: sizes.tabBar, transform: [{ translateY }] }]}
+          accessibilityRole="tablist"
+        >
           {items}
         </Animated.View>
       )}
@@ -93,22 +115,44 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
   );
 }
 
-/** A tab: the icon settles in with a small spring when it becomes current; the Signal dot fades in beneath. */
-function TabItem({ label, icon, focused, rail, unread, onPress }: { label: string; icon: keyof typeof Ionicons.glyphMap; focused: boolean; rail: boolean; unread: number; onPress: () => void }) {
+/** A tab: accent when current, text-2 when not; a tap flashes a crimson highlight for 1.5s. */
+function TabItem({
+  label,
+  icon,
+  focused,
+  flashed,
+  rail,
+  unread,
+  avatar,
+  onPress,
+}: {
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  focused: boolean;
+  flashed: boolean;
+  rail: boolean;
+  unread: number;
+  avatar?: { uri?: string; name: string };
+  onPress: () => void;
+}) {
   const reduce = useReduceMotion();
   const pop = useRef(new Animated.Value(1)).current;
-  const dot = useRef(new Animated.Value(focused ? 1 : 0)).current;
+  const glow = useRef(new Animated.Value(focused ? 1 : 0)).current;
+  const flashA = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     if (reduce) {
-      dot.setValue(focused ? 1 : 0);
+      glow.setValue(focused ? 1 : 0);
+      flashA.setValue(flashed ? 1 : 0);
       return;
     }
-    Animated.timing(dot, { toValue: focused ? 1 : 0, duration: motion.short, useNativeDriver: true }).start();
+    Animated.timing(glow, { toValue: focused ? 1 : 0, duration: motion.short, useNativeDriver: true }).start();
+    Animated.timing(flashA, { toValue: flashed ? 1 : 0, duration: motion.instant, useNativeDriver: true }).start();
     if (focused) {
       pop.setValue(0.82);
       Animated.spring(pop, { toValue: 1, ...springs.snappy }).start();
     }
-  }, [focused, reduce, pop, dot]);
+  }, [focused, flashed, reduce, pop, glow, flashA]);
+  const tint = focused || flashed ? colors.accent : colors.textSecondary;
   return (
     <Pressable
       onPress={onPress}
@@ -117,20 +161,31 @@ function TabItem({ label, icon, focused, rail, unread, onPress }: { label: strin
       accessibilityLabel={`${label}${unread ? `, ${unread} unread` : ''}`}
       style={[styles.item, rail ? styles.railItem : null]}
     >
-      {rail ? <Animated.View style={[styles.railIndicator, { opacity: dot, transform: [{ scaleX: dot }] }]} /> : null}
+      {!rail ? (
+        <Animated.View pointerEvents="none" style={[styles.flashPill, { opacity: Animated.multiply(flashA, 0.16) }]} />
+      ) : (
+        <Animated.View style={[styles.railIndicator, { opacity: glow, transform: [{ scaleX: glow }] }]} />
+      )}
       <Animated.View style={{ transform: [{ scale: pop }] }}>
-        <Ionicons name={icon} size={24} color={focused ? colors.textPrimary : colors.textSecondary} />
+        {avatar ? (
+          <View style={[styles.avatarRing, focused ? styles.avatarRingOn : null]}>
+            <Avatar uri={avatar.uri} name={avatar.name} size={24} />
+          </View>
+        ) : (
+          <Ionicons name={icon} size={24} color={tint} />
+        )}
         {unread > 0 ? <View style={styles.unread} /> : null}
       </Animated.View>
-      <Text variant="tabLabel" style={{ color: focused ? colors.textPrimary : colors.textSecondary }} maxFontSizeMultiplier={1.4} numberOfLines={1}>
-        {label}
-      </Text>
-      {rail ? null : <Animated.View style={[styles.signal, { opacity: dot, transform: [{ scale: dot }] }]} />}
+      {rail ? null : (
+        <Text variant="tabLabel" style={{ color: tint }} maxFontSizeMultiplier={1.4} numberOfLines={1}>
+          {label}
+        </Text>
+      )}
     </Pressable>
   );
 }
 
-/** The Create button presses like a real key: 0.9 on touch, springs back on release. */
+/** The Create key: a 56dp crimson gradient circle, lifted above the pill, always glowing. */
 function CreateTab({ rail, onPress, onLongPress }: { rail: boolean; onPress: () => void; onLongPress: () => void }) {
   const reduce = useReduceMotion();
   const press = useRef(new Animated.Value(1)).current;
@@ -147,8 +202,10 @@ function CreateTab({ rail, onPress, onLongPress }: { rail: boolean; onPress: () 
       accessibilityHint="Opens the composer. Long press to choose a post type."
       style={[styles.item, rail ? styles.railItem : null]}
     >
-      <Animated.View style={[styles.create, { transform: [{ scale: press }] }]}>
-        <Ionicons name="add" size={24} color={colors.onAccent} />
+      <Animated.View style={[styles.createLift, rail ? null : { transform: [{ translateY: -12 }, { scale: press }] }]}>
+        <LinearGradient colors={[colors.accentGlow, colors.accent]} start={{ x: 0.3, y: 0 }} end={{ x: 0.7, y: 1 }} style={styles.create}>
+          <Ionicons name="add" size={26} color={colors.onAccent} />
+        </LinearGradient>
       </Animated.View>
       {rail ? (
         <Text variant="tabLabel" tone="secondary">
@@ -160,16 +217,44 @@ function CreateTab({ rail, onPress, onLongPress }: { rail: boolean; onPress: () 
 }
 
 const styles = StyleSheet.create({
-  bar: { position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', backgroundColor: colors.canvas },
+  /** The floating glass pill: 16px above the safe area, glass fill, 1px glass border, shadow-2. */
+  bar: {
+    position: 'absolute',
+    left: space.x4,
+    right: space.x4,
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    borderRadius: radius.full,
+    backgroundColor: colors.glass,
+    borderWidth: 1,
+    borderColor: colors.glassBorder,
+    overflow: 'visible',
+    ...shadows.float,
+  },
   rail: { position: 'absolute', left: 0, top: 0, bottom: 0, width: sizes.rail, backgroundColor: colors.canvas, borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: colors.borderSubtle, alignItems: 'center' },
   railMark: { width: 44, height: 44, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', marginBottom: space.x6 },
   railMarkText: { fontFamily: 'Pretendard-ExtraBold', fontSize: 24, lineHeight: 28, color: colors.textPrimary, letterSpacing: -0.5 },
   railMarkDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.accent, marginLeft: 1, marginTop: 10 },
   railItems: { alignItems: 'center', gap: space.x3 },
   railIndicator: { position: 'absolute', top: 2, width: 56, height: 32, borderRadius: radius.full, backgroundColor: colors.surface2 },
-  item: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 3, paddingTop: 8 },
-  railItem: { flex: 0, width: 64, height: 60, borderRadius: radius.md, paddingTop: 0, justifyContent: 'flex-start', paddingVertical: 6 },
-  create: { width: sizes.createButton, height: sizes.createButton, borderRadius: radius.full, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
-  signal: { position: 'absolute', top: 2, width: 4, height: 4, borderRadius: 2, backgroundColor: colors.accent },
+  item: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 3 },
+  railItem: { flex: 0, width: 64, height: 60, borderRadius: radius.md, justifyContent: 'flex-start', paddingVertical: 6 },
+  flashPill: { ...StyleSheet.absoluteFillObject, borderRadius: radius.full, backgroundColor: colors.accent },
+  avatarRing: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: 'transparent' },
+  avatarRingOn: { borderColor: colors.accent },
+  createLift: { alignItems: 'center', justifyContent: 'center' },
+  /** 56dp circle, radius 28, glow: 0 0 24px rgba(225,29,72,0.4). */
+  create: {
+    width: sizes.createButton,
+    height: sizes.createButton,
+    borderRadius: sizes.createButton / 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: colors.accent,
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 12,
+  },
   unread: { position: 'absolute', top: -1, right: -2, width: 9, height: 9, borderRadius: 5, backgroundColor: colors.accent, borderWidth: 2, borderColor: colors.canvas },
 });

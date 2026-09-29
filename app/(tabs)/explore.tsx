@@ -4,11 +4,12 @@ import React, { useEffect, useMemo } from 'react';
 import { FlatList, Pressable, StyleSheet, View } from 'react-native';
 import { CollectionCard } from '../../components/collections/CollectionCard';
 import { ActorRail } from '../../components/drama/ActorCard';
-import { DramaRail } from '../../components/drama/DramaCard';
+import { DramaCard, DramaRail } from '../../components/drama/DramaCard';
 import { PostCard } from '../../components/feed/PostCard';
 import { ShortsRail } from '../../components/feed/ShortCard';
 import { useTabBarMotion } from '../../components/navigation/TabBarMotion';
 import { SearchField } from '../../components/search/SearchField';
+import { Chip } from '../../components/ui/Chip';
 import { Backdrop, Poster } from '../../components/ui/Poster';
 import { useRefresh } from '../../components/ui/Refresh';
 import { ScrollScreen, Screen } from '../../components/ui/Screen';
@@ -82,8 +83,19 @@ export default function Explore() {
   return (
     <Screen header={<TopBar mode="root" title="Explore" large />}>
       <ScrollScreen tabbed onScroll={tabBar.onScroll} scrollEventThrottle={16} refreshControl={refresh.control}>
-        <View style={{ paddingHorizontal: space.margin, marginBottom: space.x6 }}>
-          <SearchField asButton placeholder="Films, series, anime, actors, people…" onPressButton={() => router.push('/search')} />
+        <View style={{ marginBottom: space.x6 }}>
+          <View style={{ paddingHorizontal: space.margin }}>
+            <SearchField asButton placeholder="Films, series, anime, actors, people…" onPressButton={() => router.push('/search')} />
+          </View>
+          {/* Universe selector (spec 3.3): step into one world at a time. */}
+          <FlatList
+            horizontal
+            data={FANDOMS}
+            keyExtractor={(f) => f.id}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: space.margin, paddingTop: space.x3, gap: space.x2 }}
+            renderItem={({ item: f }) => <Chip label={f.short} onPress={() => router.push(`/world/${f.id}`)} />}
+          />
         </View>
 
         {/* The four worlds: Hallyu's identity, and the fastest way into any of them. */}
@@ -175,6 +187,21 @@ export default function Explore() {
         </View>
 
         <LiveRail eyebrow="All time" title="Highest rated" state={topRated} size="m" badges={(d) => (d.rating ? `★ ${d.rating.toFixed(1)}` : undefined)} />
+
+        {/* The wall (spec 4): a masonry-style two-column poster grid across every world. */}
+        {trending.data && trending.data.length > 1 ? (
+          <View style={styles.section}>
+            <SectionHeader eyebrow="Discover" title="The wall" subtitle="What every world is watching, side by side" />
+            <FlatList
+              data={trending.data.slice(1, 9)}
+              keyExtractor={(d) => d.id}
+              numColumns={2}
+              scrollEnabled={false}
+              columnWrapperStyle={styles.wallCol}
+              renderItem={({ item: d }) => <DramaCard drama={d} size="l" />}
+            />
+          </View>
+        ) : null}
 
         <LiveRail eyebrow="Streaming" title="On Netflix" state={netflix} size="m" />
 
@@ -358,4 +385,5 @@ const styles = StyleSheet.create({
   },
   tags: { flexDirection: 'row', flexWrap: 'wrap', gap: space.x2, paddingHorizontal: space.margin },
   tag: { paddingHorizontal: 12, height: 32, borderRadius: 16, backgroundColor: colors.surface1, alignItems: 'center', justifyContent: 'center' },
+  wallCol: { paddingHorizontal: space.margin, gap: space.gutter, marginBottom: space.x4 },
 });

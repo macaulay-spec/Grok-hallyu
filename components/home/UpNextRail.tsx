@@ -31,7 +31,7 @@ export function UpNextRail({ items, onSeeAll }: { items: UpNextItem[]; onSeeAll?
   if (!items.length) return null;
   return (
     <View style={{ marginBottom: space.section }}>
-      <SectionHeader eyebrow="Keep watching" title="Up next" onAction={onSeeAll} actionLabel="Watchlist" />
+      <SectionHeader eyebrow="Continue watching" title="Up next" onAction={onSeeAll} actionLabel="Watchlist" />
       <FlatList
         horizontal
         data={items}

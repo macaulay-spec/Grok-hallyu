@@ -8,7 +8,7 @@ import { haptic, useApp, useRequireMember } from '../../lib/hooks';
 import { Drama } from '../../lib/model';
 import { AddToCollectionSheet } from '../collections/AddToCollectionSheet';
 import { Poster } from '../ui/Poster';
-import { ProgressBar } from '../ui/Section';
+import { ProgressBar, WatchRing } from '../ui/Section';
 import { Sheet, SheetRow } from '../ui/Sheet';
 import { Tap } from '../ui/Tap';
 import { Text } from '../ui/Text';
@@ -52,7 +52,7 @@ function DramaCardBase({ drama, size = 'm', reason, meta, showProgress = true, s
         accessibilityState={{ selected: !!selected }}
         style={[{ width }, style]}
       >
-        <Poster drama={drama} width={width} rounded={radius.sm} style={selected ? styles.selected : null}>
+        <Poster drama={drama} width={width} rounded={radius.md} style={selected ? styles.selected : null}>
           {drama.status === 'airing' ? (
             <View style={styles.tag}>
               <View style={styles.dot} />
@@ -72,9 +72,16 @@ function DramaCardBase({ drama, size = 'm', reason, meta, showProgress = true, s
               <Ionicons name="checkmark" size={14} color={colors.onAccent} />
             </View>
           ) : null}
-          {showProgress && item?.status === 'watching' && total > 0 ? <ProgressBar value={item.currentEpisode} max={total} style={styles.progress} /> : null}
+          {showProgress && item?.status === 'watching' && total > 0 ? (
+            <>
+              <View style={styles.ring}>
+                <WatchRing progress={item.currentEpisode / total} />
+              </View>
+              <ProgressBar value={item.currentEpisode} max={total} style={styles.progress} />
+            </>
+          ) : null}
         </Poster>
-        <Text variant={size === 's' ? 'caption' : 'label'} numberOfLines={2} style={{ marginTop: space.x2, color: colors.textPrimary }}>
+        <Text variant={size === 's' ? 'caption' : 'title'} numberOfLines={1} style={{ marginTop: space.x2, color: colors.textPrimary }}>
           {drama.title}
         </Text>
         {size !== 's' ? (
@@ -165,6 +172,7 @@ export function DramaListRow({ drama, right, subtitle, onPress, onLongPress, sty
 const styles = StyleSheet.create({
   rowBadge: { paddingHorizontal: 6, height: 18, borderRadius: 4, backgroundColor: colors.surface2, alignItems: 'center', justifyContent: 'center' },
   tag: { position: 'absolute', top: 6, left: 6, flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(10,10,10,0.7)', paddingHorizontal: 6, height: 18, borderRadius: 9 },
+  ring: { position: 'absolute', top: 6, right: 6 },
   dot: { width: 5, height: 5, borderRadius: 3, backgroundColor: colors.live },
   progress: { position: 'absolute', left: 0, right: 0, bottom: 0, borderRadius: 0 },
   selected: { borderWidth: 2, borderColor: colors.accent },

@@ -132,8 +132,8 @@ export function SpoilerTag({ level, compact }: { level: SpoilerLevel; compact?: 
   const label = level === 'episode' ? 'Episode spoiler' : level === 'season' ? 'Season spoiler' : 'Ending spoiler';
   return (
     <View style={[styles.tag, compact ? { height: 18 } : null]}>
-      <Ionicons name="eye-off-outline" size={compact ? 10 : 12} color={colors.textSecondary} />
-      <Text variant="caption" tone="secondary" style={compact ? { fontSize: 10, lineHeight: 12 } : null}>
+      <Ionicons name="eye-off-outline" size={compact ? 10 : 12} color={colors.spoiler} />
+      <Text variant="caption" style={[{ color: colors.spoiler }, compact ? { fontSize: 10, lineHeight: 12 } : null]}>
         {label}
       </Text>
     </View>
@@ -146,5 +146,5 @@ const styles = StyleSheet.create({
   veilHeader: { flexDirection: 'row', alignItems: 'center', gap: space.x2 },
   veilActions: { flexDirection: 'row', gap: space.x2, flexWrap: 'wrap' },
   veilBtn: { height: 40, paddingHorizontal: 14, borderRadius: 20, backgroundColor: colors.surface3, alignItems: 'center', justifyContent: 'center' },
-  tag: { flexDirection: 'row', alignItems: 'center', gap: 4, height: 22, paddingHorizontal: 8, borderRadius: 11, backgroundColor: colors.surface2 },
+  tag: { flexDirection: 'row', alignItems: 'center', gap: 4, height: 22, paddingHorizontal: 8, borderRadius: 11, backgroundColor: 'rgba(245,158,11,0.12)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.25)' },
 });

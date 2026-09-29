@@ -31,7 +31,7 @@ import { EmptyState, ErrorState } from '../../components/ui/States';
 import { Text } from '../../components/ui/Text';
 import { useToast } from '../../components/ui/Toast';
 import { TopBar } from '../../components/ui/TopBar';
-import { colors, radius, sizes, space } from '../../constants/theme';
+import { colors, radius, shadows, sizes, space } from '../../constants/theme';
 import { catalog } from '../../lib/catalog';
 import { compact, countdown, dayLabel, timeOfDay } from '../../lib/format';
 import { haptic, useApp, useLayout, useLoad, useRequireMember } from '../../lib/hooks';
@@ -816,12 +816,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.margin,
     alignItems: 'flex-end',
   },
+  /** Glass action dock (spec: floating glass dock): glass fill, 1px glass border, shadow-2. */
   actions: {
     flexDirection: 'row',
     gap: space.x2,
-    paddingHorizontal: space.margin,
+    marginHorizontal: space.margin,
     marginTop: space.x4,
     alignItems: 'center',
+    paddingHorizontal: space.x3,
+    paddingVertical: space.x2,
+    borderRadius: radius.full,
+    backgroundColor: colors.glass,
+    borderWidth: 1,
+    borderColor: colors.glassBorder,
+    ...shadows.float,
   },
   airing: {
     flexDirection: 'row',

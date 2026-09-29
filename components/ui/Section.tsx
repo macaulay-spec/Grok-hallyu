@@ -64,11 +64,36 @@ export function Divider({ inset = 0, style }: { inset?: number; style?: StylePro
   return <View style={[styles.divider, { marginLeft: inset }, style]} />;
 }
 
-export function ProgressBar({ value, max, height = 3, color = colors.accent, style }: { value: number; max: number; height?: number; color?: string; style?: StyleProp<ViewStyle> }) {
+/** 2px progress bar (spec 3.4): crimson fill on a surface-1 track. */
+export function ProgressBar({ value, max, height = 2, color = colors.accent, style }: { value: number; max: number; height?: number; color?: string; style?: StyleProp<ViewStyle> }) {
   const pct = max > 0 ? Math.min(1, Math.max(0, value / max)) : 0;
   return (
-    <View style={[{ height, backgroundColor: colors.surface3, borderRadius: height / 2, overflow: 'hidden' }, style]} accessibilityRole="progressbar" accessibilityValue={{ min: 0, max, now: value }}>
+    <View style={[{ height, backgroundColor: colors.surface1, borderRadius: height / 2, overflow: 'hidden' }, style]} accessibilityRole="progressbar" accessibilityValue={{ min: 0, max, now: value }}>
       <View style={{ width: `${pct * 100}%`, height, backgroundColor: color }} />
+    </View>
+  );
+}
+
+/**
+ * Watched ring (spec 3.4): a 32dp crimson arc that fills with watch progress. Pure views —
+ * two half-circle masks rotated by progress, so no SVG dependency. Sits on a dark puck so it
+ * reads on any artwork.
+ */
+export function WatchRing({ progress, size = 32, thickness = 2.5, color = colors.accent, style }: { progress: number; size?: number; thickness?: number; color?: string; style?: StyleProp<ViewStyle> }) {
+  const p = Math.min(1, Math.max(0, progress));
+  const half = size / 2;
+  const ringBase = { width: size, height: size, borderRadius: half, borderWidth: thickness, borderColor: 'transparent' } as const;
+  const rightRotation = `${-180 + Math.min(p, 0.5) * 360}deg`;
+  const leftRotation = `${180 + Math.max(0, p - 0.5) * 360}deg`;
+  return (
+    <View style={[{ width: size, height: size, borderRadius: half, backgroundColor: 'rgba(0,0,0,0.55)' }, style]}>
+      <View style={{ position: 'absolute', width: size, height: size, borderRadius: half, borderWidth: thickness, borderColor: colors.surface3 }} />
+      <View style={{ position: 'absolute', left: half, width: half, height: size, overflow: 'hidden' }}>
+        <View style={[ringBase, { borderTopColor: color, borderRightColor: color, transform: [{ rotate: rightRotation }] }]} />
+      </View>
+      <View style={{ position: 'absolute', left: 0, width: half, height: size, overflow: 'hidden' }}>
+        <View style={[ringBase, { borderBottomColor: color, borderLeftColor: color, transform: [{ rotate: leftRotation }] }]} />
+      </View>
     </View>
   );
 }

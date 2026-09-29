@@ -16,11 +16,11 @@ interface State {
   error: Error | null;
 }
 
-const CANVAS = '#0A0A0A';
+const CANVAS = '#000000';
 const SURFACE = '#161618';
-const TEXT = '#FAFAFA';
-const TEXT_SECONDARY = '#A1A1AA';
-const TEXT_TERTIARY = '#7A7A85';
+const TEXT = '#F5F5F7';
+const TEXT_SECONDARY = '#8E8E93';
+const TEXT_TERTIARY = '#48484A';
 const ACCENT = '#E11D48';
 
 export class ErrorBoundary extends React.Component<Props, State> {

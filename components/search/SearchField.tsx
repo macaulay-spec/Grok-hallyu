@@ -40,6 +40,6 @@ function TextInputLike({ text }: { text: string }) {
 }
 
 const styles = StyleSheet.create({
-  box: { flexDirection: 'row', alignItems: 'center', gap: space.x2, height: 44, borderRadius: radius.md, backgroundColor: colors.surface1, paddingHorizontal: space.x3, borderWidth: 1, borderColor: colors.borderSubtle },
+  box: { flexDirection: 'row', alignItems: 'center', gap: space.x2, height: 44, borderRadius: radius.full, backgroundColor: colors.glass, paddingHorizontal: space.x3, borderWidth: 1, borderColor: colors.glassBorder },
   input: { flex: 1, color: colors.textPrimary, fontFamily: fonts.regular, fontSize: 15, paddingVertical: 0 },
 });

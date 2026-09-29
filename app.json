@@ -5,13 +5,13 @@
     "version": "1.0.0",
     "orientation": "default",
     "userInterfaceStyle": "dark",
-    "backgroundColor": "#0A0A0A",
+    "backgroundColor": "#000000",
     "scheme": "hallyu",
     "icon": "./assets/branding/icon.png",
     "splash": {
       "image": "./assets/branding/splash-mark.png",
       "resizeMode": "contain",
-      "backgroundColor": "#0A0A0A"
+      "backgroundColor": "#000000"
     },
     "assetBundlePatterns": [
       "**/*"
@@ -44,7 +44,7 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/branding/adaptive-foreground.png",
         "monochromeImage": "./assets/branding/adaptive-monochrome.png",
-        "backgroundColor": "#0A0A0A"
+        "backgroundColor": "#000000"
       },
       "intentFilters": [
         {
@@ -76,7 +76,7 @@
       "bundler": "metro",
       "output": "single",
       "favicon": "./assets/branding/icon.png",
-      "backgroundColor": "#0A0A0A"
+      "backgroundColor": "#000000"
     },
     "notification": {
       "icon": "./assets/branding/notification-icon.png",

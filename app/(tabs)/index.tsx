@@ -13,8 +13,8 @@ import { episodeState } from '../../components/drama/EpisodeCard';
 import { TonightRail } from '../../components/home/TonightRail';
 import { UpNextRail } from '../../components/home/UpNextRail';
 import { UserCard } from '../../components/people/UserRow';
-import { Avatar } from '../../components/ui/Avatar';
 import { Button } from '../../components/ui/Button';
+import { Chip } from '../../components/ui/Chip';
 import { CoachMarks } from '../../components/ui/CoachMarks';
 import { IconButton } from '../../components/ui/IconButton';
 import { useRefresh } from '../../components/ui/Refresh';
@@ -24,13 +24,13 @@ import { Segmented } from '../../components/ui/Segmented';
 import { PostSkeleton } from '../../components/ui/Skeleton';
 import { EmptyState } from '../../components/ui/States';
 import { Text } from '../../components/ui/Text';
-import { TopBar, Wordmark } from '../../components/ui/TopBar';
+import { TopBar, LiveIndicator, Wordmark } from '../../components/ui/TopBar';
 import { colors, radius, space } from '../../constants/theme';
 import { useAuth } from '../../lib/auth';
 import { haptic, useApp, useLoad, useReduceMotion } from '../../lib/hooks';
-import { Episode, Post } from '../../lib/model';
+import { Episode, FandomId, Post } from '../../lib/model';
 import { activeWorlds, airingEpisodes, anchorDrama, crossWorldLocal, forYou, following, recommendedDramas, recommendedPeople, shorts, trendingDiscussions, upNext, worldCounts } from '../../lib/selectors';
-import { formatFandomOf } from '../../lib/fandoms';
+import { FANDOMS, formatFandomOf } from '../../lib/fandoms';
 import { getState } from '../../lib/store';
 import { catalog } from '../../lib/catalog';
 import { adoptDramas } from '../../lib/catalogSync';
@@ -70,8 +70,10 @@ function Home() {
   const router = useRouter();
   const tabBar = useTabBarMotion();
   const auth = useAuth();
-  const { state, me, unread } = useApp();
+  const { state, getDrama } = useApp();
   const [tab, setTab] = useState<'forYou' | 'following'>('forYou');
+  // Universe selector (spec 3.3): For You + one chip per fandom world; narrows the feed.
+  const [universe, setUniverse] = useState<FandomId | 'all'>('all');
   useRemote(tab === 'following' ? 'feed:following' : 'feed:forYou', 45_000);
   const listRef = useRef<FlatList<Row>>(null);
   const viewport = useViewabilityTracker<Row>((r) => (r.kind === 'post' && r.post.video ? r.post.id : null));
@@ -95,7 +97,15 @@ function Home() {
       .filter((x) => x.airedAgo && !inTonight.has(x.episode.id))
       .slice(0, 6);
   }, [state, guest, tonight]);
-  const liveFeed = useMemo(() => (tab === 'forYou' ? forYou(state) : following(state)), [state, tab]);
+  const liveFeed = useMemo(() => {
+    const base = tab === 'forYou' ? forYou(state) : following(state);
+    if (universe === 'all' || tab !== 'forYou') return base;
+    return base.filter((r) => {
+      const id = r.post.context?.dramaId;
+      const d = id ? getDrama(id) : undefined;
+      return !!d && formatFandomOf(d) === universe;
+    });
+  }, [state, tab, universe, getDrama]);
 
   // Feed stability: the list you are reading never reshuffles under your thumb. New posts that
   // arrive while you're scrolled down surface as a "New posts" pill; pulling down or tapping it
@@ -116,6 +126,7 @@ function Home() {
   }, [liveFeed, newCount]);
   useEffect(() => {
     setFeed(liveFeed);
+    setUniverse('all');
     setPage(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
@@ -191,11 +202,13 @@ function Home() {
   const rows = useMemo<Row[]>(() => {
     const out: Row[] = [];
     if (guest) out.push({ key: 'guest', kind: 'guest' });
+    // Inside a universe the feed stays pure posts — no interleaved modules.
+    const modules = tab === 'forYou' && universe === 'all';
     // Your fandoms sit above the feed: the app should say what it is before it shows you anything.
-    if (tab === 'forYou' && worlds.length) out.push({ key: 'worlds', kind: 'worlds' });
+    if (modules && worlds.length) out.push({ key: 'worlds', kind: 'worlds' });
     feed.slice(0, page * PAGE).forEach((r, i) => {
       out.push({ key: r.post.id, kind: 'post', post: r.post, reason: r.reason });
-      if (tab === 'forYou') {
+      if (modules) {
         if (i === 2 && shortList.length) out.push({ key: 'shorts', kind: 'shorts' });
         if (i === 5 && recs.length) out.push({ key: 'dramas', kind: 'dramas' });
         if (i === 8 && people.length) out.push({ key: 'people', kind: 'people' });
@@ -203,12 +216,12 @@ function Home() {
         if (i === 11 && discussions.length) out.push({ key: 'discussions', kind: 'discussions' });
       }
     });
-    if (tab === 'forYou' && feed.length && feed.length <= 5) {
+    if (modules && feed.length && feed.length <= 5) {
       if (recs.length) out.push({ key: 'dramas', kind: 'dramas' });
       if (cross.items.length) out.push({ key: 'cross', kind: 'cross' });
     }
     return out;
-  }, [feed, page, guest, tab, worlds.length, cross.items.length, shortList.length, recs.length, people.length, discussions.length]);
+  }, [feed, page, guest, tab, universe, worlds.length, cross.items.length, shortList.length, recs.length, people.length, discussions.length]);
 
   const onRefresh = useCallback(async () => {
     await pull();
@@ -310,10 +323,13 @@ function Home() {
 
   const header = (
     <View>
-      {tab === 'forYou' ? <TonightRail items={tonight} onSeeAll={() => router.push('/schedule')} /> : null}
+      {tab === 'forYou' ? <TonightRail items={tonight} eyebrow="Airing today" onSeeAll={() => router.push('/schedule')} /> : null}
       {tab === 'forYou' ? <UpNextRail items={upNextItems} onSeeAll={() => router.push('/watchlist')} /> : null}
     </View>
   );
+
+  /** Sticky universe rail (spec 3.3): For You + the four fandom worlds. */
+  const universes = useMemo(() => [{ id: 'all' as const, label: 'For You' }, ...FANDOMS.map((f) => ({ id: f.id, label: f.short }))], []);
 
   const empty =
     tab === 'following' ? (
@@ -328,9 +344,9 @@ function Home() {
       ) : (
         <EmptyState
           icon="people-outline"
-          title="Your next obsession is waiting"
+          title="Track a drama to build your world"
           body="Follow three dramas and this feed fills with their episodes, theories and reactions — newest first."
-          actionLabel="Pick 3 dramas"
+          actionLabel="Explore shows"
           onAction={() => router.push('/(tabs)/explore')}
           secondaryLabel="People with your taste"
           onSecondary={() => router.push('/people')}
@@ -354,23 +370,41 @@ function Home() {
   return (
     <Screen
       header={
-        <TopBar
-          mode="root"
-          center={<Wordmark />}
-          right={
-            <>
-              <IconButton icon="search-outline" label="Search" onPress={() => router.push('/search')} />
-              {guest ? (
-                <IconButton icon="person-circle-outline" label="Sign in" onPress={() => router.push('/(auth)/welcome')} />
-              ) : (
-                <Pressable onPress={() => router.push('/(tabs)/you')} accessibilityRole="button" accessibilityLabel="Your profile" style={{ padding: 8 }}>
-                  <Avatar uri={me.avatarUrl} name={me.displayName} size="sm" />
-                  {unread ? <View style={styles.dot} /> : null}
-                </Pressable>
+        <View>
+          <TopBar
+            mode="root"
+            center={<Wordmark />}
+            right={
+              <>
+                <IconButton icon="search-outline" label="Search" onPress={() => router.push('/search')} />
+                <LiveIndicator count={tonight.length} onPress={() => router.push('/schedule')} />
+                {guest ? <IconButton icon="person-circle-outline" label="Sign in" onPress={() => router.push('/(auth)/welcome')} /> : null}
+              </>
+            }
+          />
+          {tab === 'forYou' ? (
+            <FlatList
+              horizontal
+              data={universes}
+              keyExtractor={(u) => u.id}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: space.margin, paddingBottom: space.x2, gap: space.x2 }}
+              renderItem={({ item: u }) => (
+                <Chip
+                  label={u.label}
+                  selected={universe === u.id}
+                  size="sm"
+                  onPress={() => {
+                    haptic.select();
+                    setUniverse(u.id);
+                    setPage(1);
+                    listRef.current?.scrollToOffset({ offset: 0, animated: false });
+                  }}
+                />
               )}
-            </>
-          }
-        />
+            />
+          ) : null}
+        </View>
       }
     >
       <Segmented
@@ -445,7 +479,6 @@ const styles = StyleSheet.create({
   guest: { margin: space.margin, marginTop: 0, padding: space.x4, backgroundColor: colors.surface1, borderRadius: radius.lg },
   module: { paddingVertical: space.x5, borderBottomWidth: 1, borderBottomColor: colors.borderSubtle },
   footer: { alignItems: 'center', gap: space.x2, paddingVertical: space.x8 },
-  dot: { position: 'absolute', top: 8, right: 8, width: 9, height: 9, borderRadius: 5, backgroundColor: colors.accent, borderWidth: 2, borderColor: colors.canvas },
   pillHost: { position: 'absolute', top: 108, left: 0, right: 0, alignItems: 'center' },
   pill: {
     flexDirection: 'row',

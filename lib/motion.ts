@@ -7,6 +7,13 @@ import { useReduceMotion } from './hooks';
  * Springs are used for anything the finger drives (presses, sheets, bars); timings for state changes.
  * Every consumer must fall back to fades when `useReduceMotion()` is true.
  */
+
+/** Spec easing curves: enter (fast out, slow settle), exit (slow out, fast finish), standard. */
+export const curves = {
+  enter: Easing.bezier(0.16, 1, 0.3, 1),
+  exit: Easing.bezier(0.7, 0, 0.84, 0),
+  standard: Easing.bezier(0.4, 0, 0.2, 1),
+} as const;
 export const springs = {
   /** press release, chips, reaction glyphs */
   snappy: { damping: 18, stiffness: 320, mass: 0.6, useNativeDriver: true } as const,
