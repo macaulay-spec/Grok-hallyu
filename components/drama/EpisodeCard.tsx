@@ -35,6 +35,9 @@ function EpisodeCardBase({ drama, episode, postCount, style, showDrama }: Episod
   const item = watch(drama.id);
   const watched = hasWatched(item, episode.season, episode.number);
   const st = episodeState(episode);
+  // The frontier episode: the first one you haven't watched in the season you're on.
+  const current =
+    !!item && item.status !== 'completed' && item.season === episode.season && episode.number === (item.currentEpisode ?? 0) + 1 && !watched;
   const total = drama.seasons.find((s) => s.number === episode.season)?.episodeCount ?? drama.episodeCount;
   const multi = drama.seasons.length > 1;
   const dateLine =
@@ -56,7 +59,7 @@ function EpisodeCardBase({ drama, episode, postCount, style, showDrama }: Episod
       accessibilityLabel={`${multi ? `Season ${episode.season} ` : ''}Episode ${episode.number}${episode.title ? `, ${episode.title}` : ''}, ${watched ? 'watched' : st}`}
       style={[styles.row, style]}
     >
-      <View style={[styles.num, watched ? styles.numWatched : null]}>
+      <View style={[styles.num, watched ? styles.numWatched : null, current ? styles.numCurrent : null]}>
         {st === 'live' ? <View style={styles.live} /> : null}
         <Text variant="titleSmall" numeric style={{ color: watched ? colors.textSecondary : colors.textPrimary }}>
           {episode.number}
@@ -92,7 +95,8 @@ function EpisodeCardBase({ drama, episode, postCount, style, showDrama }: Episod
           accessibilityLabel={watched ? 'Mark as not watched' : 'Mark as watched'}
           style={styles.check}
         >
-          <Ionicons name={watched ? 'checkmark-circle' : 'ellipse-outline'} size={26} color={watched ? colors.success : colors.borderStrong} />
+          {/* Spec 1.1 — crimson is progress: watched check is the accent, never green. */}
+          <Ionicons name={watched ? 'checkmark-circle' : 'ellipse-outline'} size={26} color={watched ? colors.accent : colors.borderStrong} />
         </Tap>
       ) : (
         <ReminderBell drama={drama} episode={episode} />
@@ -117,6 +121,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: space.x3, paddingVertical: space.x3, paddingHorizontal: space.margin, borderBottomWidth: 1, borderBottomColor: colors.borderSubtle },
   num: { width: 44, height: 44, borderRadius: radius.sm, backgroundColor: colors.surface2, alignItems: 'center', justifyContent: 'center' },
   numWatched: { backgroundColor: colors.surface1 },
+  numCurrent: { borderWidth: 2, borderColor: colors.accent, backgroundColor: colors.surface1 },
   live: { position: 'absolute', top: 5, right: 5, width: 6, height: 6, borderRadius: 3, backgroundColor: colors.live },
   count: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   check: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', marginRight: -12 },
