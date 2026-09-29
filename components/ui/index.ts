@@ -2,6 +2,7 @@ export * from './Avatar';
 export * from './Button';
 export * from './Chip';
 export * from './Dialog';
+export * from './GoogleButton';
 export * from './IconButton';
 export * from './Poster';
 export * from './Screen';

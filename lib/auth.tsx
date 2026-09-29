@@ -54,6 +54,12 @@ interface AuthValue {
   demo: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, displayName: string) => Promise<'signedIn' | 'verify'>;
+  /**
+   * Continue with Google. In a server-backed build this runs the OAuth dance and returns a
+   * verified Google account; in this frontend-only build it establishes the local Google-provider
+   * account (same `provider: 'google'` shape), so the door behaves identically end to end.
+   */
+  signInWithGoogle: () => Promise<void>;
   /** Enter the shared demo account — a populated member, so the product is usable immediately. */
   signInDemo: () => Promise<void>;
   sendReset: (email: string) => Promise<void>;
@@ -69,9 +75,16 @@ const Ctx = createContext<AuthValue | null>(null);
 const GUEST_KEY = 'hallyu.auth.guest';
 const ACCOUNT_KEY = 'hallyu.auth.account.v1';
 const DEMO_ACCOUNT_KEY = 'hallyu.auth.demo.v1';
+const GOOGLE_ACCOUNT_KEY = 'hallyu.auth.google.v1';
 
 /** The identity behind "Explore the demo". Stable so its activity survives a re-launch. */
 const DEMO_USER: AuthUser = { id: 'demo-member', handle: 'you', displayName: 'You', email: 'demo@hallyu.app', emailVerified: true, provider: 'demo' };
+
+/**
+ * The account established by "Continue with Google" in this frontend-only build. Deterministic and
+ * stable so its activity survives a re-launch — exactly like a returning Google session would.
+ */
+const GOOGLE_USER: AuthUser = { id: 'google-member', handle: 'you', displayName: 'You', email: 'you@gmail.com', emailVerified: true, provider: 'google' };
 
 const MIN_PASSWORD = 6;
 
@@ -93,6 +106,7 @@ function displayNameFor(email: string): string {
 async function readAccount(): Promise<AuthUser | null> {
   try {
     if ((await AsyncStorage.getItem(DEMO_ACCOUNT_KEY)) === '1') return DEMO_USER;
+    if ((await AsyncStorage.getItem(GOOGLE_ACCOUNT_KEY)) === '1') return GOOGLE_USER;
     const raw = await AsyncStorage.getItem(ACCOUNT_KEY);
     return raw ? (JSON.parse(raw) as AuthUser) : null;
   } catch {
@@ -103,6 +117,7 @@ async function readAccount(): Promise<AuthUser | null> {
 async function writeAccount(user: AuthUser): Promise<void> {
   await AsyncStorage.setItem(ACCOUNT_KEY, JSON.stringify(user)).catch(() => {});
   await AsyncStorage.removeItem(DEMO_ACCOUNT_KEY).catch(() => {});
+  await AsyncStorage.removeItem(GOOGLE_ACCOUNT_KEY).catch(() => {});
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -168,9 +183,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return 'signedIn' as const;
   }, []);
 
+  const signInWithGoogle = useCallback(async () => {
+    // A server-backed build would resolve the OAuth redirect here (see app/auth/callback.tsx) and
+    // hand back a verified Google identity. Locally we establish the same account shape, so every
+    // downstream screen — settings, provider label, avatar — behaves exactly as it will in prod.
+    await AsyncStorage.setItem(GOOGLE_ACCOUNT_KEY, '1').catch(() => {});
+    await AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
+    await AsyncStorage.removeItem(DEMO_ACCOUNT_KEY).catch(() => {});
+    await AsyncStorage.removeItem(ACCOUNT_KEY).catch(() => {});
+    setUser(GOOGLE_USER);
+    setStatus('signedIn');
+    track('auth.signin', { provider: 'google' });
+  }, []);
+
   const signInDemo = useCallback(async () => {
     await AsyncStorage.setItem(DEMO_ACCOUNT_KEY, '1').catch(() => {});
     await AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
+    await AsyncStorage.removeItem(GOOGLE_ACCOUNT_KEY).catch(() => {});
     setUser(DEMO_USER);
     setStatus('signedIn');
     track('auth.signin', { provider: 'demo' });
@@ -195,6 +224,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const continueAsGuest = useCallback(() => {
     AsyncStorage.setItem(GUEST_KEY, '1').catch(() => {});
     AsyncStorage.removeItem(DEMO_ACCOUNT_KEY).catch(() => {});
+    AsyncStorage.removeItem(GOOGLE_ACCOUNT_KEY).catch(() => {});
     setUser(null);
     setStatus('guest');
     track('auth.guest');
@@ -204,6 +234,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
     await AsyncStorage.removeItem(ACCOUNT_KEY).catch(() => {});
     await AsyncStorage.removeItem(DEMO_ACCOUNT_KEY).catch(() => {});
+    await AsyncStorage.removeItem(GOOGLE_ACCOUNT_KEY).catch(() => {});
     setUser(null);
     setRecoveryPending(false);
     setStatus('signedOut');
@@ -212,6 +243,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const deleteAccount = useCallback(async () => {
     await AsyncStorage.removeItem(ACCOUNT_KEY).catch(() => {});
     await AsyncStorage.removeItem(DEMO_ACCOUNT_KEY).catch(() => {});
+    await AsyncStorage.removeItem(GOOGLE_ACCOUNT_KEY).catch(() => {});
     await AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
     setUser(null);
     setStatus('signedOut');
@@ -226,6 +258,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       demo: true,
       signIn,
       signUp,
+      signInWithGoogle,
       signInDemo,
       sendReset,
       updatePassword,
@@ -235,7 +268,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       deleteAccount,
       clearRecovery: () => setRecoveryPending(false),
     }),
-    [status, user, pendingEmail, recoveryPending, signIn, signUp, signInDemo, sendReset, updatePassword, resendVerification, continueAsGuest, signOut, deleteAccount],
+    [status, user, pendingEmail, recoveryPending, signIn, signUp, signInWithGoogle, signInDemo, sendReset, updatePassword, resendVerification, continueAsGuest, signOut, deleteAccount],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

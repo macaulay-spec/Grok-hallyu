@@ -2,12 +2,13 @@ import { useRouter } from 'expo-router';
 import React, { useRef, useState } from 'react';
 import { TextInput, View } from 'react-native';
 import { Button } from '../../components/ui/Button';
+import { GoogleButton } from '../../components/ui/GoogleButton';
 import { ScrollScreen, Screen } from '../../components/ui/Screen';
 import { InlineNotice } from '../../components/ui/States';
 import { Text } from '../../components/ui/Text';
 import { TextField } from '../../components/ui/TextField';
 import { TopBar } from '../../components/ui/TopBar';
-import { space } from '../../constants/theme';
+import { colors, hairline, space } from '../../constants/theme';
 import { AuthError, useAuth } from '../../lib/auth';
 import { LIMITS } from '../../lib/model';
 
@@ -26,6 +27,7 @@ export default function SignUp() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
+  const [googleBusy, setGoogleBusy] = useState(false);
   const [error, setError] = useState<AuthError | null>(null);
   const emailRef = useRef<TextInput>(null);
   const passRef = useRef<TextInput>(null);
@@ -48,6 +50,16 @@ export default function SignUp() {
     }
   };
 
+  const continueWithGoogle = async () => {
+    setGoogleBusy(true);
+    try {
+      await auth.signInWithGoogle();
+      router.replace('/');
+    } finally {
+      setGoogleBusy(false);
+    }
+  };
+
   return (
     <Screen header={<TopBar title="Create account" />}>
       <ScrollScreen keyboard column padded>
@@ -57,6 +69,12 @@ export default function SignUp() {
         <Text variant="body" tone="secondary" style={{ marginTop: space.x2, marginBottom: space.x6 }}>
           Track what you watch, follow the fandoms you love, and talk about every episode without getting spoiled.
         </Text>
+        <GoogleButton label="Continue with Google" size="lg" onPress={continueWithGoogle} loading={googleBusy} disabled={busy || googleBusy} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.x3, marginVertical: space.x5 }}>
+          <View style={{ flex: 1, height: hairline, backgroundColor: colors.glassBorder }} />
+          <Text variant="caption" tone="tertiary">or sign up with email</Text>
+          <View style={{ flex: 1, height: hairline, backgroundColor: colors.glassBorder }} />
+        </View>
         <View style={{ gap: space.x4 }}>
           <TextField label="Display name" value={name} onChangeText={setName} autoComplete="name" textContentType="name" maxLength={LIMITS.displayName} returnKeyType="next" onSubmitEditing={() => emailRef.current?.focus()} leading="person-outline" hint="How you’ll appear to others. You can change it later." />
           <TextField ref={emailRef} label="Email" value={email} onChangeText={setEmail} autoCapitalize="none" autoComplete="email" keyboardType="email-address" textContentType="emailAddress" returnKeyType="next" onSubmitEditing={() => passRef.current?.focus()} leading="mail-outline" error={email.length > 3 && !emailOk ? 'That doesn’t look like an email address.' : null} />

@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React from 'react';
+import React, { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '../../components/ui/Button';
+import { GoogleButton } from '../../components/ui/GoogleButton';
 import { Text } from '../../components/ui/Text';
 import { colors, radius, space } from '../../constants/theme';
 import { useAuth } from '../../lib/auth';
@@ -33,8 +34,20 @@ export default function Gate() {
   const auth = useAuth();
   const insets = useSafeAreaInsets();
   const { reason } = useLocalSearchParams<{ reason?: string }>();
+  const [googleBusy, setGoogleBusy] = useState(false);
   const close = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)'));
   const frame = frameFor(reason);
+
+  const continueWithGoogle = async () => {
+    setGoogleBusy(true);
+    try {
+      await auth.signInWithGoogle();
+      close();
+    } finally {
+      setGoogleBusy(false);
+    }
+  };
+
   return (
     <View style={styles.root}>
       <Pressable style={StyleSheet.absoluteFill} onPress={close} accessibilityLabel="Not now" />
@@ -50,9 +63,13 @@ export default function Gate() {
           {frame.body}
         </Text>
         <View style={{ gap: space.x2, marginTop: space.x5 }}>
-          <Button label="Explore the demo" icon="sparkles" block onPress={() => auth.signInDemo().then(() => close())} />
+          <GoogleButton label="Continue with Google" size="md" onPress={continueWithGoogle} loading={googleBusy} disabled={googleBusy} />
           <Button label="Create an account" icon="mail-outline" variant="secondary" block onPress={() => router.replace('/(auth)/sign-up')} />
           <Button label="I already have an account" variant="ghost" onPress={() => router.replace('/(auth)/sign-in')} />
+          <Pressable onPress={() => auth.signInDemo().then(() => close())} accessibilityRole="button" accessibilityLabel="Explore the demo" hitSlop={10} style={styles.demoLink}>
+            <Ionicons name="sparkles" size={13} color={colors.textSecondary} />
+            <Text variant="bodySmall" tone="secondary">Just exploring? Open the demo</Text>
+          </Pressable>
           <Button label="Not now" variant="ghost" onPress={close} />
         </View>
       </View>
@@ -65,4 +82,5 @@ const styles = StyleSheet.create({
   sheet: { backgroundColor: colors.surface2, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: space.x6, paddingTop: space.x2 },
   handle: { width: 32, height: 4, borderRadius: 2, backgroundColor: colors.borderStrong, alignSelf: 'center', marginBottom: space.x4 },
   icon: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.accentSoft, alignItems: 'center', justifyContent: 'center' },
+  demoLink: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 8 },
 });
