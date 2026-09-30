@@ -102,17 +102,21 @@ export interface Drama {
   posterUrl?: string;
   posterLocal?: number; // require()
   backdropUrl?: string;
+  /** Official YouTube trailer or teaser URL when available from TMDB or local seed. */
+  trailerUrl?: string;
   tone: string; // fallback poster colour
   rating?: number; // community 1–10
   episodeCount: number;
   seasons: Season[];
   episodes: Episode[];
   cast: CastCredit[];
+  /** Optional hydrated cast actor records returned alongside a detailed catalog fetch. */
+  castActors?: Actor[];
   creators?: string[];
   airsOn?: string; // e.g. "Sat–Sun 21:20 KST"
   nextEpisodeAt?: string; // ISO
   followerCount: number;
-  provider?: { name: 'tmdb'; id: number };
+  provider?: { name: 'tmdb'; id: number; mediaType?: MediaType };
 }
 
 export interface Actor {
@@ -123,6 +127,8 @@ export interface Actor {
   birthDate?: string;
   bio?: string;
   knownFor: ID[];
+  /** Optional hydrated filmography drama records returned alongside a catalog fetch. */
+  knownForDramas?: Drama[];
   followerCount: number;
   provider?: { name: 'tmdb'; id: number };
 }

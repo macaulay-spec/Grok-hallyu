@@ -72,8 +72,10 @@ export default function WorldScreen() {
   const heroW = Math.min(width, 720);
   const heroH = Math.round(Math.min(260, heroW * 0.42));
   const lead = live.data?.[0];
-  const addToMine = () => {
-    const next = [...new Set([...(state.profile.fandoms ?? []), world.id])];
+  const toggleMine = () => {
+    const current = state.profile.fandoms ?? [];
+    const hasExplicit = current.includes(world.id);
+    const next = hasExplicit ? current.filter((x) => x !== world.id) : [...new Set([...current, world.id])];
     dispatch({ type: 'profile', patch: { fandoms: next } });
     dispatch({ type: 'onboarding', patch: { fandoms: next } });
   };
@@ -82,7 +84,13 @@ export default function WorldScreen() {
     <Screen header={<TopBar mode="stack" title={world.label} />}>
       <ScrollScreen tabbed onScroll={tabBar.onScroll} scrollEventThrottle={16} refreshControl={refresh.control}>
         {/* Hero — the world's own identity, tinted by the world, not by the brand accent. */}
-        <View style={[styles.hero, { width: heroW, height: heroH, backgroundColor: lead?.tone ?? colors.surface2 }]}>
+        <Pressable
+          disabled={!lead}
+          onPress={() => lead && router.push(`/drama/${lead.id}`)}
+          accessibilityRole={lead ? 'button' : undefined}
+          accessibilityLabel={lead ? `${world.label} featured: ${lead.title}` : undefined}
+          style={[styles.hero, { width: heroW, height: heroH, backgroundColor: lead?.tone ?? colors.surface2 }]}
+        >
           {lead ? <Backdrop uri={lead.backdropUrl ?? lead.posterUrl} fallbackColor={lead.tone} width={heroW} height={heroH} style={StyleSheet.absoluteFill} /> : null}
           <View style={styles.heroScrim} />
           <View style={{ padding: space.x4, gap: 4, justifyContent: 'flex-end', flex: 1 }}>
@@ -96,26 +104,26 @@ export default function WorldScreen() {
               {world.tagline}
             </Text>
           </View>
-        </View>
+        </Pressable>
 
         <View style={{ paddingHorizontal: space.margin, marginTop: space.x4, gap: space.x3 }}>
           <Text variant="body" tone="secondary">
             {world.blurb}
           </Text>
           {!mine ? (
-            <Pressable onPress={addToMine} style={[styles.add, { borderColor: world.tint }]} accessibilityRole="button" accessibilityLabel={`Add ${world.label} to my worlds`}>
+            <Pressable onPress={toggleMine} style={[styles.add, { borderColor: world.tint }]} accessibilityRole="button" accessibilityLabel={`Add ${world.label} to my worlds`}>
               <Ionicons name="add-circle-outline" size={16} color={world.tint} />
               <Text variant="label" style={{ color: world.tint }}>
                 Add {world.short} to my worlds
               </Text>
             </Pressable>
           ) : (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.x2 }}>
+            <Pressable onPress={toggleMine} style={{ flexDirection: 'row', alignItems: 'center', gap: space.x2, alignSelf: 'flex-start' }} accessibilityRole="button" accessibilityLabel={`One of your worlds: ${world.label}`}>
               <Ionicons name="checkmark-circle" size={16} color={world.tint} />
               <Text variant="caption" tone="secondary">
                 One of your worlds
               </Text>
-            </View>
+            </Pressable>
           )}
         </View>
 

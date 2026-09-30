@@ -1,36 +1,68 @@
 /**
- * Video, without a video backend.
+ * Video & media upload helper for Hallyu.
  *
- * The server-backed build uploaded an mp4 to object storage and ledgered the key. With no backend the
- * device *is* the storage: a post's video is the local file URI captured by the picker, which plays
- * straight from disk and survives in the persisted store. That keeps the whole create → post → watch
- * loop exercisable offline.
- *
- * Re-attaching real storage means implementing `uploadVideo` again and swapping the identity
- * `videoUrl` for a key→public-URL mapping; the previous implementation is parked as
- * `backend/video-upload.ts`.
+ *   • Offline/Demo mode: local file URIs are preserved directly so create → post → watch works offline.
+ *   • Lovable Cloud mode: resolves storage bucket keys (`shorts-videos/...`) to public Lovable Cloud
+ *     Storage URLs and provides `uploadMediaToLovableCloud` via the `media-upload` Edge Function.
  */
+import { LOVABLE_CLOUD_URL } from '../constants/keys';
+import { getLovableClient } from './data/lovableBackend';
 
-/** Local cap, kept in step with the picker's UI copy. */
 export const VIDEO_MAX_BYTES = 100 * 1024 * 1024;
 
-/**
- * Can this build carry video posts? Always — no bucket, no quota, no ledger to consult. Note this is
- * synchronous on purpose: the create screen checks it before choosing the video path, and an async
- * check there would always look constructible.
- */
 export function videoUploadsAvailable(): boolean {
   return true;
 }
 
 /**
  * Playable source for a stored video reference.
- *
- * There is no storage key namespace to resolve any more: posts hold either a remote URL from a
- * server-backed build or a local file URI from this one. Both are already sources, so this is an
- * identity function — which also means the existing call sites
- * (`url.startsWith('http') ? url : videoUrl(url)`) keep working unchanged for both cases.
+ * Local (`file://`, `blob:`, `data:`) or remote (`http://`, `https://`) URIs pass through unchanged;
+ * storage keys (`<userId>/<filename>.mp4`) resolve against Lovable Cloud Storage when configured.
  */
 export function videoUrl(key: string): string {
+  if (!key) return key;
+  if (/^(https?:|file:|blob:|data:|content:|ph:)/i.test(key)) return key;
+  if (LOVABLE_CLOUD_URL) {
+    const cleanBase = LOVABLE_CLOUD_URL.replace(/\/$/, '');
+    const cleanKey = key.replace(/^shorts-videos\//, '');
+    return `${cleanBase}/storage/v1/object/public/shorts-videos/${cleanKey}`;
+  }
   return key;
+}
+
+export async function uploadMediaToLovableCloud(opts: {
+  bucket: 'avatars' | 'banners' | 'post-images' | 'shorts-videos';
+  uri: string;
+  mimeType: string;
+  sizeBytes: number;
+  ext: string;
+  postId?: string;
+}): Promise<{ key: string; publicUrl: string }> {
+  const client = getLovableClient();
+  if (!client) {
+    return { key: opts.uri, publicUrl: opts.uri };
+  }
+  const { data, error } = await client.functions.invoke('media-upload', {
+    body: {
+      bucket: opts.bucket,
+      mimeType: opts.mimeType,
+      sizeBytes: opts.sizeBytes,
+      ext: opts.ext,
+      postId: opts.postId,
+    },
+  });
+  if (error || !data?.signedUrl) {
+    throw new Error(error?.message ?? 'Failed to mint upload URL');
+  }
+  const resp = await fetch(opts.uri);
+  const blob = await resp.blob();
+  const uploadRes = await fetch(data.signedUrl as string, {
+    method: 'PUT',
+    headers: { 'Content-Type': opts.mimeType },
+    body: blob,
+  });
+  if (!uploadRes.ok) {
+    throw new Error(`Upload failed (${uploadRes.status})`);
+  }
+  return { key: String(data.key), publicUrl: String(data.publicUrl) };
 }

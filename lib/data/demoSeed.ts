@@ -44,27 +44,32 @@ function weekly(dramaId: string, season: number, count: number, startIso: string
  * — and because each carries its TMDB id, the live catalog enriches them rather than duplicating them.
  */
 export const DEMO_ACTORS: Actor[] = [
-  { id: 'a-hyunbin', name: 'Hyun Bin', koreanName: '현빈', knownFor: ['demo-cloy'], followerCount: 41_200, bio: 'One of the defining leading men of modern Korean television.' },
-  { id: 'a-yejin', name: 'Son Ye-jin', koreanName: '손예진', knownFor: ['demo-cloy'], followerCount: 38_900, bio: 'Romance and melodrama lead with a decade of hit dramas behind her.' },
-  { id: 'a-songhyekyo', name: 'Song Hye-kyo', koreanName: '송혜교', knownFor: ['demo-glory'], followerCount: 52_400, bio: 'A career built on quiet, exacting performances across romance and revenge drama.' },
-  { id: 'a-dohyun', name: 'Lee Do-hyun', koreanName: '이도현', knownFor: ['demo-glory'], followerCount: 29_700, bio: 'Genre-hopping actor known for emotionally raw supporting and lead roles.' },
-  { id: 'a-gongyoo', name: 'Gong Yoo', koreanName: '공유', knownFor: ['demo-goblin'], followerCount: 47_100, bio: 'Film and television lead whose fantasy roles became fandom touchstones.' },
-  { id: 'a-goeun', name: 'Kim Go-eun', koreanName: '김고은', knownFor: ['demo-goblin'], followerCount: 33_500, bio: 'Critically praised for grounded, unshowy character work.' },
-  { id: 'a-dongwook', name: 'Lee Dong-wook', koreanName: '이동욱', knownFor: ['demo-goblin'], followerCount: 35_800, bio: 'A comic and romantic lead with unusually sharp timing.' },
-  { id: 'a-hyoseop', name: 'Ahn Hyo-seop', koreanName: '안효섭', knownFor: ['demo-proposal'], followerCount: 24_300, bio: 'Romantic comedy lead and one of the newer generation of K-drama stars.' },
-  { id: 'a-sejeong', name: 'Kim Se-jeong', koreanName: '김세정', knownFor: ['demo-proposal'], followerCount: 26_900, bio: 'Singer turned actor, best known for bright comic heroines.' },
+  { id: 'a-hyunbin', name: 'Hyun Bin', koreanName: '현빈', birthDate: '1982-09-25', photoUrl: 'https://image.tmdb.org/t/p/w342/J3nPFn2L61n64zBDbKef0D0sJc.jpg', knownFor: ['demo-cloy'], followerCount: 41_200, bio: 'One of the defining leading men of modern Korean television.', provider: { name: 'tmdb', id: 109803 } },
+  { id: 'a-yejin', name: 'Son Ye-jin', koreanName: '손예진', birthDate: '1982-01-11', photoUrl: 'https://image.tmdb.org/t/p/w342/m0bF0l3b5vV9pG2N9e7g7x9L5pD.jpg', knownFor: ['demo-cloy'], followerCount: 38_900, bio: 'Romance and melodrama lead with a decade of hit dramas behind her.', provider: { name: 'tmdb', id: 86892 } },
+  { id: 'a-songhyekyo', name: 'Song Hye-kyo', koreanName: '송혜교', birthDate: '1981-11-22', photoUrl: 'https://image.tmdb.org/t/p/w342/6R5P1F5o0M3Z9eQ8z6L4w5n7q8K.jpg', knownFor: ['demo-glory'], followerCount: 52_400, bio: 'A career built on quiet, exacting performances across romance and revenge drama.', provider: { name: 'tmdb', id: 70615 } },
+  { id: 'a-dohyun', name: 'Lee Do-hyun', koreanName: '이도현', birthDate: '1995-04-11', photoUrl: 'https://image.tmdb.org/t/p/w342/3s2q0R4L5V6b7N8m9P0k1J2h3G4.jpg', knownFor: ['demo-glory'], followerCount: 29_700, bio: 'Genre-hopping actor known for emotionally raw supporting and lead roles.', provider: { name: 'tmdb', id: 2079434 } },
+  { id: 'a-gongyoo', name: 'Gong Yoo', koreanName: '공유', birthDate: '1979-07-10', photoUrl: 'https://image.tmdb.org/t/p/w342/oc2s1cT4L3y4k5M6n7P8q9R0s1T.jpg', knownFor: ['demo-goblin'], followerCount: 47_100, bio: 'Film and television lead whose fantasy roles became fandom touchstones.', provider: { name: 'tmdb', id: 150903 } },
+  { id: 'a-goeun', name: 'Kim Go-eun', koreanName: '김고은', birthDate: '1991-07-02', photoUrl: 'https://image.tmdb.org/t/p/w342/9v8b7N6m5P4k3J2h1G0f9D8s7A6.jpg', knownFor: ['demo-goblin'], followerCount: 33_500, bio: 'Critically praised for grounded, unshowy character work.', provider: { name: 'tmdb', id: 1117313 } },
+  { id: 'a-dongwook', name: 'Lee Dong-wook', koreanName: '이동욱', birthDate: '1981-11-06', photoUrl: 'https://image.tmdb.org/t/p/w342/4k5M6n7P8q9R0s1T2u3V4w5X6y7.jpg', knownFor: ['demo-goblin'], followerCount: 35_800, bio: 'A comic and romantic lead with unusually sharp timing.', provider: { name: 'tmdb', id: 123071 } },
+  { id: 'a-hyoseop', name: 'Ahn Hyo-seop', koreanName: '안효섭', birthDate: '1995-04-17', photoUrl: 'https://image.tmdb.org/t/p/w342/5M6n7P8q9R0s1T2u3V4w5X6y7Z8.jpg', knownFor: ['demo-proposal'], followerCount: 24_300, bio: 'Romantic comedy lead and one of the newer generation of K-drama stars.', provider: { name: 'tmdb', id: 1564846 } },
+  { id: 'a-sejeong', name: 'Kim Se-jeong', koreanName: '김세정', birthDate: '1996-08-28', photoUrl: 'https://image.tmdb.org/t/p/w342/6n7P8q9R0s1T2u3V4w5X6y7Z8a9.jpg', knownFor: ['demo-proposal'], followerCount: 26_900, bio: 'Singer turned actor, best known for bright comic heroines.', provider: { name: 'tmdb', id: 1856910 } },
+  { id: 'a-songkangho', name: 'Song Kang-ho', koreanName: '송강호', birthDate: '1967-01-17', photoUrl: 'https://image.tmdb.org/t/p/w342/tD8s7A6b5N4m3P2k1J0h9G8f7D6.jpg', knownFor: ['world-parasite'], followerCount: 44_500, bio: 'Towering figure of modern Korean cinema and frequent collaborator of Bong Joon-ho.', provider: { name: 'tmdb', id: 20738 } },
+  { id: 'a-choiwooshik', name: 'Choi Woo-shik', koreanName: '최우식', birthDate: '1990-03-26', photoUrl: 'https://image.tmdb.org/t/p/w342/8q9R0s1T2u3V4w5X6y7Z8a9b0c1.jpg', knownFor: ['world-parasite'], followerCount: 31_400, bio: 'Film and drama lead known for expressive, sympathetic underdogs.', provider: { name: 'tmdb', id: 1255881 } },
   // The other three worlds: enough faces that the anime/C-drama/Hollywood hubs have a Cast tab.
-  { id: 'a-xiaozhan', name: 'Xiao Zhan', knownFor: ['world-untamed'], followerCount: 38_600, bio: 'Singer and actor at the centre of the biggest C-drama fandom of the last decade.' },
-  { id: 'a-wangyibo', name: 'Wang Yibo', knownFor: ['world-untamed'], followerCount: 34_200, bio: 'Dancer, racer and actor, best known for playing the coldest man in cultivation.' },
-  { id: 'a-dylanwang', name: 'Dylan Wang', knownFor: ['world-lbfad'], followerCount: 21_700, bio: 'Xianxia lead who made being the villain the fun part.' },
-  { id: 'a-chengyi', name: 'Cheng Yi', knownFor: ['world-lotus'], followerCount: 17_400, bio: 'Wuxia lead with a talent for tired, funny, quietly lethal swordsmen.' },
-  { id: 'a-nakamura', name: 'Yuichi Nakamura', koreanName: undefined, knownFor: ['world-jjk'], followerCount: 29_300, bio: 'Voice actor behind some of modern anime’s most quoted lines.' },
-  { id: 'a-yukikaji', name: 'Yuki Kaji', knownFor: ['world-aot'], followerCount: 27_800, bio: 'One of the defining shōnen voices of his generation.' },
-  { id: 'a-tanezaki', name: 'Atsumi Tanezaki', knownFor: ['world-frieren'], followerCount: 16_900, bio: 'Voice actor with an unusually wide range of leads.' },
-  { id: 'a-cranston', name: 'Bryan Cranston', knownFor: ['world-breakingbad'], followerCount: 33_100, bio: 'The prestige-TV antihero performance every other one is measured against.' },
-  { id: 'a-aaronpaul', name: 'Aaron Paul', knownFor: ['world-breakingbad'], followerCount: 24_600, bio: 'Television’s most heartbreaking sidekick.' },
-  { id: 'a-adamscott', name: 'Adam Scott', knownFor: ['world-severance'], followerCount: 19_200, bio: 'Comedy mainstay turned sci-fi everyman.' },
-  { id: 'a-chalamet', name: 'Timothée Chalamet', knownFor: ['world-dune2'], followerCount: 46_800, bio: 'Film lead of the decade’s biggest science-fiction epic.' },
+  { id: 'a-xiaozhan', name: 'Xiao Zhan', koreanName: '肖战', birthDate: '1991-10-05', knownFor: ['world-untamed'], followerCount: 38_600, bio: 'Singer and actor at the centre of the biggest C-drama fandom of the last decade.', provider: { name: 'tmdb', id: 2067855 } },
+  { id: 'a-wangyibo', name: 'Wang Yibo', koreanName: '王一博', birthDate: '1997-08-05', knownFor: ['world-untamed'], followerCount: 34_200, bio: 'Dancer, racer and actor, best known for playing the coldest man in cultivation.', provider: { name: 'tmdb', id: 1922525 } },
+  { id: 'a-dylanwang', name: 'Dylan Wang', koreanName: '王鹤棣', birthDate: '1998-12-20', knownFor: ['world-lbfad'], followerCount: 21_700, bio: 'Xianxia lead who made being the villain the fun part.', provider: { name: 'tmdb', id: 2092500 } },
+  { id: 'a-estheryu', name: 'Esther Yu', koreanName: '虞书欣', birthDate: '1995-12-18', knownFor: ['world-lbfad'], followerCount: 20_400, bio: 'Bright comic timing and warm xianxia heroines.', provider: { name: 'tmdb', id: 2436115 } },
+  { id: 'a-chengyi', name: 'Cheng Yi', koreanName: '成毅', birthDate: '1990-05-17', knownFor: ['world-lotus'], followerCount: 17_400, bio: 'Wuxia lead with a talent for tired, funny, quietly lethal swordsmen.', provider: { name: 'tmdb', id: 1966085 } },
+  { id: 'a-nakamura', name: 'Yuichi Nakamura', koreanName: '中村悠一', birthDate: '1980-02-20', knownFor: ['world-jjk'], followerCount: 29_300, bio: 'Voice actor behind some of modern anime’s most quoted lines.', provider: { name: 'tmdb', id: 93622 } },
+  { id: 'a-yukikaji', name: 'Yuki Kaji', koreanName: '梶裕貴', birthDate: '1985-09-03', knownFor: ['world-aot'], followerCount: 27_800, bio: 'One of the defining shōnen voices of his generation.', provider: { name: 'tmdb', id: 114660 } },
+  { id: 'a-tanezaki', name: 'Atsumi Tanezaki', koreanName: '種﨑敦美', birthDate: '1990-09-27', knownFor: ['world-frieren'], followerCount: 16_900, bio: 'Voice actor with an unusually wide range of leads.', provider: { name: 'tmdb', id: 1255652 } },
+  { id: 'a-cranston', name: 'Bryan Cranston', birthDate: '1956-03-07', knownFor: ['world-breakingbad'], followerCount: 33_100, bio: 'The prestige-TV antihero performance every other one is measured against.', provider: { name: 'tmdb', id: 17419 } },
+  { id: 'a-aaronpaul', name: 'Aaron Paul', birthDate: '1979-08-27', knownFor: ['world-breakingbad'], followerCount: 24_600, bio: 'Television’s most heartbreaking sidekick.', provider: { name: 'tmdb', id: 84497 } },
+  { id: 'a-adamscott', name: 'Adam Scott', birthDate: '1973-04-03', knownFor: ['world-severance'], followerCount: 19_200, bio: 'Comedy mainstay turned sci-fi everyman.', provider: { name: 'tmdb', id: 36801 } },
+  { id: 'a-brittlower', name: 'Britt Lower', birthDate: '1985-08-02', knownFor: ['world-severance'], followerCount: 14_800, bio: 'Sharp, fearless co-lead of Lumon’s Macrodata Refinement floor.', provider: { name: 'tmdb', id: 1030513 } },
+  { id: 'a-chalamet', name: 'Timothée Chalamet', birthDate: '1995-12-27', knownFor: ['world-dune2'], followerCount: 46_800, bio: 'Film lead of the decade’s biggest science-fiction epic.', provider: { name: 'tmdb', id: 1190668 } },
+  { id: 'a-zendaya', name: 'Zendaya', birthDate: '1996-09-01', knownFor: ['world-dune2'], followerCount: 49_200, bio: 'Film and prestige television lead.', provider: { name: 'tmdb', id: 505710 } },
 ];
 
 export const DEMO_DRAMAS: Drama[] = [
@@ -98,6 +103,7 @@ export const DEMO_DRAMAS: Drama[] = [
     region: 'KR',
     followerCount: 184_300,
     posterLocal: require('../../assets/dramas/cloy.png'),
+    trailerUrl: 'https://www.youtube.com/watch?v=GVQGWgeVc4k',
     provider: { name: 'tmdb', id: 94796 },
   },
   {
@@ -131,6 +137,7 @@ export const DEMO_DRAMAS: Drama[] = [
     region: 'KR',
     followerCount: 152_800,
     posterLocal: require('../../assets/dramas/goblin.png'),
+    trailerUrl: 'https://www.youtube.com/watch?v=8AcNEVUzV4o',
     provider: { name: 'tmdb', id: 67915 },
   },
   {
@@ -165,6 +172,7 @@ export const DEMO_DRAMAS: Drama[] = [
     originalLanguage: 'ko',
     region: 'KR',
     posterLocal: require('../../assets/dramas/glory.png'),
+    trailerUrl: 'https://www.youtube.com/watch?v=tqVVrTvrI8U',
     provider: { name: 'tmdb', id: 136283 },
   },
   {
@@ -172,7 +180,7 @@ export const DEMO_DRAMAS: Drama[] = [
     title: 'A Business Proposal',
     originalTitle: '사내맞선',
     year: 2022,
-    status: 'completed',
+    status: 'airing',
     network: 'SBS',
     streamingOn: ['Netflix'],
     genres: ['Romance', 'Comedy'],
@@ -183,17 +191,19 @@ export const DEMO_DRAMAS: Drama[] = [
     rating: 8.1,
     episodeCount: 12,
     seasons: [{ number: 1, episodeCount: 12, year: 2022 }],
-    episodes: weekly('demo-proposal', 1, 12, '2022-02-28T12:00:00Z', 62),
+    episodes: weekly('demo-proposal', 1, 12, new Date(Date.now() - 9 * WEEK + 2 * DAY).toISOString(), 62),
     cast: [
       { actorId: 'a-hyoseop', role: 'Kang Tae-moo', order: 0 },
       { actorId: 'a-sejeong', role: 'Shin Ha-ri', order: 1 },
     ],
+    airsOn: 'Mon–Tue 22:00 KST',
     followerCount: 96_400,
     mediaType: 'tv',
     format: 'kdrama',
     originalLanguage: 'ko',
     region: 'KR',
     posterLocal: require('../../assets/dramas/proposal.png'),
+    trailerUrl: 'https://www.youtube.com/watch?v=M-PHcxPyasA',
     provider: { name: 'tmdb', id: 154825 },
   },
   ...worldTitles(),
@@ -238,6 +248,7 @@ function worldTitles(): Drama[] {
       fans: 96_400,
       poster: '/8TZbpPpLQVS2i7P7yUVhrFlFsmW.jpg',
       backdrop: '/ampkwvfwO7o5YMwYAVPKx1PLDaB.jpg',
+      trailerUrl: 'https://www.youtube.com/watch?v=1R0d2jW7aFk',
     }),
     worldTitle({
       id: 'world-lbfad',
@@ -249,7 +260,7 @@ function worldTitles(): Drama[] {
       language: 'zh',
       region: 'CN',
       year: 2022,
-      streamingOn: ['iQIYI'],
+      streamingOn: ['iQIYI', 'Netflix'],
       genres: ['Fantasy', 'Romance', 'Comedy'],
       tags: ['xianxia', 'body swap', 'enemies to lovers'],
       synopsis: 'A fairy whose soul is accidentally bound to the realm’s most feared demon discovers that the monster everyone warned her about is the only one who tells her the truth.',
@@ -257,10 +268,14 @@ function worldTitles(): Drama[] {
       rating: 8.3,
       episodes: 36,
       runtime: 45,
-      cast: [['a-dylanwang', 'Dongfang Qingcang']],
+      cast: [
+        ['a-dylanwang', 'Dongfang Qingcang'],
+        ['a-estheryu', 'Xiao Lanhua'],
+      ],
       fans: 71_200,
       poster: '/mNgUuTGkOj19Z09zKa76bE6J5Di.jpg',
       backdrop: '/pECcUE53TjkrR2VsAgF7JICzH7k.jpg',
+      trailerUrl: 'https://www.youtube.com/watch?v=1X_X0M5J7bI',
     }),
     worldTitle({
       id: 'world-lotus',
@@ -272,6 +287,8 @@ function worldTitles(): Drama[] {
       language: 'zh',
       region: 'CN',
       year: 2023,
+      status: 'airing',
+      network: 'iQIYI',
       streamingOn: ['iQIYI'],
       genres: ['Mystery', 'Historical', 'Action'],
       tags: ['wuxia', 'detective', 'found family'],
@@ -284,6 +301,7 @@ function worldTitles(): Drama[] {
       fans: 58_800,
       poster: '/jpMyCVieu5JlGT52KzBTOOh9VFo.jpg',
       backdrop: '/v0It4jPMkYT3H57x6ot4Fd56C8E.jpg',
+      trailerUrl: 'https://www.youtube.com/watch?v=0Q6L3t8k7uU',
     }),
     // ---- Anime ------------------------------------------------------------------------------
     worldTitle({
@@ -305,11 +323,16 @@ function worldTitles(): Drama[] {
       tone: '#2E3038',
       rating: 8.8,
       episodes: 24,
+      seasons: [
+        { number: 1, episodeCount: 24, year: 2020 },
+        { number: 2, episodeCount: 23, year: 2023 },
+      ],
       runtime: 24,
       cast: [['a-nakamura', 'Satoru Gojo']],
       fans: 138_600,
       poster: '/6qQzMJG27XOJsyAEEIisoJB45j2.jpg',
       backdrop: '/qpin8cASXEVtwhzNsprHYFiOAGk.jpg',
+      trailerUrl: 'https://www.youtube.com/watch?v=4A_X-Dvl0ws',
     }),
     worldTitle({
       id: 'world-aot',
@@ -329,11 +352,18 @@ function worldTitles(): Drama[] {
       tone: '#3A3226',
       rating: 9.1,
       episodes: 25,
+      seasons: [
+        { number: 1, episodeCount: 25, year: 2013 },
+        { number: 2, episodeCount: 12, year: 2017 },
+        { number: 3, episodeCount: 22, year: 2018 },
+        { number: 4, episodeCount: 30, year: 2020 },
+      ],
       runtime: 24,
       cast: [['a-yukikaji', 'Eren Yeager']],
       fans: 210_400,
       poster: '/hTP1DtLGFamjfu8WqjnuQdP1n4i.jpg',
       backdrop: '/rqbCbjB19amtOtFQbb3K2lgm2zv.jpg',
+      trailerUrl: 'https://www.youtube.com/watch?v=MGRm4IzK1SQ',
     }),
     worldTitle({
       id: 'world-frieren',
@@ -345,7 +375,7 @@ function worldTitles(): Drama[] {
       language: 'ja',
       region: 'JP',
       year: 2023,
-      streamingOn: ['Crunchyroll'],
+      streamingOn: ['Crunchyroll', 'Netflix'],
       genres: ['Fantasy', 'Comedy', 'Slice of life'],
       tags: ['slow burn', 'found family', 'melancholy', 'adventure'],
       synopsis: 'After the heroes defeat the demon king, their elven mage realises she never knew the people she travelled with. She sets out to meet the humans she outlived.',
@@ -357,6 +387,7 @@ function worldTitles(): Drama[] {
       fans: 132_900,
       poster: '/dqZENchTd7lp5zht7BdlqM7RBhD.jpg',
       backdrop: '/rBOnrVlck7BIlGeWVlzYiZeg4l2.jpg',
+      trailerUrl: 'https://www.youtube.com/watch?v=Iwr1aLEDpe4',
     }),
     // ---- Hollywood: series and films --------------------------------------------------------
     worldTitle({
@@ -376,12 +407,20 @@ function worldTitles(): Drama[] {
       tone: '#3A3226',
       rating: 9.3,
       episodes: 62,
+      seasons: [
+        { number: 1, episodeCount: 7, year: 2008 },
+        { number: 2, episodeCount: 13, year: 2009 },
+        { number: 3, episodeCount: 13, year: 2010 },
+        { number: 4, episodeCount: 13, year: 2011 },
+        { number: 5, episodeCount: 16, year: 2012 },
+      ],
       runtime: 47,
       cast: [['a-cranston', 'Walter White'], ['a-aaronpaul', 'Jesse Pinkman']],
       creators: ['Vince Gilligan'],
       fans: 168_200,
       poster: '/anFx9aTOOYqgS3v7x3R84Kz67ly.jpg',
       backdrop: '/tsRy63Mu5cu8etL1X7ZLyf7UP1M.jpg',
+      trailerUrl: 'https://www.youtube.com/watch?v=HhesaQXLuRY',
     }),
     worldTitle({
       id: 'world-severance',
@@ -401,11 +440,19 @@ function worldTitles(): Drama[] {
       tone: '#2E3440',
       rating: 8.7,
       episodes: 19,
+      seasons: [
+        { number: 1, episodeCount: 9, year: 2022 },
+        { number: 2, episodeCount: 10, year: 2025 },
+      ],
       runtime: 50,
-      cast: [['a-adamscott', 'Mark Scout']],
+      cast: [
+        ['a-adamscott', 'Mark Scout'],
+        ['a-brittlower', 'Helly R.'],
+      ],
       fans: 104_500,
       poster: '/pPHpeI2X1qEd1CS1SeyrdhZ4qnT.jpg',
       backdrop: '/ixgFmf1X59PUZam2qbAfskx2gQr.jpg',
+      trailerUrl: 'https://www.youtube.com/watch?v=xEQP4VVuyrY',
     }),
     worldTitle({
       id: 'world-dune2',
@@ -416,17 +463,22 @@ function worldTitles(): Drama[] {
       language: 'en',
       region: 'US',
       year: 2024,
+      streamingOn: ['Max', 'Apple TV'],
       genres: ['Sci-fi', 'Action', 'Adventure'],
       tags: ['epic', 'desert', 'prophecy', 'franchise'],
       synopsis: 'Paul Atreides unites with the Fremen to wage war on the house that destroyed his family, and finds himself becoming the thing he feared in the prophecy.',
       tone: '#3A3226',
       rating: 8.2,
       runtime: 167,
-      cast: [['a-chalamet', 'Paul Atreides']],
+      cast: [
+        ['a-chalamet', 'Paul Atreides'],
+        ['a-zendaya', 'Chani'],
+      ],
       creators: ['Denis Villeneuve'],
       fans: 92_700,
       poster: '/6izwz7rsy95ARzTR3poZ8H6c5pp.jpg',
       backdrop: '/eZ239CUp1d6OryZEBPnO2n87gMG.jpg',
+      trailerUrl: 'https://www.youtube.com/watch?v=Way9Dexny3w',
     }),
     // A film inside the K-Drama world: the hub must drop Episodes, the chip must still say K-Drama.
     worldTitle({
@@ -439,17 +491,22 @@ function worldTitles(): Drama[] {
       language: 'ko',
       region: 'KR',
       year: 2019,
+      streamingOn: ['Max', 'Hulu'],
       genres: ['Thriller', 'Melodrama', 'Comedy'],
       tags: ['class', 'satire', 'twist', 'awards'],
       synopsis: 'A family with no money talks its way into the household of a family with too much of it, and the arrangement holds right up until it does not.',
       tone: '#33303A',
       rating: 8.5,
       runtime: 133,
-      cast: [],
+      cast: [
+        ['a-songkangho', 'Kim Ki-taek'],
+        ['a-choiwooshik', 'Kim Ki-woo'],
+      ],
       creators: ['Bong Joon-ho'],
       fans: 143_100,
       poster: '/7IiTTgloJzvGI1TAYymCfbfl3vT.jpg',
       backdrop: '/TU9NIjwzjoKPwQHoHshkFcQUCG.jpg',
+      trailerUrl: 'https://www.youtube.com/watch?v=5xH0HfJHsaY',
     }),
   ];
 }
@@ -474,6 +531,7 @@ interface WorldTitleSeed {
   rating: number;
   /** episode count for series — the list is generated, the count is real */
   episodes?: number;
+  seasons?: { number: number; episodeCount: number; year?: number }[];
   /** episode runtime for series, feature runtime for films */
   runtime?: number;
   cast: [string, string][];
@@ -483,10 +541,17 @@ interface WorldTitleSeed {
   poster: string;
   /** TMDB backdrop path, so the Content Hub hero is a real wide still and not a stretched poster. */
   backdrop?: string;
+  trailerUrl?: string;
 }
 
 /** One world title, with the boilerplate (seasons, episode list, cast order) filled in. */
 function worldTitle(t: WorldTitleSeed): Drama {
+  const s1Count = t.seasons?.[0]?.episodeCount ?? t.episodes ?? 0;
+  const dayOffset = (t.providerId % 5) * DAY;
+  const airingStart = s1Count ? new Date(Date.now() - Math.max(0, s1Count - 3) * WEEK + dayOffset - HOUR).toISOString() : `${t.year}-01-10T12:00:00Z`;
+  const startIso = t.status === 'airing' ? airingStart : `${t.year}-01-10T12:00:00Z`;
+  const eps = s1Count ? weekly(t.id, 1, s1Count, startIso, t.runtime ?? 45) : [];
+  const nextEp = t.status === 'airing' ? eps.find((e) => e.airDate && new Date(e.airDate).getTime() > Date.now()) : undefined;
   return {
     id: t.id,
     title: t.title,
@@ -504,16 +569,18 @@ function worldTitle(t: WorldTitleSeed): Drama {
     synopsis: t.synopsis,
     posterUrl: `https://image.tmdb.org/t/p/w342${t.poster}`,
     backdropUrl: t.backdrop ? `https://image.tmdb.org/t/p/w780${t.backdrop}` : undefined,
+    trailerUrl: t.trailerUrl,
     tone: t.tone,
     rating: t.rating,
     runtime: t.media === 'movie' ? t.runtime : undefined,
     episodeCount: t.episodes ?? 0,
-    seasons: t.episodes ? [{ number: 1, episodeCount: t.episodes, year: t.year }] : [],
-    episodes: t.episodes ? weekly(t.id, 1, t.episodes, `${t.year}-01-10T12:00:00Z`, t.runtime ?? 45) : [],
+    seasons: t.seasons ?? (t.episodes ? [{ number: 1, episodeCount: t.episodes, year: t.year }] : []),
+    episodes: eps,
+    nextEpisodeAt: nextEp?.airDate,
     cast: t.cast.map(([actorId, role], i) => ({ actorId, role, order: i })),
     creators: t.creators,
     followerCount: t.fans,
-    provider: { name: 'tmdb', id: t.providerId },
+    provider: { name: 'tmdb', id: t.providerId, mediaType: t.media },
   };
 }
 
@@ -654,13 +721,93 @@ export function demoPosts(): Post[] {
       body:
         'Every set on that floor is doing work. Watch what happens to the art when you rewind: the paintings change, the numbers change, and nobody in the room reacts. The show is not hiding a twist, it is handing you one frame at a time.',
       spoiler: 'episode',
-      context: { dramaId: 'world-severance', season: 2, episode: 4 },
+      context: { dramaId: 'world-severance', season: 1, episode: 4 },
       hashtags: ['severance', 'theories', 'prestige'],
       mentions: [],
       reactions: rx({ loved: 318, screamed: 96, furious: 12 }),
       commentCount: 0,
       saveCount: 88,
       shareCount: 29,
+    },
+    {
+      id: 'demo-short-01',
+      type: 'short',
+      authorId: 'u-haneul',
+      createdAt: ago(2 * HOUR),
+      body: 'The umbrella walk in Goblin still has the best score cue in K-drama history #goblin #kdrama',
+      spoiler: 'none',
+      context: { dramaId: 'demo-goblin', season: 1, episode: 3 },
+      hashtags: ['goblin', 'kdrama'],
+      mentions: [],
+      video: {
+        url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+        duration: 15,
+        poster: require('../../assets/dramas/goblin.png'),
+      },
+      reactions: rx({ loved: 412, swooned: 184, cried: 56 }),
+      commentCount: 14,
+      saveCount: 132,
+      shareCount: 41,
+    },
+    {
+      id: 'demo-short-02',
+      type: 'short',
+      authorId: 'u-kaede',
+      createdAt: ago(5 * HOUR),
+      body: 'Every frame of Gojo’s domain expansion looks like a painting in motion #jjk #anime',
+      spoiler: 'none',
+      context: { dramaId: 'world-jjk', season: 1, episode: 7 },
+      hashtags: ['jjk', 'anime'],
+      mentions: [],
+      video: {
+        url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
+        duration: 15,
+        poster: 'https://image.tmdb.org/t/p/w342/6qQzMJG27XOJsyAEEIisoJB45j2.jpg',
+      },
+      reactions: rx({ loved: 520, screamed: 290 }),
+      commentCount: 22,
+      saveCount: 175,
+      shareCount: 64,
+    },
+    {
+      id: 'demo-short-03',
+      type: 'short',
+      authorId: 'u-ria',
+      createdAt: ago(9 * HOUR),
+      body: 'Wangxian rooftop scene — not a single wasted glance in fifty episodes #theuntamed #cdrama',
+      spoiler: 'none',
+      context: { dramaId: 'world-untamed', season: 1, episode: 12 },
+      hashtags: ['theuntamed', 'cdrama'],
+      mentions: [],
+      video: {
+        url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4',
+        duration: 15,
+        poster: 'https://image.tmdb.org/t/p/w342/8TZbpPpLQVS2i7P7yUVhrFlFsmW.jpg',
+      },
+      reactions: rx({ loved: 365, swooned: 148 }),
+      commentCount: 11,
+      saveCount: 118,
+      shareCount: 38,
+    },
+    {
+      id: 'demo-short-04',
+      type: 'short',
+      authorId: 'u-marcus',
+      createdAt: ago(14 * HOUR),
+      body: 'The worm-riding sequence in Dune: Part Two is pure cinema #dune2 #hollywood',
+      spoiler: 'none',
+      context: { dramaId: 'world-dune2' },
+      hashtags: ['dune2', 'hollywood'],
+      mentions: [],
+      video: {
+        url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoy.mp4',
+        duration: 15,
+        poster: 'https://image.tmdb.org/t/p/w342/6izwz7rsy95ARzTR3poZ8H6c5pp.jpg',
+      },
+      reactions: rx({ loved: 289, screamed: 112 }),
+      commentCount: 9,
+      saveCount: 94,
+      shareCount: 27,
     },
     {
       id: 'demo-w-02',
@@ -1318,5 +1465,12 @@ export function demoMemberState(): AppState {
     recentSearches: ['slow burn', '#goblin'],
     lastSeenActivity: ago(2 * DAY),
     seen: { onboarded: now },
+    importedDramas: DEMO_DRAMAS,
+    importedActors: DEMO_ACTORS,
+    users: Object.fromEntries(DEMO_USERS.map((u) => [u.id, u])),
+    posts: demoPosts(),
+    comments: demoComments(),
+    collections: demoCollections(),
+    notifications: demoNotifications(),
   };
 }

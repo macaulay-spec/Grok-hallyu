@@ -8,7 +8,7 @@ import { colors, motion } from '../constants/theme';
 import { lastCrash } from '../lib/crash';
 import { bootTrail, markBoot } from '../lib/boot';
 import { useAuth } from '../lib/auth';
-import { useStore } from '../lib/store';
+import { GUEST_ID, useStore } from '../lib/store';
 
 /**
  * Splash → route gate.
@@ -27,7 +27,8 @@ export default function Index() {
   // expo-router requires the root navigator to be registered before ANY router.replace/push —
   // navigating earlier throws "Attempted to navigate before mounting the Root Layout component".
   const navReady = useRootNavigationState()?.key != null;
-  const ready = auth.status !== 'loading' && state.hydrated;
+  const accountAligned = auth.status === 'signedIn' ? state.profile.id === auth.user?.id : auth.status === 'guest' ? state.profile.id === GUEST_ID : true;
+  const ready = auth.status !== 'loading' && state.hydrated && accountAligned;
   const fade = useRef(new Animated.Value(0)).current;
   const hasNavigated = useRef(false);
   const [stuck, setStuck] = useState(false);

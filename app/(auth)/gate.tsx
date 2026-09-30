@@ -42,7 +42,7 @@ export default function Gate() {
     setGoogleBusy(true);
     try {
       await auth.signInWithGoogle();
-      close();
+      router.replace('/');
     } finally {
       setGoogleBusy(false);
     }

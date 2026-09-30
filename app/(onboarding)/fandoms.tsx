@@ -19,8 +19,10 @@ import { useStore } from '../../lib/store';
  */
 export default function FandomsStep() {
   const router = useRouter();
-  const { dispatch } = useStore();
-  const [picked, setPicked] = useState<FandomId[]>([]);
+  const { state, dispatch } = useStore();
+  const [picked, setPicked] = useState<FandomId[]>(() =>
+    state.onboarding.fandoms?.length ? state.onboarding.fandoms : (state.profile.fandoms ?? []),
+  );
 
   const toggle = (id: FandomId) => {
     haptic.select();

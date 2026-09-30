@@ -1,18 +1,15 @@
 /**
- * Local authentication for the frontend-only build.
- *
- * There is no server and no auth provider: an account here is a small record in AsyncStorage. That
- * keeps every screen, gate and deep-link path in the product exercisable end to end, and because the
- * shape of `AuthValue` is unchanged, no screen had to be rewritten to drop the backend.
- *
- * What this deliberately does NOT pretend to do: verify an email, send a reset link, or talk to
- * Google. Those flows are reachable in a server-backed build (`backend/` — see backend/README.md);
- * until then the UI says what is real. `demo` on the context lets any screen say so inline.
+ * Dual-mode authentication for Hallyu:
+ *   • Offline/Demo mode (`!lovableBackendAvailable`): device-local accounts in AsyncStorage so
+ *     every screen, gate, and deep-link works without credentials.
+ *   • Lovable Cloud mode (`lovableBackendAvailable`): authenticates against Lovable Cloud Auth
+ *     (`getLovableClient().auth`) and calls the `delete-account` Edge Function on account deletion.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { reportError, track } from './analytics';
 import { markBoot } from './boot';
+import { getLovableClient, lovableBackendAvailable } from './data/lovableBackend';
 
 export type AuthStatus = 'loading' | 'signedOut' | 'guest' | 'signedIn';
 
@@ -29,14 +26,6 @@ export interface AuthUser {
   provider: AuthProviderName;
 }
 
-/**
- * The code union is deliberately wider than this build can produce.
- *
- * 'network', 'unverified', 'rate_limit' and 'cancelled' describe failures only a server can return.
- * They stay in the vocabulary so the existing screens' branches (`error.code === 'network'`, the
- * resend-verification button, the cancelled-OAuth toast) remain valid and immediately correct when a
- * backend is re-attached — see backend/README.md. Nothing in the local implementation emits them.
- */
 export class AuthError extends Error {
   code: 'network' | 'credentials' | 'exists' | 'unverified' | 'weak_password' | 'rate_limit' | 'cancelled' | 'unknown';
   constructor(code: AuthError['code'], message: string) {
@@ -50,17 +39,11 @@ interface AuthValue {
   user: AuthUser | null;
   pendingEmail: string | null;
   recoveryPending: boolean;
-  /** true while the build runs without a server (accounts are device-local) */
+  /** true while the build runs without a configured Lovable Cloud backend */
   demo: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, displayName: string) => Promise<'signedIn' | 'verify'>;
-  /**
-   * Continue with Google. In a server-backed build this runs the OAuth dance and returns a
-   * verified Google account; in this frontend-only build it establishes the local Google-provider
-   * account (same `provider: 'google'` shape), so the door behaves identically end to end.
-   */
   signInWithGoogle: () => Promise<void>;
-  /** Enter the shared demo account — a populated member, so the product is usable immediately. */
   signInDemo: () => Promise<void>;
   sendReset: (email: string) => Promise<void>;
   updatePassword: (password: string) => Promise<void>;
@@ -77,13 +60,7 @@ const ACCOUNT_KEY = 'hallyu.auth.account.v1';
 const DEMO_ACCOUNT_KEY = 'hallyu.auth.demo.v1';
 const GOOGLE_ACCOUNT_KEY = 'hallyu.auth.google.v1';
 
-/** The identity behind "Explore the demo". Stable so its activity survives a re-launch. */
 const DEMO_USER: AuthUser = { id: 'demo-member', handle: 'you', displayName: 'You', email: 'demo@hallyu.app', emailVerified: true, provider: 'demo' };
-
-/**
- * The account established by "Continue with Google" in this frontend-only build. Deterministic and
- * stable so its activity survives a re-launch — exactly like a returning Google session would.
- */
 const GOOGLE_USER: AuthUser = { id: 'google-member', handle: 'you', displayName: 'You', email: 'you@gmail.com', emailVerified: true, provider: 'google' };
 
 const MIN_PASSWORD = 6;
@@ -93,7 +70,6 @@ function handleFrom(email?: string, name?: string): string {
   return base;
 }
 
-/** Deterministic id: the same email always maps to the same local account. */
 function idFor(email: string): string {
   return `local-${handleFrom(email)}`;
 }
@@ -127,14 +103,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [recoveryPending, setRecoveryPending] = useState(false);
   const booted = useRef(false);
 
-  // Boot: a stored account, else the guest flag, else signed out. All local, so this cannot hang —
-  // the network timeout dance the server-backed build needed (a session refresh with no fetch
-  // timeout could pend forever) has no equivalent here.
   useEffect(() => {
     if (booted.current) return;
     booted.current = true;
     (async () => {
       try {
+        const client = getLovableClient();
+        if (client) {
+          const { data } = await client.auth.getSession();
+          const sbUser = data.session?.user;
+          if (sbUser) {
+            const meta = (sbUser.user_metadata ?? {}) as Record<string, unknown>;
+            const next: AuthUser = {
+              id: sbUser.id,
+              email: sbUser.email,
+              displayName: String(meta.display_name ?? meta.full_name ?? displayNameFor(sbUser.email ?? 'member')),
+              handle: String(meta.handle ?? handleFrom(sbUser.email, String(meta.display_name ?? ''))),
+              avatarUrl: typeof meta.avatar_url === 'string' ? meta.avatar_url : undefined,
+              emailVerified: Boolean(sbUser.email_confirmed_at),
+              provider: sbUser.app_metadata?.provider === 'google' ? 'google' : 'email',
+            };
+            setUser(next);
+            markBoot('auth:signedIn');
+            setStatus('signedIn');
+            return;
+          }
+        }
         const account = await readAccount();
         if (account) {
           setUser(account);
@@ -156,8 +150,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const address = email.trim().toLowerCase();
     if (!address.includes('@')) throw new AuthError('credentials', 'Enter the email address you signed up with.');
     if (password.length < MIN_PASSWORD) throw new AuthError('credentials', 'Your password is at least 6 characters.');
+
+    const client = getLovableClient();
+    if (client) {
+      const { data, error } = await client.auth.signInWithPassword({ email: address, password });
+      if (error || !data.user) throw new AuthError('credentials', error?.message ?? 'Invalid email or password.');
+      const meta = (data.user.user_metadata ?? {}) as Record<string, unknown>;
+      const next: AuthUser = {
+        id: data.user.id,
+        email: data.user.email ?? address,
+        displayName: String(meta.display_name ?? displayNameFor(address)),
+        handle: String(meta.handle ?? handleFrom(address)),
+        avatarUrl: typeof meta.avatar_url === 'string' ? meta.avatar_url : undefined,
+        emailVerified: Boolean(data.user.email_confirmed_at),
+        provider: 'email',
+      };
+      await AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
+      setUser(next);
+      setStatus('signedIn');
+      track('auth.signin', { provider: 'email' });
+      return;
+    }
+
     const stored = await readAccount();
-    // Same account on the same device keeps its display name; a new address becomes a new member.
     const next: AuthUser =
       stored && stored.email === address && stored.provider === 'email'
         ? stored
@@ -174,7 +189,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!address.includes('@')) throw new AuthError('unknown', 'That email address does not look right.');
     if (password.length < MIN_PASSWORD) throw new AuthError('weak_password', 'Use at least 6 characters.');
     const name = displayName.trim() || displayNameFor(address);
-    const next: AuthUser = { id: idFor(address), email: address, displayName: name, handle: handleFrom(address, name), emailVerified: true, provider: 'email' };
+    const handle = handleFrom(address, name);
+
+    const client = getLovableClient();
+    if (client) {
+      const { data, error } = await client.auth.signUp({
+        email: address,
+        password,
+        options: { data: { display_name: name, handle } },
+      });
+      if (error) throw new AuthError('unknown', error.message);
+      if (data.user && !data.session) {
+        setPendingEmail(address);
+        return 'verify' as const;
+      }
+      if (data.user) {
+        const next: AuthUser = {
+          id: data.user.id,
+          email: address,
+          displayName: name,
+          handle,
+          emailVerified: Boolean(data.user.email_confirmed_at),
+          provider: 'email',
+        };
+        await AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
+        setUser(next);
+        setStatus('signedIn');
+        track('auth.signup', { provider: 'email' });
+        return 'signedIn' as const;
+      }
+    }
+
+    const next: AuthUser = { id: idFor(address), email: address, displayName: name, handle, emailVerified: true, provider: 'email' };
     await writeAccount(next);
     await AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
     setUser(next);
@@ -184,9 +230,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signInWithGoogle = useCallback(async () => {
-    // A server-backed build would resolve the OAuth redirect here (see app/auth/callback.tsx) and
-    // hand back a verified Google identity. Locally we establish the same account shape, so every
-    // downstream screen — settings, provider label, avatar — behaves exactly as it will in prod.
     await AsyncStorage.setItem(GOOGLE_ACCOUNT_KEY, '1').catch(() => {});
     await AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
     await AsyncStorage.removeItem(DEMO_ACCOUNT_KEY).catch(() => {});
@@ -206,19 +249,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const sendReset = useCallback(async (email: string) => {
-    // No mail transport without a server. Keep the pending address so the UI can explain itself.
     const address = email.trim().toLowerCase();
     if (!address.includes('@')) throw new AuthError('unknown', 'That email address does not look right.');
+    const client = getLovableClient();
+    if (client) {
+      const { error } = await client.auth.resetPasswordForEmail(address);
+      if (error) throw new AuthError('unknown', error.message);
+    }
     setPendingEmail(address);
   }, []);
 
   const updatePassword = useCallback(async (password: string) => {
     if (password.length < MIN_PASSWORD) throw new AuthError('weak_password', 'Use at least 6 characters.');
+    const client = getLovableClient();
+    if (client) {
+      const { error } = await client.auth.updateUser({ password });
+      if (error) throw new AuthError('unknown', error.message);
+    }
     setRecoveryPending(false);
   }, []);
 
   const resendVerification = useCallback(async (email: string) => {
-    setPendingEmail(email.trim().toLowerCase());
+    const address = email.trim().toLowerCase();
+    const client = getLovableClient();
+    if (client) {
+      await client.auth.resend({ type: 'signup', email: address });
+    }
+    setPendingEmail(address);
   }, []);
 
   const continueAsGuest = useCallback(() => {
@@ -231,6 +288,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    const client = getLovableClient();
+    if (client) {
+      await client.auth.signOut().catch(() => {});
+    }
     await AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
     await AsyncStorage.removeItem(ACCOUNT_KEY).catch(() => {});
     await AsyncStorage.removeItem(DEMO_ACCOUNT_KEY).catch(() => {});
@@ -241,6 +302,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const deleteAccount = useCallback(async () => {
+    const client = getLovableClient();
+    if (client) {
+      await client.functions.invoke('delete-account').catch(() => {});
+      await client.auth.signOut().catch(() => {});
+    }
     await AsyncStorage.removeItem(ACCOUNT_KEY).catch(() => {});
     await AsyncStorage.removeItem(DEMO_ACCOUNT_KEY).catch(() => {});
     await AsyncStorage.removeItem(GOOGLE_ACCOUNT_KEY).catch(() => {});
@@ -255,7 +321,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user,
       pendingEmail,
       recoveryPending,
-      demo: true,
+      demo: !lovableBackendAvailable,
       signIn,
       signUp,
       signInWithGoogle,

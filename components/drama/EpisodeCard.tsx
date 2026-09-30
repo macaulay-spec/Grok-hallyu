@@ -11,8 +11,8 @@ import { ReminderBell } from './Reminder';
 import { Tap } from '../ui/Tap';
 import { Text } from '../ui/Text';
 
-export function episodeState(e: Episode): 'aired' | 'live' | 'upcoming' {
-  if (!e.airDate) return 'upcoming';
+export function episodeState(e: Episode, dramaStatus?: Drama['status']): 'aired' | 'live' | 'upcoming' {
+  if (!e.airDate) return dramaStatus === 'upcoming' ? 'upcoming' : 'aired';
   const dt = now().getTime() - new Date(e.airDate).getTime();
   if (dt < 0) return 'upcoming';
   if (dt < 3 * 3_600_000) return 'live';
@@ -34,16 +34,17 @@ function EpisodeCardBase({ drama, episode, postCount, style, showDrama }: Episod
   const require = useRequireMember();
   const item = watch(drama.id);
   const watched = hasWatched(item, episode.season, episode.number);
-  const st = episodeState(episode);
+  const st = episodeState(episode, drama.status);
   // The frontier episode: the first one you haven't watched in the season you're on.
   const current =
     !!item && item.status !== 'completed' && item.season === episode.season && episode.number === (item.currentEpisode ?? 0) + 1 && !watched;
-  const total = drama.seasons.find((s) => s.number === episode.season)?.episodeCount ?? drama.episodeCount;
+  const rawTotal = drama.seasons.find((s) => s.number === episode.season)?.episodeCount ?? drama.episodeCount;
+  const total = rawTotal || (drama.mediaType === 'movie' ? 1 : 16);
   const multi = drama.seasons.length > 1;
   const dateLine =
     st === 'upcoming' && episode.airDate
       ? `${dayLabel(episode.airDate)} · ${timeOfDay(episode.airDate)} · ${countdown(episode.airDate)}`
-      : [episode.airDate ? shortDate(episode.airDate) : 'TBA', runtimeLabel(episode.runtime)].filter(Boolean).join(' · ');
+      : [episode.airDate ? shortDate(episode.airDate) : drama.status === 'upcoming' ? 'TBA' : `${drama.year}`, runtimeLabel(episode.runtime ?? drama.runtime)].filter(Boolean).join(' · ');
 
   const toggleWatched = () =>
     require('mark episodes watched', () => {

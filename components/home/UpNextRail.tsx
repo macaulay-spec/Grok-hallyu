@@ -39,7 +39,8 @@ export function UpNextRail({ items, onSeeAll }: { items: UpNextItem[]; onSeeAll?
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={{ paddingHorizontal: space.margin, gap: space.gutter }}
         renderItem={({ item: { item, drama, episode } }) => {
-          const total = drama.seasons.find((s) => s.number === episode.season)?.episodeCount ?? drama.episodeCount;
+          const rawTotal = drama.seasons.find((s) => s.number === episode.season)?.episodeCount ?? drama.episodeCount;
+          const total = rawTotal || (drama.mediaType === 'movie' ? 1 : 16);
           const multi = drama.seasons.length > 1;
           const talking = postsForEpisode(state, drama.id, episode.season, episode.number).length;
           const markWatched = () => {

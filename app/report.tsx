@@ -85,9 +85,9 @@ export default function Report() {
             Reports are reviewed by people, usually within 24 hours. We’ll act if it breaks the guidelines and you won’t be told who reported.
           </Text>
           {offender && offender.id !== state.profile.id && !state.blockedUsers.includes(offender.id) ? (
-            <Button label={`Block @${offender.handle}`} variant="secondary" style={{ marginTop: space.x6 }} onPress={() => { dispatch({ type: 'block', userId: offender.id, on: true }); toast.show({ message: `Blocked @${offender.handle}` }); router.back(); }} />
+            <Button label={`Block @${offender.handle}`} variant="secondary" style={{ marginTop: space.x6 }} onPress={() => { dispatch({ type: 'block', userId: offender.id, on: true }); toast.show({ message: `Blocked @${offender.handle}` }); if (router.canGoBack()) router.back(); else router.replace('/(tabs)'); }} />
           ) : null}
-          <Button label="Done" style={{ marginTop: space.x2 }} onPress={() => router.back()} />
+          <Button label="Done" style={{ marginTop: space.x2 }} onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)'))} />
         </View>
       </Screen>
     );

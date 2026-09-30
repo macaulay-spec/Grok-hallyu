@@ -159,12 +159,14 @@ function PostCardBase({ post, reason, detail, hideContext, style, onOpenComments
       ) : post.type === 'recommendation' ? (
         <>
           {secondary ? (
-            <Text variant="caption" tone="secondary">
-              If you liked{' '}
-              <Text variant="caption" tone="primary">
-                {secondary.title}
+            <Pressable onPress={() => router.push(`/drama/${secondary.id}`)} hitSlop={4} accessibilityRole="link" accessibilityLabel={`If you liked ${secondary.title}`}>
+              <Text variant="caption" tone="secondary">
+                If you liked{' '}
+                <Text variant="caption" tone="accent">
+                  {secondary.title}
+                </Text>
               </Text>
-            </Text>
+            </Pressable>
           ) : null}
           <RichText text={post.body} variant={detail ? 'bodyLarge' : 'body'} numberOfLines={detail ? undefined : 6} />
         </>
@@ -264,9 +266,17 @@ function PostCardBase({ post, reason, detail, hideContext, style, onOpenComments
               </View>
             ) : null}
             {actors.length ? (
-              <Text variant="caption" tone="tertiary" numberOfLines={1} style={{ flexShrink: 1 }}>
-                · {actors.map((a) => a!.name).join(', ')}
-              </Text>
+              <Pressable
+                onPress={() => router.push(`/actor/${actors[0]!.id}`)}
+                hitSlop={6}
+                accessibilityRole="link"
+                accessibilityLabel={actors.map((a) => a!.name).join(', ')}
+                style={{ flexShrink: 1 }}
+              >
+                <Text variant="caption" tone="tertiary" numberOfLines={1}>
+                  · {actors.map((a) => a!.name).join(', ')}
+                </Text>
+              </Pressable>
             ) : null}
           </Pressable>
         ) : null}
@@ -279,8 +289,27 @@ function PostCardBase({ post, reason, detail, hideContext, style, onOpenComments
         {/* Delivery state for your own content */}
         <SyncStrip postId={post.id} state={post.state} noun={TYPE_LABEL[post.type].toLowerCase()} />
 
-        {/* Hashtags */}
-        {post.hashtags.length && !detail ? null : null}
+        {/* Hashtags not already inline in the body */}
+        {post.hashtags.length && !veiled ? (
+          <View style={styles.tagRow}>
+            {post.hashtags
+              .filter((t) => detail || !post.body.toLowerCase().includes(`#${t.toLowerCase()}`))
+              .slice(0, 5)
+              .map((t) => (
+                <Pressable
+                  key={t}
+                  onPress={() => router.push({ pathname: '/search', params: { q: `#${t}`, scope: 'posts' } })}
+                  hitSlop={4}
+                  accessibilityRole="link"
+                  accessibilityLabel={`#${t}`}
+                >
+                  <Text variant="caption" tone="accent">
+                    #{t}
+                  </Text>
+                </Pressable>
+              ))}
+          </View>
+        ) : null}
 
         {/* Actions */}
         <View style={styles.actions}>
@@ -465,6 +494,7 @@ const styles = StyleSheet.create({
   kindRow: { flexDirection: 'row' },
   ratingRow: { flexDirection: 'row', alignItems: 'center', gap: space.x3 },
   ratingBox: { flexDirection: 'row', alignItems: 'baseline', backgroundColor: colors.warmSoft, paddingHorizontal: 10, height: 40, borderRadius: radius.sm },
+  tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.x2, marginTop: -4 },
   actions: { flexDirection: 'row', alignItems: 'center', gap: space.x2, marginTop: -4 },
   action: { flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 36, paddingHorizontal: 6 },
 });

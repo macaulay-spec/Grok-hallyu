@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
@@ -58,9 +59,11 @@ function CommentItemBase({ comment, post, isReply, onReply, highlighted, replyCo
         </Pressable>
         <View style={{ flex: 1, gap: 4 }}>
           <View style={styles.meta}>
-            <Text variant="label" numberOfLines={1}>
-              {author?.displayName}
-            </Text>
+            <Pressable onPress={() => author && router.push(`/user/${author.handle}`)} hitSlop={4} accessibilityRole="link">
+              <Text variant="label" numberOfLines={1}>
+                {author?.displayName}
+              </Text>
+            </Pressable>
             {isOP ? (
               <View style={styles.op}>
                 <Text variant="caption" tone="accent" style={{ fontSize: 10, lineHeight: 12 }}>
@@ -107,7 +110,15 @@ function CommentItemBase({ comment, post, isReply, onReply, highlighted, replyCo
       </Pressable>
       <Sheet visible={menu} onClose={() => setMenu(false)} title={`Comment by ${author?.displayName ?? 'member'}`}>
         <SheetRow icon="arrow-undo-outline" label="Reply" onPress={() => { setMenu(false); require('reply to comments', () => onReply(comment)); }} />
-        <SheetRow icon="link-outline" label="Copy link" onPress={() => { setMenu(false); toast.show('Link copied'); }} />
+        <SheetRow
+          icon="link-outline"
+          label="Copy link"
+          onPress={async () => {
+            setMenu(false);
+            await Clipboard.setStringAsync(`https://hallyu.app/p/${post.id}?commentId=${comment.id}`).catch(() => {});
+            toast.show('Link copied');
+          }}
+        />
         {isMine ? (
           <SheetRow icon="trash-outline" label="Delete" tone="danger" onPress={() => { setMenu(false); dispatch({ type: 'deleteComment', id: comment.id }); toast.show('Comment deleted'); }} />
         ) : (

@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 import { useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import { FlatList, Pressable, Share, StyleSheet, View } from 'react-native';
@@ -84,7 +85,7 @@ export function ProfileView({ user, isMe, headerExtra }: { user: User; isMe: boo
             <Stat
               n={isMe ? Object.values(state.watchlist).filter((w) => w.status === 'completed').length : Math.round(user.followers / 40) + user.favoriteDramaIds.length}
               label="completed"
-              onPress={() => (isMe ? router.push('/watchlist') : undefined)}
+              onPress={() => (isMe ? router.push({ pathname: '/watchlist', params: { status: 'completed' } }) : undefined)}
             />
           </View>
         </View>
@@ -162,7 +163,8 @@ export function ProfileView({ user, isMe, headerExtra }: { user: User; isMe: boo
                 contentContainerStyle={{ paddingHorizontal: space.margin, gap: space.gutter }}
                 renderItem={({ item: w }) => {
                   const it = isMe ? watch(w.drama.id) : undefined;
-                  const total = w.drama.seasons.find((s) => s.number === (it?.season ?? 1))?.episodeCount ?? w.drama.episodeCount;
+                  const rawTotal = w.drama.seasons.find((s) => s.number === (it?.season ?? 1))?.episodeCount ?? w.drama.episodeCount;
+                  const total = rawTotal || (w.drama.mediaType === 'movie' ? 1 : 16);
                   return (
                     <Pressable onPress={() => router.push(`/drama/${w.drama.id}`)} style={{ width: sizes.poster.s }} accessibilityRole="button" accessibilityLabel={w.drama.title}>
                       <Poster drama={w.drama} width={sizes.poster.s} />
@@ -339,8 +341,9 @@ export function ProfileView({ user, isMe, headerExtra }: { user: User; isMe: boo
         <SheetRow
           icon="copy-outline"
           label="Copy link"
-          onPress={() => {
+          onPress={async () => {
             setMenu(false);
+            await Clipboard.setStringAsync(`https://hallyu.app/u/${user.handle}`).catch(() => {});
             toast.show({ message: 'Link copied' });
           }}
         />

@@ -372,7 +372,8 @@ export function relatedDramas(s: AppState, d: Drama, n = 8): Drama[] {
         x.genres.filter((g) => d.genres.includes(g)).length * 2 +
         (x.tags ?? []).filter((t) => (d.tags ?? []).includes(t)).length * 3 +
         (x.cast.some((c) => d.cast.some((c2) => c2.actorId === c.actorId)) ? 2 : 0) +
-        (x.network === d.network ? 0.5 : 0),
+        (x.network === d.network ? 0.5 : 0) +
+        (formatFandomOf(x) === formatFandomOf(d) ? 1.5 : 0),
     }))
     .filter((r) => r.w > 0)
     .sort((a, b) => b.w - a.w)
@@ -386,11 +387,22 @@ export function relatedActors(s: AppState, a: Actor, n = 8): Actor[] {
     const d = getDrama(s, dId);
     d?.cast.forEach((c) => c.actorId !== a.id && co.set(c.actorId, (co.get(c.actorId) ?? 0) + 1));
   }
-  return [...co.entries()]
+  const direct = [...co.entries()]
     .sort((x, y) => y[1] - x[1])
     .slice(0, n)
     .map(([id]) => getActor(s, id)!)
     .filter(Boolean);
+  if (direct.length >= n) return direct;
+  const seen = new Set([a.id, ...direct.map((x) => x.id)]);
+  const actorWorlds = new Set(
+    [...a.knownFor.map((id) => getDrama(s, id)).filter(Boolean), ...(a.knownForDramas ?? [])].map((d) => formatFandomOf(d!)),
+  );
+  const more = allActors(s).filter((other) => {
+    if (seen.has(other.id)) return false;
+    const otherWorlds = [...other.knownFor.map((id) => getDrama(s, id)).filter(Boolean), ...(other.knownForDramas ?? [])].map((d) => formatFandomOf(d!));
+    return otherWorlds.some((w) => actorWorlds.has(w));
+  });
+  return [...direct, ...more].slice(0, n);
 }
 
 export function fandomSize(d: Drama): number {
@@ -410,9 +422,23 @@ export function upNext(s: AppState): { item: WatchlistItem; drama: Drama; episod
     .map((item) => {
       const drama = getDrama(s, item.dramaId);
       if (!drama) return null;
-      const episode = getEpisode(drama, item.season, item.currentEpisode + 1);
+      const nextNum = item.currentEpisode + 1;
+      const rawTotal = drama.seasons.find((sec) => sec.number === item.season)?.episodeCount ?? drama.episodeCount;
+      const total = rawTotal || (drama.mediaType === 'movie' ? 1 : 16);
+      const episode =
+        getEpisode(drama, item.season, nextNum) ??
+        (nextNum <= total
+          ? {
+              id: `${drama.id}-s${item.season}e${nextNum}`,
+              dramaId: drama.id,
+              season: item.season,
+              number: nextNum,
+              title: drama.mediaType === 'movie' ? drama.title : `Episode ${nextNum}`,
+              runtime: drama.runtime ?? 60,
+            }
+          : undefined);
       if (!episode) return null;
-      const aired = !!episode.airDate && new Date(episode.airDate).getTime() <= t;
+      const aired = episode.airDate ? new Date(episode.airDate).getTime() <= t : drama.status !== 'upcoming';
       return { item, drama, episode, airedAgo: aired };
     })
     .filter((x): x is NonNullable<typeof x> => !!x)

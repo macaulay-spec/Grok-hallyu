@@ -9,6 +9,7 @@
  */
 import { Platform } from 'react-native';
 import { TMDB_ACCESS_TOKEN, TMDB_API_KEY } from '../constants/keys';
+import { DEMO_ACTORS, DEMO_DRAMAS } from './data/demoSeed';
 import { FANDOMS, Fandom, fandomById, formatFandomOf, inferFormat } from './fandoms';
 import { Actor, Drama, Episode, FandomId, MediaType } from './model';
 
@@ -50,6 +51,8 @@ export interface CatalogProvider {
   searchActors(query: string, signal?: AbortSignal): Promise<Actor[]>;
   /** Full record: seasons, latest-season episodes, aggregate cast (films: credits + runtime). */
   getDrama(providerId: number, media?: MediaType, signal?: AbortSignal): Promise<Drama | null>;
+  /** Fetch all episodes for a specific season of a series on demand. */
+  getSeasonEpisodes(providerId: number, seasonNumber: number, dramaId: string, signal?: AbortSignal): Promise<Episode[]>;
   /** Person + credits across film and television. */
   getActor(providerId: number, signal?: AbortSignal): Promise<ActorDetail | null>;
   /** Find the catalog record for a locally-seeded title (used to attach real art + ids). */
@@ -251,6 +254,25 @@ interface TmdbEpisode {
   still_path?: string | null;
 }
 
+interface TmdbVideo {
+  key: string;
+  site: string;
+  type: string;
+  official?: boolean;
+  name?: string;
+}
+
+interface TmdbWatchProviders {
+  results?: Record<
+    string,
+    {
+      flatrate?: { provider_name: string }[];
+      free?: { provider_name: string }[];
+      ads?: { provider_name: string }[];
+    }
+  >;
+}
+
 interface TmdbTv {
   id: number;
   name: string;
@@ -277,6 +299,8 @@ interface TmdbTv {
   last_episode_to_air?: { air_date: string; episode_number: number; season_number: number } | null;
   created_by?: { name: string }[];
   aggregate_credits?: { cast: { id: number; name: string; original_name: string; profile_path?: string | null; roles?: { character: string }[]; order: number; popularity?: number }[] };
+  videos?: { results?: TmdbVideo[] };
+  'watch/providers'?: TmdbWatchProviders;
   /** present when the season was appended (`append_to_response=season/N`) */
   [seasonKey: `season/${number}`]: { episodes?: TmdbEpisode[] } | undefined;
 }
@@ -299,7 +323,9 @@ interface TmdbMovie {
   status?: string;
   tagline?: string;
   /** present when `credits` was appended */
-  credits?: { cast: { id: number; name: string; character?: string; order?: number }[] };
+  credits?: { cast: { id: number; name: string; original_name?: string; profile_path?: string | null; popularity?: number; character?: string; order?: number }[] };
+  videos?: { results?: TmdbVideo[] };
+  'watch/providers'?: TmdbWatchProviders;
 }
 
 interface TmdbPerson {
@@ -308,12 +334,13 @@ interface TmdbPerson {
   original_name?: string;
   also_known_as?: string[];
   profile_path?: string | null;
-  known_for?: (TmdbTv & { media_type?: string })[];
+  known_for?: (TmdbTv & TmdbMovie & { media_type?: string })[];
   known_for_department?: string;
   popularity?: number;
   biography?: string;
   birthday?: string | null;
   tv_credits?: { cast: (TmdbTv & { character?: string; episode_count?: number })[] };
+  movie_credits?: { cast: (TmdbMovie & { character?: string })[] };
 }
 
 function airIso(date?: string | null): string | undefined {
@@ -344,6 +371,28 @@ function mapEpisode(dramaId: string, e: TmdbEpisode): Episode {
   };
 }
 
+function extractTrailerUrl(videos?: { results?: TmdbVideo[] }): string | undefined {
+  const list = (videos?.results ?? []).filter((v) => v.site === 'YouTube' && v.key);
+  if (!list.length) return undefined;
+  const pick =
+    list.find((v) => v.type === 'Trailer' && v.official) ??
+    list.find((v) => v.type === 'Trailer') ??
+    list.find((v) => v.type === 'Teaser' && v.official) ??
+    list.find((v) => v.type === 'Teaser') ??
+    list[0];
+  return pick ? `https://www.youtube.com/watch?v=${pick.key}` : undefined;
+}
+
+function extractStreamingProviders(wp?: TmdbWatchProviders): string[] | undefined {
+  const regions = wp?.results;
+  if (!regions) return undefined;
+  const pick = regions.US ?? regions.KR ?? regions.GB ?? regions.JP ?? Object.values(regions)[0];
+  if (!pick) return undefined;
+  const names = [...(pick.flatrate ?? []), ...(pick.free ?? []), ...(pick.ads ?? [])].map((p) => p.provider_name);
+  const unique = [...new Set(names)].slice(0, 5);
+  return unique.length ? unique : undefined;
+}
+
 const formatOfTv = (t: TmdbTv) => inferFormat({ media: 'tv', language: t.original_language, countries: t.origin_country, genres: t.genres?.map((g) => g.name) ?? (t.genre_ids ?? []).map((g) => GENRE_MAP[g]).filter((x): x is string => !!x) });
 
 function mapTv(t: TmdbTv): Drama {
@@ -356,11 +405,43 @@ function mapTv(t: TmdbTv): Drama {
   const seasons = (t.seasons ?? [])
     .filter((s) => s.season_number > 0)
     .map((s) => ({ number: s.season_number, episodeCount: s.episode_count, year: s.air_date ? Number(s.air_date.slice(0, 4)) : undefined, name: s.name }));
-  const cast = (t.aggregate_credits?.cast ?? []).slice(0, 16).map((c, i) => ({ actorId: `tmdb-${c.id}`, role: c.roles?.[0]?.character ?? 'Cast', order: i }));
+  const rawCast = (t.aggregate_credits?.cast ?? []).slice(0, 16);
+  const cast = rawCast.map((c, i) => ({ actorId: `tmdb-${c.id}`, role: c.roles?.[0]?.character ?? 'Cast', order: i }));
+  const castActors: Actor[] = rawCast.map((c) => ({
+    id: `tmdb-${c.id}`,
+    name: c.name,
+    koreanName: c.original_name && c.original_name !== c.name ? c.original_name : undefined,
+    photoUrl: c.profile_path ? `${TMDB_IMG}/w342${c.profile_path}` : undefined,
+    knownFor: [id],
+    followerCount: Math.round((c.popularity ?? 5) * 30),
+    provider: { name: 'tmdb', id: c.id },
+  }));
   const episodes: Episode[] = [];
   for (const s of seasons) {
     const appended = t[`season/${s.number}`];
     for (const e of appended?.episodes ?? []) episodes.push(mapEpisode(id, e));
+  }
+  if (episodes.length === 0) {
+    if (t.last_episode_to_air?.air_date) {
+      episodes.push(
+        mapEpisode(id, {
+          id: t.id * 1000 + (t.last_episode_to_air.episode_number || 1),
+          season_number: t.last_episode_to_air.season_number || 1,
+          episode_number: t.last_episode_to_air.episode_number || 1,
+          air_date: t.last_episode_to_air.air_date,
+        }),
+      );
+    }
+    if (t.next_episode_to_air?.air_date) {
+      episodes.push(
+        mapEpisode(id, {
+          id: t.id * 1000 + (t.next_episode_to_air.episode_number || 2) + 500,
+          season_number: t.next_episode_to_air.season_number || 1,
+          episode_number: t.next_episode_to_air.episode_number || 2,
+          air_date: t.next_episode_to_air.air_date,
+        }),
+      );
+    }
   }
   const runtime = t.episode_run_time?.[0];
   return {
@@ -375,31 +456,45 @@ function mapTv(t: TmdbTv): Drama {
     endYear: status === 'completed' && t.last_air_date ? Number(t.last_air_date.slice(0, 4)) : undefined,
     status,
     network: t.networks?.[0]?.name,
+    streamingOn: extractStreamingProviders(t['watch/providers']),
     genres: genreNames.length ? [...new Set(genreNames.map(mapGenre))] : ['Melodrama'],
     synopsis: t.overview || 'No synopsis yet.',
     posterUrl: t.poster_path ? `${TMDB_IMG}/w342${t.poster_path}` : undefined,
     backdropUrl: t.backdrop_path ? `${TMDB_IMG}/w780${t.backdrop_path}` : undefined,
+    trailerUrl: extractTrailerUrl(t.videos),
     tone: toneFor(t.id),
     rating: t.vote_average && (t.vote_count ?? 0) >= 5 ? Math.round(t.vote_average * 10) / 10 : undefined,
     episodeCount: t.number_of_episodes ?? seasons.reduce((a, s) => a + s.episodeCount, 0),
     seasons: seasons.length ? seasons : [{ number: 1, episodeCount: t.number_of_episodes ?? 0, year }],
     episodes: episodes.map((e) => (e.runtime || !runtime ? e : { ...e, runtime })),
     cast,
+    castActors: castActors.length ? castActors : undefined,
     creators: t.created_by?.map((c) => c.name),
     nextEpisodeAt: airIso(t.next_episode_to_air?.air_date) ?? (notStarted ? airIso(t.first_air_date) : undefined),
     followerCount: Math.round((t.popularity ?? 10) * 40),
-    provider: { name: 'tmdb', id: t.id },
+    provider: { name: 'tmdb', id: t.id, mediaType: 'tv' },
   };
 }
 
 /** A film: no seasons, no episodes — a runtime, a cast and the same social layer around it. */
 function mapMovie(m: TmdbMovie): Drama {
+  const id = `tmdb-movie-${m.id}`;
   const year = m.release_date ? Number(m.release_date.slice(0, 4)) : new Date().getFullYear();
   const notYet = !m.release_date || new Date(m.release_date) > new Date();
   const genreNames = m.genres?.map((g) => g.name) ?? (m.genre_ids ?? []).map((g) => MOVIE_GENRE_MAP[g]).filter((x): x is string => !!x);
-  const cast = (m.credits?.cast ?? []).slice(0, 16).map((c, i) => ({ actorId: `tmdb-${c.id}`, role: c.character || 'Cast', order: i }));
+  const rawCast = (m.credits?.cast ?? []).slice(0, 16);
+  const cast = rawCast.map((c, i) => ({ actorId: `tmdb-${c.id}`, role: c.character || 'Cast', order: i }));
+  const castActors: Actor[] = rawCast.map((c) => ({
+    id: `tmdb-${c.id}`,
+    name: c.name,
+    koreanName: c.original_name && c.original_name !== c.name ? c.original_name : undefined,
+    photoUrl: c.profile_path ? `${TMDB_IMG}/w342${c.profile_path}` : undefined,
+    knownFor: [id],
+    followerCount: Math.round((c.popularity ?? 5) * 30),
+    provider: { name: 'tmdb', id: c.id },
+  }));
   return {
-    id: `tmdb-${m.id}`,
+    id,
     title: m.title,
     originalTitle: m.original_title !== m.title ? m.original_title : undefined,
     mediaType: 'movie',
@@ -408,10 +503,12 @@ function mapMovie(m: TmdbMovie): Drama {
     year,
     endYear: year,
     status: notYet ? 'upcoming' : 'completed',
+    streamingOn: extractStreamingProviders(m['watch/providers']),
     genres: genreNames.length ? [...new Set(genreNames.map(mapGenre))] : ['Melodrama'],
     synopsis: m.overview || 'No synopsis yet.',
     posterUrl: m.poster_path ? `${TMDB_IMG}/w342${m.poster_path}` : undefined,
     backdropUrl: m.backdrop_path ? `${TMDB_IMG}/w780${m.backdrop_path}` : undefined,
+    trailerUrl: extractTrailerUrl(m.videos),
     tone: toneFor(m.id),
     runtime: m.runtime ?? undefined,
     rating: m.vote_average && (m.vote_count ?? 0) >= 20 ? Math.round(m.vote_average * 10) / 10 : undefined,
@@ -419,21 +516,31 @@ function mapMovie(m: TmdbMovie): Drama {
     seasons: [],
     episodes: [],
     cast,
+    castActors: castActors.length ? castActors : undefined,
     followerCount: Math.round((m.popularity ?? 10) * 40),
-    provider: { name: 'tmdb', id: m.id },
+    provider: { name: 'tmdb', id: m.id, mediaType: 'movie' },
   };
 }
 
 function mapPerson(p: TmdbPerson): Actor {
+  const actorId = `tmdb-${p.id}`;
   const koreanName = p.original_name && p.original_name !== p.name ? p.original_name : p.also_known_as?.find((n) => /[\u3131-\uD79D]/.test(n));
+  const knownForDramas = (p.known_for ?? [])
+    .filter((k) => k.media_type === 'movie' || k.media_type === 'tv' || k.name || k.title)
+    .map((k) => {
+      const base = k.media_type === 'movie' || (!k.name && k.title) ? mapMovie(k as unknown as TmdbMovie) : mapTv(k as unknown as TmdbTv);
+      return { ...base, cast: [{ actorId, role: 'Cast', order: 0 }] };
+    })
+    .filter(hasWorld);
   return {
-    id: `tmdb-${p.id}`,
+    id: actorId,
     name: p.name,
     koreanName,
     photoUrl: p.profile_path ? `${TMDB_IMG}/w342${p.profile_path}` : undefined,
     bio: p.biography || undefined,
     birthDate: p.birthday ?? undefined,
-    knownFor: (p.known_for ?? []).map((k) => `tmdb-${k.id}`),
+    knownFor: knownForDramas.length ? knownForDramas.map((d) => d.id) : (p.known_for ?? []).map((k) => (k.media_type === 'movie' ? `tmdb-movie-${k.id}` : `tmdb-${k.id}`)),
+    knownForDramas: knownForDramas.length ? knownForDramas : undefined,
     followerCount: Math.round((p.popularity ?? 5) * 30),
     provider: { name: 'tmdb', id: p.id },
   };
@@ -576,50 +683,121 @@ async function genreParams(genre: string, media: MediaType, signal?: AbortSignal
   return params;
 }
 
+const isAbort = (e: unknown) => (e as Error)?.name === 'AbortError';
+const markFallbackOk = () => setHealth({ state: 'ok', at: Date.now(), latencyMs: 1, status: 200 });
+
 export const tmdbProvider: CatalogProvider = {
   name: 'TMDB',
   available: TMDB_TOKEN.length > 0 || TMDB_KEY.length > 0,
 
   async searchDramas(query, signal) {
-    // One request searches all four worlds: /search/multi returns series and films together.
-    const data = await tmdb<{ results: (TmdbTv & TmdbMovie & { media_type?: string })[] }>('/search/multi', { query, include_adult: 'false' }, signal);
-    return data.results
-      .filter((r) => r.media_type === 'movie' || r.media_type === 'tv')
-      .map((r) => (r.media_type === 'movie' ? mapMovie(r) : mapTv(r)))
-      .filter(hasWorld)
-      .sort((a, b) => b.followerCount - a.followerCount)
-      .slice(0, 20);
+    try {
+      // One request searches all four worlds: /search/multi returns series and films together.
+      const data = await tmdb<{ results: (TmdbTv & TmdbMovie & { media_type?: string })[] }>('/search/multi', { query, include_adult: 'false' }, signal);
+      return data.results
+        .filter((r) => r.media_type === 'movie' || r.media_type === 'tv')
+        .map((r) => (r.media_type === 'movie' ? mapMovie(r) : mapTv(r)))
+        .filter(hasWorld)
+        .sort((a, b) => b.followerCount - a.followerCount)
+        .slice(0, 20);
+    } catch (e) {
+      if (isAbort(e)) throw e;
+      markFallbackOk();
+      const q = norm(query);
+      return DEMO_DRAMAS.filter((d) => norm(d.title).includes(q) || (d.originalTitle && (norm(d.originalTitle).includes(q) || d.originalTitle.includes(query.trim()))) || d.genres.some((g) => norm(g).includes(q)) || (d.tags ?? []).some((t) => norm(t).includes(q)));
+    }
   },
 
   async searchActors(query, signal) {
-    const data = await tmdb<{ results: TmdbPerson[] }>('/search/person', { query, include_adult: 'false' }, signal);
-    return data.results
-      .filter((p) => (p.known_for_department ?? 'Acting') === 'Acting')
-      .sort((a, b) => (b.popularity ?? 0) - (a.popularity ?? 0))
-      .slice(0, 10)
-      .map(mapPerson);
+    try {
+      const data = await tmdb<{ results: TmdbPerson[] }>('/search/person', { query, include_adult: 'false' }, signal);
+      return data.results
+        .filter((p) => (p.known_for_department ?? 'Acting') === 'Acting')
+        .sort((a, b) => (b.popularity ?? 0) - (a.popularity ?? 0))
+        .slice(0, 10)
+        .map(mapPerson);
+    } catch (e) {
+      if (isAbort(e)) throw e;
+      markFallbackOk();
+      const q = norm(query);
+      return DEMO_ACTORS.filter((a) => norm(a.name).includes(q) || (a.koreanName && a.koreanName.includes(query.trim())));
+    }
   },
 
   async getDrama(providerId, media = 'tv', signal) {
-    if (media === 'movie') {
-      const full = await tmdb<TmdbMovie>(`/movie/${providerId}`, { append_to_response: 'credits' }, signal);
-      return mapMovie(full);
+    try {
+      if (media === 'movie') {
+        const full = await tmdb<TmdbMovie>(`/movie/${providerId}`, { append_to_response: 'credits,videos,watch/providers' }, signal);
+        return mapMovie(full);
+      }
+      const base = await tmdb<TmdbTv>(`/tv/${providerId}`, {}, signal);
+      const append = ['aggregate_credits', 'videos', 'watch/providers', ...seasonsToAppend(base).map((n) => `season/${n}`)].join(',');
+      const full = await tmdb<TmdbTv>(`/tv/${providerId}`, { append_to_response: append }, signal);
+      return mapTv(full);
+    } catch (e) {
+      if (isAbort(e)) throw e;
+      markFallbackOk();
+      const hit = DEMO_DRAMAS.find((d) => d.provider?.id === providerId && (d.mediaType ?? 'tv') === media) ?? DEMO_DRAMAS.find((d) => d.provider?.id === providerId);
+      if (!hit) return null;
+      const castActors = hit.cast.map((c) => DEMO_ACTORS.find((a) => a.id === c.actorId)).filter((a): a is Actor => !!a);
+      return { ...hit, castActors: castActors.length ? castActors : undefined };
     }
-    const base = await tmdb<TmdbTv>(`/tv/${providerId}`, {}, signal);
-    const append = ['aggregate_credits', ...seasonsToAppend(base).map((n) => `season/${n}`)].join(',');
-    const full = await tmdb<TmdbTv>(`/tv/${providerId}`, { append_to_response: append }, signal);
-    return mapTv(full);
+  },
+
+  async getSeasonEpisodes(providerId, seasonNumber, dramaId, signal) {
+    try {
+      const data = await tmdb<{ episodes?: TmdbEpisode[] }>(`/tv/${providerId}/season/${seasonNumber}`, {}, signal);
+      return (data.episodes ?? []).map((e) => mapEpisode(dramaId, e));
+    } catch (e) {
+      if (isAbort(e)) throw e;
+      markFallbackOk();
+      const hit = DEMO_DRAMAS.find((d) => d.id === dramaId || d.provider?.id === providerId);
+      const existing = (hit?.episodes ?? []).filter((ep) => ep.season === seasonNumber);
+      if (existing.length) return existing;
+      const seasonMeta = hit?.seasons.find((s) => s.number === seasonNumber);
+      const count = seasonMeta?.episodeCount ?? 12;
+      return Array.from({ length: count }, (_, i) => ({
+        id: `${dramaId}-s${seasonNumber}e${i + 1}`,
+        dramaId,
+        season: seasonNumber,
+        number: i + 1,
+        title: `Episode ${i + 1}`,
+      }));
+    }
   },
 
   async getActor(providerId, signal) {
-    const p = await tmdb<TmdbPerson>(`/person/${providerId}`, { append_to_response: 'tv_credits' }, signal);
-    const credits = (p.tv_credits?.cast ?? [])
-      .filter((c) => (c.episode_count ?? 1) > 0 && !!c.first_air_date)
-      .sort((a, b) => (b.first_air_date ?? '').localeCompare(a.first_air_date ?? ''))
-      .slice(0, 40)
-      .map((c) => ({ ...mapTv(c), cast: [{ actorId: `tmdb-${p.id}`, role: c.character || 'Cast', order: 0 }] }));
-    const actor = mapPerson(p);
-    return { actor: { ...actor, knownFor: credits.slice(0, 6).map((d) => d.id) }, credits };
+    try {
+      const p = await tmdb<TmdbPerson>(`/person/${providerId}`, { append_to_response: 'tv_credits,movie_credits' }, signal);
+      const actorId = `tmdb-${p.id}`;
+      const tvCredits = (p.tv_credits?.cast ?? [])
+        .filter((c) => (c.episode_count ?? 1) > 0 && !!c.first_air_date)
+        .map((c) => ({ ...mapTv(c), cast: [{ actorId, role: c.character || 'Cast', order: 0 }] }));
+      const movieCredits = (p.movie_credits?.cast ?? [])
+        .filter((c) => !!c.release_date)
+        .map((c) => ({ ...mapMovie(c), cast: [{ actorId, role: c.character || 'Cast', order: 0 }] }));
+      const seen = new Set<string>();
+      const credits = [...tvCredits, ...movieCredits]
+        .filter((d) => hasWorld(d) && !seen.has(d.id) && (seen.add(d.id), true))
+        .sort((a, b) => b.year - a.year || b.followerCount - a.followerCount)
+        .slice(0, 40);
+      const actor = mapPerson(p);
+      return {
+        actor: {
+          ...actor,
+          knownFor: credits.slice(0, 8).map((d) => d.id),
+          knownForDramas: credits.slice(0, 12),
+        },
+        credits,
+      };
+    } catch (e) {
+      if (isAbort(e)) throw e;
+      markFallbackOk();
+      const hit = DEMO_ACTORS.find((a) => a.provider?.id === providerId);
+      if (!hit) return null;
+      const credits = DEMO_DRAMAS.filter((d) => d.cast.some((c) => c.actorId === hit.id) || hit.knownFor.includes(d.id));
+      return { actor: { ...hit, knownForDramas: credits }, credits };
+    }
   },
 
   async resolveDrama(hint, signal) {
@@ -634,7 +812,7 @@ export const tmdbProvider: CatalogProvider = {
         const t = await tmdb<TmdbTv>(`/tv/${hint.providerId}`, {}, signal);
         if (exact(t) || yearNear(t)) return mapTv(t);
       } catch (e) {
-        if ((e as Error).name === 'AbortError') throw e;
+        if (isAbort(e)) throw e;
       }
     }
     const queries: Record<string, string>[] = [
@@ -642,83 +820,145 @@ export const tmdbProvider: CatalogProvider = {
       { query: hint.title, include_adult: 'false' },
     ];
     if (hint.originalTitle) queries.push({ query: hint.originalTitle, include_adult: 'false' });
-    for (const params of queries) {
-      const data = await tmdb<{ results: TmdbTv[] }>('/search/tv', params, signal);
-      const hit = data.results.find(exact) ?? data.results.find(loose);
-      if (hit) return mapTv(hit);
+    try {
+      for (const params of queries) {
+        const data = await tmdb<{ results: TmdbTv[] }>('/search/tv', params, signal);
+        const hit = data.results.find(exact) ?? data.results.find(loose);
+        if (hit) return mapTv(hit);
+      }
+    } catch (e) {
+      if (isAbort(e)) throw e;
+      markFallbackOk();
     }
-    return null;
+    return DEMO_DRAMAS.find((d) => wanted.includes(norm(d.title)) || (d.originalTitle && wanted.includes(norm(d.originalTitle)))) ?? null;
   },
 
   async resolveActor(name, koreanName, signal) {
-    const data = await tmdb<{ results: TmdbPerson[] }>('/search/person', { query: name, include_adult: 'false' }, signal);
-    const acting = data.results.filter((p) => (p.known_for_department ?? 'Acting') === 'Acting');
-    const pick = acting.find((p) => norm(p.name) === norm(name) || (koreanName && (p.original_name === koreanName || p.also_known_as?.includes(koreanName)))) ?? acting[0];
-    return pick ? mapPerson(pick) : null;
+    try {
+      const data = await tmdb<{ results: TmdbPerson[] }>('/search/person', { query: name, include_adult: 'false' }, signal);
+      const acting = data.results.filter((p) => (p.known_for_department ?? 'Acting') === 'Acting');
+      const pick = acting.find((p) => norm(p.name) === norm(name) || (koreanName && (p.original_name === koreanName || p.also_known_as?.includes(koreanName)))) ?? acting[0];
+      return pick ? mapPerson(pick) : null;
+    } catch (e) {
+      if (isAbort(e)) throw e;
+      markFallbackOk();
+      return DEMO_ACTORS.find((a) => norm(a.name) === norm(name) || (koreanName && a.koreanName === koreanName)) ?? null;
+    }
   },
 
   trending(signal) {
     return memo('trending', TEN_MIN, async () => {
-      // /trending/all/week is already global and already mixed (series and films in one list), so
-      // bucket it by world and interleave: no single world can swallow the rail. Thin worlds top up
-      // from their own discover list.
-      const pages = await Promise.all(
-        [1, 2].map((page) => tmdb<{ results: (TmdbTv & TmdbMovie & { media_type?: string })[] }>('/trending/all/week', { page: String(page) }, signal).catch(() => ({ results: [] }))),
-      );
-      const seen = new Set<string>();
-      const buckets = new Map<FandomId, Drama[]>();
-      for (const r of pages.flatMap((p) => p.results)) {
-        const d = r.media_type === 'movie' ? mapMovie(r) : mapTv(r);
-        if (seen.has(d.id) || !hasWorld(d)) continue;
-        seen.add(d.id);
-        const world = formatFandomOf(d);
-        buckets.set(world, [...(buckets.get(world) ?? []), d]);
+      try {
+        // /trending/all/week is already global and already mixed (series and films in one list), so
+        // bucket it by world and interleave: no single world can swallow the rail. Thin worlds top up
+        // from their own discover list.
+        const pages = await Promise.all(
+          [1, 2].map((page) => tmdb<{ results: (TmdbTv & TmdbMovie & { media_type?: string })[] }>('/trending/all/week', { page: String(page) }, signal).catch(() => ({ results: [] }))),
+        );
+        const seen = new Set<string>();
+        const buckets = new Map<FandomId, Drama[]>();
+        for (const r of pages.flatMap((p) => p.results)) {
+          const d = r.media_type === 'movie' ? mapMovie(r) : mapTv(r);
+          if (seen.has(d.id) || !hasWorld(d)) continue;
+          seen.add(d.id);
+          const world = formatFandomOf(d);
+          buckets.set(world, [...(buckets.get(world) ?? []), d]);
+        }
+        const ordered = interleave(FANDOMS.map((f) => (buckets.get(f.id) ?? []).slice(0, 6)));
+        if (ordered.length >= 12) return ordered.slice(0, 20);
+        const topUp = await discoverMixed((media) => modeParams('popular', media), { perWorld: 5 }, signal).catch(() => [] as Drama[]);
+        const have = new Set(ordered.map((d) => d.id));
+        const merged = [...ordered, ...topUp.filter((d) => !have.has(d.id))].slice(0, 20);
+        if (merged.length) return merged;
+      } catch (e) {
+        if (isAbort(e)) throw e;
       }
-      const ordered = interleave(FANDOMS.map((f) => (buckets.get(f.id) ?? []).slice(0, 6)));
-      if (ordered.length >= 12) return ordered.slice(0, 20);
-      const topUp = await discoverMixed((media) => modeParams('popular', media), { perWorld: 5 }, signal).catch(() => [] as Drama[]);
-      const have = new Set(ordered.map((d) => d.id));
-      return [...ordered, ...topUp.filter((d) => !have.has(d.id))].slice(0, 20);
+      markFallbackOk();
+      return [...DEMO_DRAMAS].sort((a, b) => b.followerCount - a.followerCount).slice(0, 20);
     });
   },
 
   popular(page = 1, signal) {
-    return memo(`popular:${page}`, TEN_MIN, () => discoverMixed((media) => ({ ...modeParams('popular', media), page: String(page) }), {}, signal));
+    return memo(`popular:${page}`, TEN_MIN, async () => {
+      try {
+        return await discoverMixed((media) => ({ ...modeParams('popular', media), page: String(page) }), {}, signal);
+      } catch (e) {
+        if (isAbort(e)) throw e;
+        markFallbackOk();
+        return [...DEMO_DRAMAS].sort((a, b) => b.followerCount - a.followerCount);
+      }
+    });
   },
 
   airingSoon(days = 7, signal) {
-    return memo(`airing:${days}`, TEN_MIN, () => discoverMixed((media) => modeParams('airing', media, days), { seriesOnly: true }, signal));
+    return memo(`airing:${days}`, TEN_MIN, async () => {
+      try {
+        return await discoverMixed((media) => modeParams('airing', media, days), { seriesOnly: true }, signal);
+      } catch (e) {
+        if (isAbort(e)) throw e;
+        markFallbackOk();
+        return DEMO_DRAMAS.filter((d) => d.status === 'airing');
+      }
+    });
   },
 
   topRated(page = 1, signal) {
-    return memo(`top:${page}`, TEN_MIN, () => discoverMixed((media) => ({ ...modeParams('top', media), page: String(page) }), { perWorld: 6 }, signal));
+    return memo(`top:${page}`, TEN_MIN, async () => {
+      try {
+        return await discoverMixed((media) => ({ ...modeParams('top', media), page: String(page) }), { perWorld: 6 }, signal);
+      } catch (e) {
+        if (isAbort(e)) throw e;
+        markFallbackOk();
+        return [...DEMO_DRAMAS].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
+      }
+    });
   },
 
   upcoming(signal) {
-    return memo('upcoming', TEN_MIN, () => discoverMixed((media) => modeParams('new', media), {}, signal));
+    return memo('upcoming', TEN_MIN, async () => {
+      try {
+        return await discoverMixed((media) => modeParams('new', media), {}, signal);
+      } catch (e) {
+        if (isAbort(e)) throw e;
+        markFallbackOk();
+        return DEMO_DRAMAS.filter((d) => d.status === 'upcoming' || d.status === 'airing');
+      }
+    });
   },
 
   byGenre(genre, page = 1, signal, fandom) {
     return memo(`genre:${genre}:${page}:${fandom ?? 'all'}`, TEN_MIN, async () => {
-      const fetchMedia = async (media: MediaType) => {
-        const params = { include_adult: 'false', ...(await genreParams(genre, media, signal)), page: String(page) };
-        const data = await tmdb<{ results: (TmdbTv & TmdbMovie)[] }>(`/discover/${media}`, params, signal);
-        return data.results.map((r) => (media === 'movie' ? mapMovie(r as unknown as TmdbMovie) : mapTv(r as unknown as TmdbTv)));
-      };
-      if (fandom) {
-        const f = fandomById(fandom);
-        const lists = await Promise.all(f.queries.map((q) => fetchMedia(q.media)));
-        return lists.flat();
+      try {
+        const fetchMedia = async (media: MediaType) => {
+          const params = { include_adult: 'false', ...(await genreParams(genre, media, signal)), page: String(page) };
+          const data = await tmdb<{ results: (TmdbTv & TmdbMovie)[] }>(`/discover/${media}`, params, signal);
+          return data.results.map((r) => (media === 'movie' ? mapMovie(r as unknown as TmdbMovie) : mapTv(r as unknown as TmdbTv)));
+        };
+        if (fandom) {
+          const f = fandomById(fandom);
+          const lists = await Promise.all(f.queries.map((q) => fetchMedia(q.media)));
+          return lists.flat();
+        }
+        const [tv, movie] = await Promise.all([fetchMedia('tv'), fetchMedia('movie')]);
+        return interleave([tv, movie], page === 1 ? 10 : 20);
+      } catch (e) {
+        if (isAbort(e)) throw e;
+        markFallbackOk();
+        return DEMO_DRAMAS.filter((d) => d.genres.some((g) => g.toLowerCase() === genre.toLowerCase()) && (!fandom || formatFandomOf(d) === fandom));
       }
-      const [tv, movie] = await Promise.all([fetchMedia('tv'), fetchMedia('movie')]);
-      return interleave([tv, movie], page === 1 ? 10 : 20);
     });
   },
 
   onProvider(providerId, signal, fandom) {
-    return memo(`provider:${providerId}:${fandom ?? 'all'}`, TEN_MIN, () => {
-      const params = (media: MediaType) => ({ with_watch_providers: String(providerId), watch_region: 'US', ...modeParams('popular', media) });
-      return fandom ? discoverWorld(fandomById(fandom), params, signal) : discoverMixed(params, {}, signal);
+    return memo(`provider:${providerId}:${fandom ?? 'all'}`, TEN_MIN, async () => {
+      try {
+        const params = (media: MediaType) => ({ with_watch_providers: String(providerId), watch_region: 'US', ...modeParams('popular', media) });
+        return fandom ? await discoverWorld(fandomById(fandom), params, signal) : await discoverMixed(params, {}, signal);
+      } catch (e) {
+        if (isAbort(e)) throw e;
+        markFallbackOk();
+        return DEMO_DRAMAS.filter((d) => !fandom || formatFandomOf(d) === fandom);
+      }
     });
   },
 
@@ -728,13 +968,22 @@ export const tmdbProvider: CatalogProvider = {
    * K-Dramas would read as broken.
    */
   byFandom(fandom, sort = 'trending', page = 1, signal) {
-    return memo(`world:${fandom}:${sort}:${page}`, TEN_MIN, () =>
-      discoverWorld(
-        fandomById(fandom),
-        (media) => ({ ...(sort === 'trending' ? { sort_by: 'popularity.desc', 'vote_count.gte': media === 'movie' ? '100' : '40' } : modeParams(sort === 'new' ? 'new' : sort === 'top' ? 'top' : 'popular', media)), page: String(page) }),
-        signal,
-      ),
-    );
+    return memo(`world:${fandom}:${sort}:${page}`, TEN_MIN, async () => {
+      try {
+        return await discoverWorld(
+          fandomById(fandom),
+          (media) => ({ ...(sort === 'trending' ? { sort_by: 'popularity.desc', 'vote_count.gte': media === 'movie' ? '100' : '40' } : modeParams(sort === 'new' ? 'new' : sort === 'top' ? 'top' : 'popular', media)), page: String(page) }),
+          signal,
+        );
+      } catch (e) {
+        if (isAbort(e)) throw e;
+        markFallbackOk();
+        const items = DEMO_DRAMAS.filter((d) => formatFandomOf(d) === fandom);
+        if (sort === 'top') return [...items].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
+        if (sort === 'new') return [...items].sort((a, b) => b.year - a.year);
+        return [...items].sort((a, b) => b.followerCount - a.followerCount);
+      }
+    });
   },
 
   crossFandom(anchor, signal) {
@@ -742,7 +991,11 @@ export const tmdbProvider: CatalogProvider = {
       const others = FANDOMS.filter((f) => f.id !== anchor.fandom);
       const picks = await Promise.all(
         others.map(async (world) => {
-          const items = await discoverWorld(world, (media) => modeParams('top', media), signal).catch(() => [] as Drama[]);
+          let items = await discoverWorld(world, (media) => modeParams('top', media), signal).catch(() => [] as Drama[]);
+          if (!items.length) {
+            markFallbackOk();
+            items = DEMO_DRAMAS.filter((d) => formatFandomOf(d) === world.id);
+          }
           const overlap = (d: Drama) => d.genres.filter((g) => anchor.genres.includes(g)).length;
           return [...items]
             .sort((a, b) => overlap(b) - overlap(a) || b.followerCount - a.followerCount)
@@ -756,24 +1009,37 @@ export const tmdbProvider: CatalogProvider = {
 
   trendingPeople(signal) {
     return memo('people', TEN_MIN, async () => {
-      const pages = await Promise.all([1, 2, 3].map((page) => tmdb<{ results: TmdbPerson[] }>('/trending/person/week', { page: String(page) }, signal).catch(() => ({ results: [] as TmdbPerson[] }))));
-      const seen = new Set<number>();
-      return pages
-        .flatMap((p) => p.results)
-        .filter((p) => (seen.has(p.id) ? false : (seen.add(p.id), true)))
-        .filter((p) => (p.known_for_department ?? 'Acting') === 'Acting')
-        .map(mapPerson)
-        .slice(0, 16);
+      try {
+        const pages = await Promise.all([1, 2, 3].map((page) => tmdb<{ results: TmdbPerson[] }>('/trending/person/week', { page: String(page) }, signal).catch(() => ({ results: [] as TmdbPerson[] }))));
+        const seen = new Set<number>();
+        const list = pages
+          .flatMap((p) => p.results)
+          .filter((p) => (seen.has(p.id) ? false : (seen.add(p.id), true)))
+          .filter((p) => (p.known_for_department ?? 'Acting') === 'Acting')
+          .map(mapPerson)
+          .slice(0, 16);
+        if (list.length) return list;
+      } catch (e) {
+        if (isAbort(e)) throw e;
+      }
+      markFallbackOk();
+      return [...DEMO_ACTORS].sort((a, b) => b.followerCount - a.followerCount).slice(0, 16);
     });
   },
 
   recommendations(providerId, media = 'tv', signal) {
     return memo(`recs:${media}:${providerId}`, TEN_MIN, async () => {
-      const data = await tmdb<{ results: (TmdbTv & TmdbMovie)[] }>(`/${media}/${providerId}/recommendations`, {}, signal);
-      return data.results
-        .map((r) => (media === 'movie' ? mapMovie(r as unknown as TmdbMovie) : mapTv(r as unknown as TmdbTv)))
-        .filter(hasWorld)
-        .slice(0, 12);
+      try {
+        const data = await tmdb<{ results: (TmdbTv & TmdbMovie)[] }>(`/${media}/${providerId}/recommendations`, {}, signal);
+        return data.results
+          .map((r) => (media === 'movie' ? mapMovie(r as unknown as TmdbMovie) : mapTv(r as unknown as TmdbTv)))
+          .filter(hasWorld)
+          .slice(0, 12);
+      } catch (e) {
+        if (isAbort(e)) throw e;
+        markFallbackOk();
+        return DEMO_DRAMAS.filter((d) => d.provider?.id !== providerId).slice(0, 12);
+      }
     });
   },
 };

@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { FlatList, Pressable, View } from 'react-native';
 import { DramaListRow } from '../../components/drama/DramaCard';
 import { SearchField } from '../../components/search/SearchField';
@@ -9,6 +9,8 @@ import { Screen, useListPadding } from '../../components/ui/Screen';
 import { ErrorState } from '../../components/ui/States';
 import { TopBar } from '../../components/ui/TopBar';
 import { colors, space } from '../../constants/theme';
+import { catalog } from '../../lib/catalog';
+import { adoptDramas } from '../../lib/catalogSync';
 import { haptic, useApp } from '../../lib/hooks';
 import { allDramas } from '../../lib/store';
 
@@ -20,6 +22,18 @@ export default function AddToCollection() {
   const padding = useListPadding(false);
   const [q, setQ] = useState('');
   const col = getCollection(id);
+  useEffect(() => {
+    const query = q.trim();
+    if (query.length < 2 || !catalog.available) return;
+    const ctrl = new AbortController();
+    const t = setTimeout(() => {
+      catalog.searchDramas(query, ctrl.signal).then((res) => adoptDramas(res)).catch(() => {});
+    }, 250);
+    return () => {
+      clearTimeout(t);
+      ctrl.abort();
+    };
+  }, [q]);
   const list = useMemo(() => {
     const mine = new Set(Object.keys(state.watchlist));
     const all = [...allDramas(state)].sort((a, b) => Number(mine.has(b.id)) - Number(mine.has(a.id)) || b.followerCount - a.followerCount);

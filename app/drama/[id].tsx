@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Animated, FlatList, Pressable, Share, StyleSheet, View } from 'react-native';
+import { Animated, FlatList, Linking, Pressable, Share, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AddToCollectionSheet } from '../../components/collections/AddToCollectionSheet';
 import { CollectionCard } from '../../components/collections/CollectionCard';
@@ -33,11 +33,12 @@ import { useToast } from '../../components/ui/Toast';
 import { TopBar } from '../../components/ui/TopBar';
 import { colors, radius, shadows, sizes, space } from '../../constants/theme';
 import { catalog } from '../../lib/catalog';
+import { adoptDramas } from '../../lib/catalogSync';
 import { compact, countdown, dayLabel, timeOfDay } from '../../lib/format';
 import { haptic, useApp, useLayout, useLoad, useRequireMember } from '../../lib/hooks';
 import { heroInterpolations, useArrive, useHeroSettle, useScrollY, withAlpha } from '../../lib/motion';
 import { dramaFandom, isFilm, runtimeLabel } from '../../lib/fandoms';
-import { CastCredit, emptyReactions, Episode, Post, PostType } from '../../lib/model';
+import { CastCredit, Drama, emptyReactions, Episode, Post, PostType } from '../../lib/model';
 import { collectionsContaining, isPostVeiled as postVeiled, postsForDrama, relatedDramas } from '../../lib/selectors';
 import { useRemote } from '../../lib/data/sync';
 
@@ -87,20 +88,54 @@ export default function DramaHub() {
   const arriveActions = useArrive(150);
   const heroSettle = useHeroSettle();
 
-  // Thin (search-imported) records get enriched from the catalog provider. `runtime` is part of the
-  // test because a film has no episodes by definition — without it every film would look thin forever.
-  const thin = !!drama?.provider && !drama.runtime && drama.episodes.length === 0 && drama.cast.length === 0;
-  const enrich = useLoad(async (signal) => (drama?.provider ? catalog.getDrama(drama.provider.id, drama.mediaType ?? 'tv', signal) : null), [drama?.id], thin && catalog.available);
+  // Thin (search-imported) or un-hydrated records get enriched from the catalog provider.
+  const parsedTmdb = !drama && params.id ? /^tmdb-(?:(movie)-)?(\d+)$/.exec(params.id) : null;
+  const thin =
+    (!!drama?.provider && (!drama.posterUrl || !drama.backdropUrl || !drama.trailerUrl || drama.cast.length < 4 || (!film && drama.episodes.length === 0))) ||
+    !!parsedTmdb;
+  const enrich = useLoad(
+    async (signal) => {
+      if (drama?.provider) return catalog.getDrama(drama.provider.id, drama.mediaType ?? 'tv', signal);
+      if (parsedTmdb) return catalog.getDrama(Number(parsedTmdb[2]), (parsedTmdb[1] as 'movie' | undefined) ?? 'tv', signal);
+      return null;
+    },
+    [drama?.id ?? params.id],
+    thin && catalog.available,
+  );
   useEffect(() => {
-    if (enrich.data) dispatch({ type: 'import', dramas: [{ ...enrich.data, id: drama!.id }] });
+    if (enrich.data) dispatch({ type: 'import', dramas: [{ ...enrich.data, id: drama?.id ?? params.id }] });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enrich.data]);
+
+  // On-demand multi-season episode loading when the viewer switches to a season not yet in drama.episodes.
+  const hasSeasonEps = !!drama && drama.episodes.some((e) => e.season === season);
+  const seasonEnrich = useLoad(
+    async (signal) => {
+      if (!drama?.provider || film) return [] as Episode[];
+      return catalog.getSeasonEpisodes(drama.provider.id, season, drama.id, signal);
+    },
+    [drama?.id, drama?.provider?.id, season, film],
+    !!drama?.provider && !film && !hasSeasonEps && catalog.available,
+  );
+  useEffect(() => {
+    if (drama && seasonEnrich.data?.length) {
+      dispatch({ type: 'import', dramas: [{ ...drama, episodes: [...drama.episodes, ...seasonEnrich.data] }] });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seasonEnrich.data]);
+
+  // Live TMDB recommendations merged with local related dramas.
+  const liveRecs = useLoad<Drama[]>(
+    async (signal) => (drama?.provider ? adoptDramas(await catalog.recommendations(drama.provider.id, drama.mediaType ?? 'tv', signal)) : []),
+    [drama?.id, drama?.provider?.id, drama?.mediaType],
+    !!drama?.provider && catalog.available,
+  );
 
   const posts = useMemo(() => (drama ? postsForDrama(state, drama.id, sort) : []), [state, drama, sort]);
   const typed = useMemo(() => (filter === 'all' ? posts.filter((p) => p.type !== 'short') : posts.filter((p) => p.type === filter)), [posts, filter]);
   // "Safe for me" hides what would be veiled for this viewer, so a mid-series read isn't a wall of veils.
-  const veiledCount = useMemo(() => typed.filter((p) => postVeiled(state, p)).length, [state, typed]);
-  const filtered = useMemo(() => (safe && veiledCount ? typed.filter((p) => !postVeiled(state, p)) : typed), [typed, safe, veiledCount, state]);
+  const veiledCount = useMemo(() => typed.filter((p) => p.spoiler !== 'none' || postVeiled(state, p)).length, [state, typed]);
+  const filtered = useMemo(() => (safe && veiledCount ? typed.filter((p) => p.spoiler === 'none' && !postVeiled(state, p)) : typed), [typed, safe, veiledCount, state]);
   const shorts = useMemo(() => posts.filter((p) => p.type === 'short'), [posts]);
   const meter = useMemo(
     () =>
@@ -111,14 +146,20 @@ export default function DramaHub() {
     [posts],
   );
   const meterTotal = useMemo(() => Object.values(meter).reduce((a, b) => a + b, 0), [meter]);
-  const related = useMemo(() => (drama ? relatedDramas(state, drama, 8) : []), [state, drama]);
+  const related = useMemo(() => {
+    if (!drama) return [];
+    const local = relatedDramas(state, drama, 8);
+    const remote = (liveRecs.data ?? []).filter((d) => d.id !== drama.id);
+    const seen = new Set<string>();
+    return [...remote, ...local].filter((d) => (seen.has(d.id) ? false : (seen.add(d.id), true))).slice(0, 10);
+  }, [state, drama, liveRecs.data]);
   const inCollections = useMemo(() => (drama ? collectionsContaining(state, drama.id) : []), [state, drama]);
   const publicCols = useMemo(() => (drama ? state.collections.filter((c) => c.visibility === 'public' && c.items.some((i) => i.dramaId === drama.id)).slice(0, 6) : []), [state.collections, drama]);
 
   if (!drama) {
     return (
       <Screen header={<TopBar mode="stack" title="Drama" />}>
-        <ErrorState kind="notFound" title="This drama isn’t available" body="It may have been removed from the catalog, or the link is wrong." onRetry={() => router.back()} />
+        {enrich.loading ? <PostSkeleton /> : <ErrorState kind="notFound" title="This drama isn’t available" body="It may have been removed from the catalog, or the link is wrong." onRetry={() => router.back()} />}
       </Screen>
     );
   }
@@ -128,10 +169,28 @@ export default function DramaHub() {
   const world = dramaFandom(drama);
   const notify = state.dramaNotify[drama.id] ?? true;
   const multi = drama.seasons.length > 1;
-  const eps = drama.episodes.filter((e) => e.season === season).sort((a, b) => a.number - b.number);
+  const rawEps = drama.episodes.filter((e) => e.season === season).sort((a, b) => a.number - b.number);
+  const seasonMeta = drama.seasons.find((s) => s.number === season);
+  const fallbackEpCount = seasonMeta?.episodeCount || drama.episodeCount || (film ? 0 : 16);
+  const eps: Episode[] = rawEps.length
+    ? rawEps
+    : !film && fallbackEpCount > 0
+      ? Array.from({ length: fallbackEpCount }, (_, i) => ({
+          id: `${drama.id}-s${season}e${i + 1}`,
+          dramaId: drama.id,
+          season,
+          number: i + 1,
+          title: `Episode ${i + 1}`,
+        }))
+      : [];
   const next = drama.episodes.filter((e) => episodeState(e) !== 'aired').sort((a, b) => (a.airDate ?? '').localeCompare(b.airDate ?? ''))[0];
   const liveEp = drama.episodes.find((e) => episodeState(e) === 'live');
   const talking = posts.filter((p) => new Date(p.createdAt) > new Date(Date.now() - 7 * 86_400_000)).length;
+  const openTrailer = () => {
+    if (!drama.trailerUrl) return;
+    haptic.light();
+    Linking.openURL(drama.trailerUrl).catch(() => toast.show({ message: 'Could not open trailer' }));
+  };
   const stillH = 96;
   const stills: {
     uri: string;
@@ -239,6 +298,7 @@ export default function DramaHub() {
       <Animated.View style={[styles.actions, arriveActions]}>
         <FollowButton kind="dramas" id={drama.id} name={drama.title} style={{ flex: 1 }} />
         <WatchStatusButton drama={drama} style={{ flex: 1.4 }} />
+        {drama.trailerUrl ? <IconButton icon="play-circle-outline" label="Watch trailer" filled onPress={openTrailer} /> : null}
         <IconButton icon="albums-outline" label="Add to collection" filled onPress={() => require('save to a collection', () => setCollect(true))} />
         {following ? (
           <IconButton
@@ -328,6 +388,26 @@ export default function DramaHub() {
             </Text>
           ) : null}
         </Pressable>
+        {(drama.streamingOn?.length || drama.trailerUrl) ? (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space.x2, marginTop: space.x3 }}>
+            {drama.trailerUrl ? (
+              <Pressable onPress={openTrailer} style={styles.trailerPill} accessibilityRole="button" accessibilityLabel={`Watch ${drama.title} trailer`}>
+                <Ionicons name="play" size={13} color={colors.accentText} />
+                <Text variant="label" tone="accent">
+                  Watch trailer
+                </Text>
+              </Pressable>
+            ) : null}
+            {drama.streamingOn?.map((providerName) => (
+              <View key={providerName} style={styles.streamPill}>
+                <Ionicons name="tv-outline" size={12} color={colors.textSecondary} />
+                <Text variant="caption" tone="secondary">
+                  {providerName}
+                </Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
       </View>
       {item?.status === 'watching' ? (
         <Pressable onPress={() => setTab('episodes')} style={styles.progressCard} accessibilityRole="button" accessibilityLabel={`Your progress: episode ${item.currentEpisode} of ${total}. Opens episodes`}>
@@ -600,7 +680,7 @@ export default function DramaHub() {
   else {
     rows.push({ key: 'sub', k: 'sub' });
     if (tab === 'episodes') eps.forEach((e) => rows.push({ key: e.id, k: 'ep', e }));
-    if (tab === 'cast') drama.cast.forEach((c) => rows.push({ key: c.actorId, k: 'cast', c }));
+    if (tab === 'cast') drama.cast.filter((c) => !!getActor(c.actorId)).forEach((c) => rows.push({ key: c.actorId, k: 'cast', c }));
     if (tab === 'community') filtered.forEach((p) => rows.push({ key: p.id, k: 'post', p }));
     if (rows.length === 2) rows.push({ key: 'empty', k: 'empty' });
     else if (tab === 'community') rows.push({ key: 'footer', k: 'footer' });
@@ -617,7 +697,7 @@ export default function DramaHub() {
         return <EpisodeCard drama={drama} episode={row.e} postCount={posts.filter((p) => p.context.season === row.e.season && p.context.episode === row.e.number).length} />;
       case 'cast': {
         const a = getActor(row.c.actorId);
-        return a ? <ActorCard actor={a} role={row.c.role} layout="row" right={<FollowButton kind="actors" id={a.id} name={a.name} />} /> : null;
+        return a ? <ActorCard actor={a} role={row.c.role} layout="row" style={{ paddingHorizontal: space.margin }} right={<FollowButton kind="actors" id={a.id} name={a.name} />} /> : null;
       }
       case 'post':
         return <PostCard post={row.p} hideContext />;
@@ -717,6 +797,16 @@ export default function DramaHub() {
       )}
 
       <Sheet visible={menu} onClose={() => setMenu(false)} title={drama.title}>
+        {drama.trailerUrl ? (
+          <SheetRow
+            icon="play-circle-outline"
+            label="Watch trailer"
+            onPress={() => {
+              setMenu(false);
+              openTrailer();
+            }}
+          />
+        ) : null}
         <SheetRow
           icon="share-social-outline"
           label="Share"
@@ -844,6 +934,28 @@ const styles = StyleSheet.create({
   },
   dot: { width: 8, height: 8, borderRadius: 4 },
   section: { paddingHorizontal: space.margin, paddingVertical: space.x4 },
+  trailerPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    height: 30,
+    paddingHorizontal: 12,
+    borderRadius: radius.full,
+    backgroundColor: colors.accentSoft,
+    borderWidth: 1,
+    borderColor: colors.accent,
+  },
+  streamPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    height: 30,
+    paddingHorizontal: 10,
+    borderRadius: radius.full,
+    backgroundColor: colors.surface1,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+  },
   progressCard: {
     flexDirection: 'row',
     alignItems: 'center',

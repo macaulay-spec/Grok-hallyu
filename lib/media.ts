@@ -3,7 +3,7 @@
  *
  *   • video posters are captured on-device when the post is composed (`makePoster`);
  *   • images saved to the gallery land in the "Hallyu" album (`saveImage`);
- *   • videos are saved as-is (the pipeline never re-encodes them — see docs/backend/10-video-storage.md).
+ *   • videos are saved as-is (the pipeline never re-encodes them — see lovable-cloud/README.md).
  *
  * NOTE: the previous pure-JS watermark compositor (fast-png + jpeg-js) was removed. It constructed
  * `new TextDecoder('latin1')` / `new TextEncoder()` at module-evaluation time, which Hermes does not

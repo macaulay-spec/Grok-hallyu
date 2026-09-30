@@ -11,6 +11,7 @@ import { Text } from '../../components/ui/Text';
 import { sizes, space } from '../../constants/theme';
 import { catalog, friendlyCatalogCopy } from '../../lib/catalog';
 import { adoptDramas } from '../../lib/catalogSync';
+import { inWorlds } from '../../lib/fandoms';
 import { haptic, useCatalogHealth, useDebounced, useLayout, useLoad } from '../../lib/hooks';
 import { Drama, WatchStatus } from '../../lib/model';
 import { allDramas, useStore } from '../../lib/store';
@@ -47,7 +48,9 @@ export default function DramasStep() {
       ]);
       const merged = [...trending, ...p1, ...top, ...p2];
       if (!merged.length) throw new Error('network');
-      return adoptDramas(merged);
+      const adopted = adoptDramas(merged);
+      const seen = new Set<string>();
+      return adopted.filter((d) => (seen.has(d.id) ? false : (seen.add(d.id), true)));
     },
     [],
     catalog.available,
@@ -56,11 +59,14 @@ export default function DramasStep() {
   // Search hits the live catalog too — anything a person has watched should be findable.
   const found = useLoad<Drama[]>(async (signal) => adoptDramas(await catalog.searchDramas(dq, signal)), [dq], catalog.available && dq.length >= 2);
 
+  const worlds = state.onboarding.fandoms;
   const list = useMemo(() => {
     const live = wall.data ?? [];
     const base = live.length ? live : allDramas(state); // offline / provider unavailable → what's saved locally
-    const rank = (d: Drama) => Number(d.genres.some((g) => genres.has(g)));
-    const ranked = [...base].sort((a, b) => rank(b) - rank(a));
+    const seenBase = new Set<string>();
+    const deduped = base.filter((d) => (seenBase.has(d.id) ? false : (seenBase.add(d.id), true)));
+    const rank = (d: Drama) => (inWorlds(d, worlds) ? 2 : 0) + Number(d.genres.some((g) => genres.has(g)));
+    const ranked = [...deduped].sort((a, b) => rank(b) - rank(a));
     if (!dq) return ranked;
     const needle = dq.toLowerCase();
     const local = ranked.filter((d) => d.title.toLowerCase().includes(needle) || d.originalTitle?.includes(dq));
@@ -68,7 +74,7 @@ export default function DramasStep() {
     const seen = new Set(local.map((d) => d.id));
     return [...local, ...remote.filter((d) => !seen.has(d.id))];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wall.data, found.data, dq, genres, state.importedDramas]);
+  }, [wall.data, found.data, dq, genres, worlds, state.importedDramas]);
 
   const cols = Math.max(3, Math.floor((width - margin * 2 + space.gutter) / (sizes.poster.m + space.gutter)));
   const count = Object.keys(picked).length;

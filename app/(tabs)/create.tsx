@@ -1,8 +1,7 @@
+import { Redirect } from 'expo-router';
 import React from 'react';
-import { View } from 'react-native';
-import { colors } from '../../constants/theme';
 
-/** The Create tab never renders — the tab bar intercepts the press: tap opens the composer (`/create/post`), long-press opens the type sheet. */
+/** The Create tab is intercepted by the tab bar, and redirects to `/create/post` on direct URL navigation. */
 export default function CreateTab() {
-  return <View style={{ flex: 1, backgroundColor: colors.canvas }} />;
+  return <Redirect href="/create/post" />;
 }

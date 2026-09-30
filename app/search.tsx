@@ -18,6 +18,7 @@ import { Text } from '../components/ui/Text';
 import { TopBar } from '../components/ui/TopBar';
 import { colors, space } from '../constants/theme';
 import { catalog } from '../lib/catalog';
+import { adoptActors, adoptDramas } from '../lib/catalogSync';
 import { useApp, useDebounced, useLoad, useNetwork } from '../lib/hooks';
 import { Actor, Drama } from '../lib/model';
 import { searchLocal, trendingDramas, trendingHashtags } from '../lib/selectors';
@@ -46,14 +47,26 @@ export default function Search() {
 
   const remote = useLoad(
     async (signal) => {
-      const [dramas, actors] = await Promise.all([catalog.searchDramas(debounced, signal), catalog.searchActors(debounced, signal)]);
-      const known = new Set(local.dramas.map((d) => d.provider?.id));
-      const knownA = new Set(local.actors.map((a) => a.provider?.id));
-      return { dramas: dramas.filter((d) => !known.has(d.provider?.id)), actors: actors.filter((a) => !knownA.has(a.provider?.id)) };
+      const [rawDramas, rawActors] = await Promise.all([catalog.searchDramas(debounced, signal), catalog.searchActors(debounced, signal)]);
+      const dramas = adoptDramas(rawDramas);
+      const actors = adoptActors(rawActors);
+      const knownIds = new Set(local.dramas.map((d) => d.id));
+      const knownAIds = new Set(local.actors.map((a) => a.id));
+      return { dramas: dramas.filter((d) => !knownIds.has(d.id)), actors: actors.filter((a) => !knownAIds.has(a.id)) };
     },
     [debounced],
     catalog.available && online && debounced.length >= 2 && !isTag && (scope === 'all' || scope === 'dramas' || scope === 'actors'),
   );
+
+  useEffect(() => {
+    if (params.q !== undefined) {
+      setQ(params.q);
+      if (params.scope) setScope(params.scope);
+      else if (params.q.startsWith('#')) setScope('posts');
+    } else if (params.scope) {
+      setScope(params.scope);
+    }
+  }, [params.q, params.scope]);
 
   useEffect(() => {
     if (!params.q) setTimeout(() => inputRef.current?.focus(), 80);
@@ -66,18 +79,18 @@ export default function Search() {
     }
   }, [debounced, dispatch, scope]);
 
-  useEffect(() => {
-    const fresh = (remote.data?.actors ?? []).filter((a) => !state.importedActors.some((x) => x.id === a.id));
-    if (fresh.length) dispatch({ type: 'import', actors: fresh });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [remote.data]);
-
-  const dramas: Drama[] = [...local.dramas, ...(remote.data?.dramas ?? [])];
-  const actors: Actor[] = [...local.actors, ...(remote.data?.actors ?? [])];
+  const dramas: Drama[] = useMemo(() => {
+    const seen = new Set<string>();
+    return [...local.dramas, ...(remote.data?.dramas ?? [])].filter((d) => (seen.has(d.id) ? false : (seen.add(d.id), true)));
+  }, [local.dramas, remote.data?.dramas]);
+  const actors: Actor[] = useMemo(() => {
+    const seen = new Set<string>();
+    return [...local.actors, ...(remote.data?.actors ?? [])].filter((a) => (seen.has(a.id) ? false : (seen.add(a.id), true)));
+  }, [local.actors, remote.data?.actors]);
   const total = dramas.length + actors.length + local.people.length + local.posts.length + local.collections.length + local.episodes.length;
   const openDrama = (d: Drama) => {
-    if (!state.importedDramas.some((x) => x.id === d.id) && d.provider) dispatch({ type: 'import', dramas: [d] });
-    router.push(`/drama/${d.id}`);
+    const [adopted] = !state.importedDramas.some((x) => x.id === d.id) && d.provider ? adoptDramas([d]) : [d];
+    router.push(`/drama/${(adopted ?? d).id}`);
   };
 
   const Group = ({ title, count, scopeKey, children }: { title: string; count: number; scopeKey: Scope; children: React.ReactNode }) =>
@@ -108,7 +121,7 @@ export default function Search() {
         <TopBar
           mode="stack"
           center={<SearchField ref={inputRef} value={q} onChangeText={setQ} placeholder="Dramas, actors, people, posts, #tags" style={{ flex: 1, height: 40 }} onSubmitEditing={() => Keyboard.dismiss()} />}
-          right={<Button label="Cancel" variant="ghost" size="sm" onPress={() => router.back()} />}
+          right={<Button label="Cancel" variant="ghost" size="sm" onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)/explore'))} />}
         />
       }
     >
@@ -157,7 +170,7 @@ export default function Search() {
           </View>
           {!catalog.available ? (
             <View style={{ paddingHorizontal: space.margin }}>
-              <InlineNotice tone="info" icon="information-circle-outline" text="Searching the local catalog. Connect a catalog key to search every Korean drama ever aired." />
+              <InlineNotice tone="info" icon="information-circle-outline" text="Searching the local catalog across K-Dramas, C-Dramas, Anime & Hollywood." />
             </View>
           ) : null}
         </ScrollView>
@@ -228,7 +241,7 @@ export default function Search() {
                 </View>
               ) : null}
               {!total && !remote.loading ? (
-                <EmptyState icon="search-outline" title={`Nothing for “${debounced}”`} body={isTag ? 'No posts carry this tag yet. Be the first — tag it in a post.' : 'Check the spelling, try the Korean title, or search an actor’s name.'} actionLabel={isTag ? 'Post with this tag' : 'Browse Explore'} onAction={() => (isTag ? router.push({ pathname: '/create/post', params: { tag: debounced.slice(1) } }) : router.replace('/(tabs)/explore'))} />
+                <EmptyState icon="search-outline" title={`Nothing for “${debounced}”`} body={isTag ? 'No posts carry this tag yet. Be the first — tag it in a post.' : 'Check the spelling, try the original or English title, or search an actor’s name.'} actionLabel={isTag ? 'Post with this tag' : 'Browse Explore'} onAction={() => (isTag ? router.push({ pathname: '/create/post', params: { tag: debounced.slice(1) } }) : router.replace('/(tabs)/explore'))} />
               ) : null}
               {debounced.length === 1 ? (
                 <Text variant="caption" tone="tertiary" style={{ paddingHorizontal: space.margin, marginTop: space.x3 }}>

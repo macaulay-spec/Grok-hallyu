@@ -158,6 +158,7 @@ export default function Composer() {
     return sub;
   }, [navigation, dirty, posting, editing]);
 
+  const goBack = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)'));
   const leave = (save: boolean) => {
     if (save) {
       saveDraft();
@@ -165,7 +166,7 @@ export default function Composer() {
     } else if (draft) dispatch({ type: 'deleteDraft', id: draft.id });
     setLeaveDialog(false);
     setPosting(true); // disarm the guard
-    setTimeout(() => router.back(), 30);
+    setTimeout(() => goBack(), 30);
   };
 
   const pickImages = async () => {
@@ -228,7 +229,7 @@ export default function Composer() {
       dispatch({ type: 'editPost', id: editing.id, patch: { ...common, editedAt: new Date().toISOString() } });
       haptic.success();
       toast.show({ message: 'Post updated', icon: 'checkmark-circle', tone: 'success' });
-      router.back();
+      goBack();
       return;
     }
     const post = newPost(me.id, { type, ...common });
@@ -245,7 +246,7 @@ export default function Composer() {
       actionLabel: 'View',
       onAction: () => router.push(`/post/${post.id}`),
     });
-    router.back();
+    goBack();
   };
 
   const contextVisible = contextOpen || needsDrama || !!drama || actorIds.length > 0 || spoiler !== 'none' || !!hint;
@@ -335,7 +336,7 @@ export default function Composer() {
           mode="modal"
           title={editing ? `Edit ${meta.label.toLowerCase()}` : meta.label}
           subtitle={drama ? (ep?.episode ? `${drama.title} · Ep ${ep.episode}` : drama.title) : undefined}
-          onBack={() => (dirty && !editing ? setLeaveDialog(true) : router.back())}
+          onBack={() => (dirty && !editing ? setLeaveDialog(true) : goBack())}
           right={<Button label={editing ? 'Save' : type === 'review' ? 'Publish' : 'Post'} size="sm" onPress={publish} disabled={!canPost} loading={posting} />}
         />
       }

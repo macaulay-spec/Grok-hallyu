@@ -14,7 +14,9 @@ import { TextField } from '../components/ui/TextField';
 import { useToast } from '../components/ui/Toast';
 import { TopBar } from '../components/ui/TopBar';
 import { colors, radius, sizes, space } from '../constants/theme';
+import { FANDOMS } from '../lib/fandoms';
 import { haptic, useApp } from '../lib/hooks';
+import { FandomId } from '../lib/model';
 import { GENRES, LIMITS } from '../lib/model';
 
 /** Edit profile — name, handle, bio, avatar, favourite genres, four favourite dramas, private toggle. */
@@ -26,6 +28,7 @@ export default function EditProfile() {
   const [handle, setHandle] = useState(me.handle);
   const [bio, setBio] = useState(me.bio ?? '');
   const [avatarUrl, setAvatarUrl] = useState(me.avatarUrl);
+  const [fandoms, setFandoms] = useState<FandomId[]>(me.fandoms ?? []);
   const [genres, setGenres] = useState<string[]>(me.favoriteGenres);
   const [favorites, setFavorites] = useState<string[]>(me.favoriteDramaIds.slice(0, 4));
   const [isPrivate, setPrivate] = useState(!!me.isPrivate);
@@ -45,7 +48,8 @@ export default function EditProfile() {
 
   const save = () => {
     if (!valid) return;
-    dispatch({ type: 'profile', patch: { displayName: displayName.trim(), handle: handleClean, bio: bio.trim() || undefined, avatarUrl, favoriteGenres: genres, favoriteDramaIds: favorites, isPrivate } });
+    dispatch({ type: 'profile', patch: { displayName: displayName.trim(), handle: handleClean, bio: bio.trim() || undefined, avatarUrl, fandoms, favoriteGenres: genres, favoriteDramaIds: favorites, isPrivate } });
+    dispatch({ type: 'onboarding', patch: { fandoms } });
     haptic.success();
     toast.show({ message: 'Profile updated', icon: 'checkmark-circle', tone: 'success' });
     router.back();
@@ -67,6 +71,22 @@ export default function EditProfile() {
           <TextField label="Display name" value={displayName} onChangeText={(t) => setDisplayName(t.slice(0, LIMITS.displayName))} counter={LIMITS.displayName} error={nameError} autoCapitalize="words" />
           <TextField label="Handle" value={handle} onChangeText={(t) => setHandle(t.replace(/\s/g, ''))} leading="at-outline" autoCapitalize="none" autoCorrect={false} error={handleError} hint="hallyu.app/u/your-handle" />
           <TextField label="Bio" value={bio} onChangeText={(t) => setBio(t.slice(0, LIMITS.bio))} counter={LIMITS.bio} multiline multilineHeight={88} placeholder="What you watch, what you love, who you cry over." />
+          <View>
+            <Text variant="label" style={{ marginBottom: space.x2 }}>
+              Your worlds
+            </Text>
+            <ChipRow>
+              {FANDOMS.map((f) => (
+                <Chip
+                  key={f.id}
+                  label={`${f.flag} ${f.label}`}
+                  size="sm"
+                  selected={fandoms.includes(f.id)}
+                  onPress={() => setFandoms((p) => (p.includes(f.id) ? p.filter((x) => x !== f.id) : [...p, f.id]))}
+                />
+              ))}
+            </ChipRow>
+          </View>
           <View>
             <Text variant="label" style={{ marginBottom: space.x2 }}>
               Favourite genres

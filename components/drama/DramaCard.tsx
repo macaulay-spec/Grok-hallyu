@@ -36,7 +36,8 @@ function DramaCardBase({ drama, size = 'm', reason, meta, showProgress = true, s
   const width = sizes.poster[size];
   const [menu, setMenu] = useState(false);
   const item = watch(drama.id);
-  const total = item ? drama.seasons.find((s) => s.number === item.season)?.episodeCount ?? drama.episodeCount : 0;
+  const rawTotal = item ? drama.seasons.find((s) => s.number === item.season)?.episodeCount ?? drama.episodeCount : 0;
+  const total = item ? rawTotal || (drama.mediaType === 'movie' ? 1 : 16) : 0;
   const line = meta ?? [drama.year, drama.genres[0]].filter(Boolean).join(' · ');
   return (
     <>

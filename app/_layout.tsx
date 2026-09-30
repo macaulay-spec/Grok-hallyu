@@ -184,6 +184,17 @@ function AccountSync() {
   const gen = useRef(0);
   const navReady = useRootNavigationState()?.key != null;
 
+  // Save per-account state snapshot so signing out and back in (or reloading) never loses
+  // onboarding completion, watchlist progress, follows, saves, posts, or profile edits.
+  useEffect(() => {
+    if (!state.hydrated || !state.profile.id || state.profile.id === GUEST_ID) return;
+    const id = state.profile.id;
+    const t = setTimeout(() => {
+      AsyncStorage.setItem(`hallyu.account.v4.${id}`, JSON.stringify(state)).catch(() => {});
+    }, 200);
+    return () => clearTimeout(t);
+  }, [state]);
+
   // Guests and signed-out visitors browse the public world with no personal layer. Device-only
   // prefs (reduceMotion / trueBlack) are the viewer's, not the account's — carry them over.
   useEffect(() => {
@@ -196,10 +207,17 @@ function AccountSync() {
       inFlight.current = null;
       applied.current = null;
       if ((auth.status === 'guest' || auth.status === 'signedOut') && state.profile.id !== GUEST_ID) {
+        const prevId = state.profile.id;
+        if (prevId) {
+          AsyncStorage.setItem(`hallyu.account.v4.${prevId}`, JSON.stringify(getState())).catch(() => {});
+        }
         const device = { reduceMotion: state.prefs.reduceMotion, trueBlack: state.prefs.trueBlack };
         setDownloadScope(null);
         reset(guestState());
         dispatch({ type: 'prefs', patch: device });
+      }
+      if (auth.status === 'guest') {
+        void getBackend().pull('home').catch(() => {});
       }
       return;
     }
@@ -218,28 +236,46 @@ function AccountSync() {
     setDownloadScope(u.id);
     const device = { reduceMotion: state.prefs.reduceMotion, trueBlack: state.prefs.trueBlack };
     const key = `hallyu.account.${u.id}`;
+    const snapKey = `hallyu.account.v4.${u.id}`;
+    const alreadyHoldingAccount = state.profile.id === u.id;
 
     void (async () => {
       try {
-        const seen = await AsyncStorage.getItem(key);
+        const [seen, rawSnap] = await Promise.all([AsyncStorage.getItem(key), alreadyHoldingAccount ? Promise.resolve(null) : AsyncStorage.getItem(snapKey)]);
         if (stale()) return;
         if (!seen) AsyncStorage.setItem(key, '1').catch((e) => reportError('AccountSync.markSeen', e));
-        reset(
-          u.provider === 'demo'
-            ? demoMemberState()
-            : freshMemberState({
-                id: u.id,
-                handle: u.handle,
-                displayName: u.displayName,
-                avatarUrl: u.avatarUrl,
-                favoriteGenres: [],
-                favoriteDramaIds: [],
-                followers: 0,
-                following: 0,
-                joinedAt: new Date().toISOString(),
-              }),
-        );
-        dispatch({ type: 'prefs', patch: device });
+        if (!alreadyHoldingAccount) {
+          let restored = false;
+          if (rawSnap) {
+            try {
+              const parsed = JSON.parse(rawSnap);
+              if (parsed && parsed.profile?.id === u.id) {
+                reset({ ...parsed, hydrated: true });
+                restored = true;
+              }
+            } catch {
+              /* ignore corrupt snapshot */
+            }
+          }
+          if (!restored) {
+            reset(
+              u.provider === 'demo'
+                ? demoMemberState()
+                : freshMemberState({
+                    id: u.id,
+                    handle: u.handle,
+                    displayName: u.displayName,
+                    avatarUrl: u.avatarUrl,
+                    favoriteGenres: [],
+                    favoriteDramaIds: [],
+                    followers: 0,
+                    following: 0,
+                    joinedAt: new Date().toISOString(),
+                  }),
+            );
+          }
+          dispatch({ type: 'prefs', patch: device });
+        }
         // Pull the account snapshot (profile, graph, watchlist…) and the feeds. The backend drops any
         // response whose account changed mid-flight, and we re-check here between steps.
         const backend = getBackend();

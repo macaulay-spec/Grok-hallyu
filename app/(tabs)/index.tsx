@@ -129,11 +129,18 @@ function Home() {
     }
   }, [liveFeed, newCount]);
   useEffect(() => {
+    atTop.current = true;
     setFeed(liveFeed);
     setUniverse('all');
     setPage(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
+  useEffect(() => {
+    atTop.current = true;
+    setFeed(liveFeed);
+    setPage(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [universe]);
   const showNew = () => {
     setFeed(liveFeed);
     setPage(1);

@@ -1,17 +1,12 @@
 /**
- * Client credentials wired into the app.
+ * Client configuration & public API keys.
  *
- * This is the frontend-only build, so exactly one provider is configured: TMDB, which the drama and
- * actor catalog is read from directly by the client (lib/catalog.ts). The catalog token is a public,
- * read-only credential by design — it ships inside every installed bundle and cannot write to TMDB.
- * Rotate it at themoviedb.org → Settings → API and paste the new value.
- *
- * Supabase project URLs and publishable keys used to live here. They are not needed by the app any
- * more and have moved next to the code that consumed them: see `backend/supabase.ts`. Do not add
- * database or storage credentials back into this file — a bundle ships them to every device.
- *
- * An `EXPO_PUBLIC_*` variable overrides a value ONLY when it is non-empty — CI and copied
- * `.env.example` files often define the variable as an empty string, which must not blank the key.
+ * 1. TMDB read-only credentials (used by `lib/catalog.ts` for live 4-world catalog discovery).
+ * 2. Lovable Cloud connection placeholders (`LOVABLE_CLOUD_URL` & `LOVABLE_CLOUD_ANON_KEY`).
+ *    Leave them empty during local/demo mode; once your Lovable Cloud project is provisioned,
+ *    set `EXPO_PUBLIC_LOVABLE_CLOUD_URL` and `EXPO_PUBLIC_LOVABLE_CLOUD_ANON_KEY` (or fill them
+ *    in below) and `lib/data/sync.ts` will automatically switch from `demoBackend` to
+ *    `lovableBackend`.
  */
 const env = (v: string | undefined): string | undefined => {
   const t = v?.trim();
@@ -25,3 +20,9 @@ export const TMDB_ACCESS_TOKEN =
 
 /** TMDB v3 API key (used as `?api_key=` when no v4 token is available). */
 export const TMDB_API_KEY = env(process.env.EXPO_PUBLIC_TMDB_API_KEY) ?? 'ff01f28fc5c47791e28038349445bf58';
+
+/** Lovable Cloud project URL (unwired placeholder until your Lovable Cloud backend is connected). */
+export const LOVABLE_CLOUD_URL = env(process.env.EXPO_PUBLIC_LOVABLE_CLOUD_URL) ?? '';
+
+/** Lovable Cloud publishable anon key (unwired placeholder until your Lovable Cloud backend is connected). */
+export const LOVABLE_CLOUD_ANON_KEY = env(process.env.EXPO_PUBLIC_LOVABLE_CLOUD_ANON_KEY) ?? '';

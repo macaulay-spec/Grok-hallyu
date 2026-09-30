@@ -3,10 +3,9 @@
  * (lib/data/sync.ts) replays those actions against whatever implements `Backend`, and screens
  * call `pull(scope)` to refresh cached content.
  *
- * Today: `demoBackend` (lib/data/demoBackend.ts) — the frontend-only build. It accepts every
- * mutation (state is local + persisted) and seeds the social fixtures on first pull; nothing leaves
- * the device. The Supabase adapter that used to live here is parked under `backend/` — see
- * backend/README.md — and can be re-attached by implementing this same interface.
+ * Default offline mode: `demoBackend` (lib/data/demoBackend.ts). When `LOVABLE_CLOUD_URL` and
+ * `LOVABLE_CLOUD_ANON_KEY` are configured in `constants/keys.ts`, `lib/data/sync.ts` automatically
+ * switches to `lovableBackend` (lib/data/lovableBackend.ts) backed by `lovable-cloud/`.
  */
 import type { Mutation } from '../store';
 
