@@ -12,10 +12,15 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { LOVABLE_CLOUD_ANON_KEY, LOVABLE_CLOUD_URL } from '../../constants/keys';
-import { Collection, Comment, Notification, Post, ReactionCounts, SpoilerLevel, User } from '../model';
-import { dispatchLocal, getState, GUEST_ID, Mutation } from '../store';
+import { Actor, Collection, Comment, Drama, Episode, FandomId, Notification, Post, ReactionCounts, ReactionKind, SpoilerLevel, SpoilerProtection, User, WatchlistItem, WatchStatus } from '../model';
+import { dispatchLocal, getState, GUEST_ID, Intent, MePayload, Mutation, Prefs } from '../store';
 import { Backend, BackendError, PullOptions, PullScope } from './backend';
 import { demoBackend } from './demoBackend';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isUuid(val?: string | null): val is string {
+  return Boolean(val && UUID_RE.test(val));
+}
 
 export const lovableBackendAvailable = Boolean(LOVABLE_CLOUD_URL && LOVABLE_CLOUD_ANON_KEY);
 
@@ -216,12 +221,14 @@ export const lovableBackend: Backend = {
     if (!client) return;
 
     const uid = getState().profile.id;
-    if (!uid || uid === GUEST_ID) return;
+    // Skip remote writes when signed out, browsing as guest, or exploring the local demo account
+    if (!uid || uid === GUEST_ID || !isUuid(uid)) return;
 
     const a = mutation.action;
     try {
       switch (a.type) {
         case 'addPost': {
+          if (!isUuid(a.post.id)) return;
           await ensureCatalogDramaExists(client, a.post.context.dramaId);
           await ensureCatalogDramaExists(client, a.post.context.secondaryDramaId);
           const { error } = await client.from('posts').upsert({
@@ -249,6 +256,7 @@ export const lovableBackend: Backend = {
           return;
         }
         case 'editPost': {
+          if (!isUuid(a.id)) return;
           const { error } = await client
             .from('posts')
             .update({
@@ -265,6 +273,7 @@ export const lovableBackend: Backend = {
           return;
         }
         case 'deletePost': {
+          if (!isUuid(a.id)) return;
           const { error } = await client
             .from('posts')
             .update({ state: 'deleted' })
@@ -274,12 +283,13 @@ export const lovableBackend: Backend = {
           return;
         }
         case 'addComment': {
+          if (!isUuid(a.comment.id) || !isUuid(a.comment.postId)) return;
           const { error } = await client.from('comments').upsert({
             id: a.comment.id,
             post_id: a.comment.postId,
             author_id: uid,
-            parent_id: a.comment.parentId ?? null,
-            reply_to_user_id: a.comment.replyToUserId ?? null,
+            parent_id: isUuid(a.comment.parentId) ? a.comment.parentId : null,
+            reply_to_user_id: isUuid(a.comment.replyToUserId) ? a.comment.replyToUserId : null,
             body: a.comment.body,
             spoiler: a.comment.spoiler,
             state: 'active',
@@ -289,6 +299,7 @@ export const lovableBackend: Backend = {
           return;
         }
         case 'deleteComment': {
+          if (!isUuid(a.id)) return;
           const { error } = await client
             .from('comments')
             .update({ state: 'deleted' })
@@ -298,6 +309,7 @@ export const lovableBackend: Backend = {
           return;
         }
         case 'react': {
+          if (!isUuid(a.targetId)) return;
           const { error } = await client.rpc('toggle_reaction', {
             p_target_id: a.targetId,
             p_kind: a.kind,
@@ -307,6 +319,7 @@ export const lovableBackend: Backend = {
           return;
         }
         case 'save': {
+          if (!isUuid(a.postId)) return;
           const on = a.on ?? true;
           if (on) {
             const { error } = await client
@@ -326,6 +339,7 @@ export const lovableBackend: Backend = {
         case 'follow': {
           const on = a.on ?? true;
           if (a.kind === 'users') {
+            if (!isUuid(a.id)) return;
             if (on) {
               await client.from('user_follows').upsert({ follower_id: uid, target_user_id: a.id });
             } else {
@@ -345,6 +359,7 @@ export const lovableBackend: Backend = {
               await client.from('actor_follows').delete().eq('user_id', uid).eq('actor_id', a.id);
             }
           } else if (a.kind === 'collections') {
+            if (!isUuid(a.id)) return;
             if (on) {
               await client.from('collection_follows').upsert({ user_id: uid, collection_id: a.id });
             } else {
@@ -400,6 +415,7 @@ export const lovableBackend: Backend = {
           return;
         }
         case 'upsertCollection': {
+          if (!isUuid(a.collection.id)) return;
           const { error } = await client.from('collections').upsert({
             id: a.collection.id,
             owner_id: uid,
@@ -412,11 +428,13 @@ export const lovableBackend: Backend = {
           return;
         }
         case 'deleteCollection': {
+          if (!isUuid(a.id)) return;
           const { error } = await client.from('collections').delete().eq('id', a.id).eq('owner_id', uid);
           if (error) throw new BackendError(error.message, true);
           return;
         }
         case 'collectionItem': {
+          if (!isUuid(a.collectionId)) return;
           await ensureCatalogDramaExists(client, a.dramaId);
           if (a.on) {
             await client.from('collection_items').upsert({
@@ -479,6 +497,7 @@ export const lovableBackend: Backend = {
           return;
         }
         case 'block': {
+          if (!isUuid(a.userId)) return;
           if (a.on) {
             await client.from('user_blocks').upsert({ user_id: uid, blocked_user_id: a.userId });
           } else {
@@ -487,6 +506,7 @@ export const lovableBackend: Backend = {
           return;
         }
         case 'muteUser': {
+          if (!isUuid(a.userId)) return;
           if (a.on) {
             await client.from('user_mutes').upsert({ user_id: uid, muted_user_id: a.userId });
           } else {
@@ -507,14 +527,15 @@ export const lovableBackend: Backend = {
           await client.from('reports').insert({
             reporter_id: uid,
             target_id: a.id,
-            kind: 'post',
-            reason: 'reported',
+            kind: a.targetType ?? 'post',
+            reason: a.reason ?? 'reported',
+            detail: a.detail ?? null,
           });
           return;
         }
         case 'readNotifications': {
           await client.rpc('mark_notifications_read', {
-            p_notification_id: a.id ?? null,
+            p_notification_id: isUuid(a.id) ? a.id : null,
             p_group: a.group ?? 'all',
           });
           return;
@@ -536,19 +557,141 @@ export const lovableBackend: Backend = {
     if (scope === 'me') {
       const { data } = await client.rpc('pull_me_state');
       if (data && data.authenticated && data.profile) {
-        dispatchLocal({ type: 'profile', patch: mapUserRow(data.profile) });
+        const rawPrefs = (data.prefs ?? {}) as Record<string, unknown>;
+        const prefsPatch: Partial<Prefs> = {
+          protection: (rawPrefs.protection as SpoilerProtection) ?? 'balanced',
+          autoplay: (rawPrefs.autoplay as Prefs['autoplay']) ?? 'wifi',
+          oneTapReactions: Boolean(rawPrefs.one_tap_reactions ?? true),
+          mutedWords: Array.isArray(rawPrefs.muted_words) ? (rawPrefs.muted_words as string[]) : [],
+          personalization: Boolean(rawPrefs.personalization ?? true),
+          language: rawPrefs.language === 'ko' ? 'ko' : 'en',
+          guidelinesAccepted: Boolean(rawPrefs.guidelines_accepted ?? false),
+          dataSaver: Boolean(rawPrefs.data_saver ?? false),
+          termsVersion: Number(rawPrefs.terms_version ?? 0),
+          notifications: {
+            episodes: Boolean(rawPrefs.notify_episodes ?? true),
+            social: Boolean(rawPrefs.notify_social ?? true),
+            highlights: Boolean(rawPrefs.notify_highlights ?? true),
+            system: Boolean(rawPrefs.notify_system ?? true),
+            quietHours: Boolean(rawPrefs.notify_quiet_hours ?? false),
+          },
+        };
+        const rawWatchlist = (data.watchlist ?? {}) as Record<string, Record<string, unknown>>;
+        const watchlist: Record<string, WatchlistItem> = {};
+        for (const [dramaId, w] of Object.entries(rawWatchlist)) {
+          watchlist[dramaId] = {
+            dramaId,
+            status: (w.status as WatchStatus) ?? 'watching',
+            season: Number(w.season ?? 1),
+            currentEpisode: Number(w.currentEpisode ?? 0),
+            note: w.note ? String(w.note) : undefined,
+            addedAt: String(w.startedAt ?? w.updatedAt ?? new Date().toISOString()),
+            updatedAt: String(w.updatedAt ?? new Date().toISOString()),
+            completedAt: w.completedAt ? String(w.completedAt) : undefined,
+          };
+        }
+        const rawDramaNotify = (data.dramaNotify ?? {}) as Record<string, boolean>;
+        const dramaNotifyIds = Object.entries(rawDramaNotify)
+          .filter(([, on]) => Boolean(on))
+          .map(([id]) => id);
+
+        const payload: MePayload = {
+          profile: mapUserRow(data.profile as Record<string, unknown>),
+          prefs: prefsPatch,
+          onboarding: {
+            done: Boolean(rawPrefs.onboarding_done ?? false),
+            step: Number(rawPrefs.onboarding_step ?? 0),
+            intent: (rawPrefs.onboarding_intent as Intent) ?? undefined,
+            genres: Array.isArray(rawPrefs.onboarding_genres) ? (rawPrefs.onboarding_genres as string[]) : [],
+            fandoms: Array.isArray(rawPrefs.onboarding_fandoms) ? (rawPrefs.onboarding_fandoms as FandomId[]) : [],
+          },
+          follows: data.follows as MePayload['follows'],
+          dramaNotify: dramaNotifyIds,
+          watchlist,
+          reactions: (data.reactions as Record<string, ReactionKind>) ?? {},
+          saves: Array.isArray(data.saves) ? (data.saves as string[]) : [],
+          blockedUsers: Array.isArray(data.blockedUsers) ? (data.blockedUsers as string[]) : [],
+          mutedUsers: Array.isArray(data.mutedUsers) ? (data.mutedUsers as string[]) : [],
+          mutedDramas: Array.isArray(data.mutedDramas) ? (data.mutedDramas as string[]) : [],
+        };
+        dispatchLocal({ type: 'me', payload });
       }
       return;
     }
 
     if (scope === 'home' || scope === 'feed:forYou' || scope === 'trending') {
-      const { data } = await client
-        .from('posts')
-        .select('*')
-        .eq('state', 'active')
-        .order('created_at', { ascending: false })
-        .limit(40);
-      if (data?.length) await mergePostsWithAuthors(client, data as Record<string, unknown>[]);
+      const [{ data: postRows }, { data: dramaRows }, { data: actorRows }] = await Promise.all([
+        client.from('posts').select('*').eq('state', 'active').order('created_at', { ascending: false }).limit(40),
+        client.from('dramas').select('*, episodes(*), drama_cast(*)').limit(60),
+        client.from('actors').select('*').limit(60),
+      ]);
+      if (dramaRows?.length || actorRows?.length) {
+        const dramas: Drama[] = (dramaRows ?? []).map((r: Record<string, unknown>) => ({
+          id: String(r.id),
+          title: String(r.title ?? ''),
+          originalTitle: r.original_title ? String(r.original_title) : undefined,
+          mediaType: r.media_type === 'movie' ? 'movie' : 'tv',
+          format: (r.format as Drama['format']) ?? 'kdrama',
+          originalLanguage: r.original_language ? String(r.original_language) : undefined,
+          region: r.region ? String(r.region) : undefined,
+          runtime: r.runtime != null ? Number(r.runtime) : undefined,
+          year: Number(r.year ?? 2024),
+          endYear: r.end_year != null ? Number(r.end_year) : undefined,
+          status: (r.status as Drama['status']) ?? 'completed',
+          network: r.network ? String(r.network) : undefined,
+          streamingOn: Array.isArray(r.streaming_on) ? (r.streaming_on as string[]) : undefined,
+          genres: Array.isArray(r.genres) ? (r.genres as string[]) : [],
+          tags: Array.isArray(r.tags) ? (r.tags as string[]) : undefined,
+          synopsis: String(r.synopsis ?? ''),
+          posterUrl: r.poster_url ? String(r.poster_url) : undefined,
+          backdropUrl: r.backdrop_url ? String(r.backdrop_url) : undefined,
+          trailerUrl: r.trailer_url ? String(r.trailer_url) : undefined,
+          tone: String(r.tone ?? '#2F3A46'),
+          rating: r.rating != null ? Number(r.rating) : undefined,
+          episodeCount: Number(r.episode_count ?? 0),
+          seasons: Array.isArray(r.seasons) ? (r.seasons as Drama['seasons']) : [],
+          episodes: Array.isArray(r.episodes)
+            ? (r.episodes as Record<string, unknown>[]).map(
+                (ep): Episode => ({
+                  id: String(ep.id),
+                  dramaId: String(ep.drama_id ?? r.id),
+                  season: Number(ep.season ?? 1),
+                  number: Number(ep.number ?? 1),
+                  title: ep.title ? String(ep.title) : undefined,
+                  synopsis: ep.synopsis ? String(ep.synopsis) : undefined,
+                  airDate: ep.air_date ? String(ep.air_date) : undefined,
+                  runtime: ep.runtime != null ? Number(ep.runtime) : undefined,
+                  stillUrl: ep.still_url ? String(ep.still_url) : undefined,
+                }),
+              )
+            : [],
+          cast: Array.isArray(r.drama_cast)
+            ? (r.drama_cast as Record<string, unknown>[]).map((c) => ({
+                actorId: String(c.actor_id),
+                role: String(c.role ?? ''),
+                order: Number(c.cast_order ?? 0),
+              }))
+            : [],
+          creators: Array.isArray(r.creators) ? (r.creators as string[]) : undefined,
+          airsOn: r.airs_on ? String(r.airs_on) : undefined,
+          nextEpisodeAt: r.next_episode_at ? String(r.next_episode_at) : undefined,
+          followerCount: Number(r.follower_count ?? 0),
+          provider: r.tmdb_id != null ? { name: 'tmdb', id: Number(r.tmdb_id), mediaType: r.media_type === 'movie' ? 'movie' : 'tv' } : undefined,
+        }));
+        const actors: Actor[] = (actorRows ?? []).map((a: Record<string, unknown>) => ({
+          id: String(a.id),
+          name: String(a.name ?? ''),
+          koreanName: a.korean_name ? String(a.korean_name) : undefined,
+          photoUrl: a.photo_url ? String(a.photo_url) : undefined,
+          bio: a.bio ? String(a.bio) : undefined,
+          birthDate: a.birth_date ? String(a.birth_date) : undefined,
+          knownFor: Array.isArray(a.known_for) ? (a.known_for as string[]) : [],
+          followerCount: Number(a.follower_count ?? 0),
+          provider: a.tmdb_id != null ? { name: 'tmdb', id: Number(a.tmdb_id) } : undefined,
+        }));
+        dispatchLocal({ type: 'import', dramas, actors });
+      }
+      if (postRows?.length) await mergePostsWithAuthors(client, postRows as Record<string, unknown>[]);
       return;
     }
 

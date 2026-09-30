@@ -169,7 +169,7 @@ Create all 22 tables in `public`:
 - `aspect_ratio` numeric(4,2)
 - `video` jsonb (`{ key, url, poster, duration, width, height }`)
 - `hashtags` `text[]` not null default `'{}'`
-- `mentions` `uuid[]` not null default `'{}'`
+- `mentions` `text[]` not null default `'{}'`
 - `reactions` jsonb not null default `'{"loved":0,"cried":0,"screamed":0,"swooned":0,"laughed":0,"furious":0}'::jsonb`
 - `comment_count` integer not null default `0`
 - `save_count` integer not null default `0`

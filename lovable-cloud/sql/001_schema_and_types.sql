@@ -302,7 +302,7 @@ create table if not exists public.watchlist_items (
   status public.watch_status not null default 'watching',
   season integer not null default 1 check (season >= 1),
   current_episode integer not null default 0 check (current_episode >= 0),
-  rating numeric(2,1) check (rating is null or (rating >= 0.5 and rating <= 5.0)),
+  rating numeric(3,1) check (rating is null or (rating >= 0.5 and rating <= 10.0)),
   note text check (note is null or char_length(note) <= 280),
   started_at timestamptz,
   completed_at timestamptz,
@@ -322,7 +322,7 @@ create table if not exists public.posts (
   title text check (title is null or char_length(title) <= 100),
   body text not null default '' check (char_length(body) <= 4000),
   verdict text check (verdict is null or char_length(verdict) <= 120),
-  rating numeric(2,1) check (rating is null or (rating >= 0.5 and rating <= 5.0)),
+  rating numeric(3,1) check (rating is null or (rating >= 0.5 and rating <= 10.0)),
   pros text[] not null default '{}',
   cons text[] not null default '{}',
   -- Context strip links
@@ -339,7 +339,7 @@ create table if not exists public.posts (
   video jsonb, -- { key, url, poster, duration, width, height }
   -- Extracted tokens
   hashtags text[] not null default '{}',
-  mentions uuid[] not null default '{}',
+  mentions text[] not null default '{}',
   -- Aggregated counters
   reactions jsonb not null default '{"loved":0,"cried":0,"screamed":0,"swooned":0,"laughed":0,"furious":0}'::jsonb,
   comment_count integer not null default 0 check (comment_count >= 0),
