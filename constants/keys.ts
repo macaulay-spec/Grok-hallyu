@@ -22,7 +22,7 @@ export const TMDB_ACCESS_TOKEN =
 export const TMDB_API_KEY = env(process.env.EXPO_PUBLIC_TMDB_API_KEY) ?? 'ff01f28fc5c47791e28038349445bf58';
 
 /** Lovable Cloud project URL (unwired placeholder until your Lovable Cloud backend is connected). */
-export const LOVABLE_CLOUD_URL = env(process.env.EXPO_PUBLIC_LOVABLE_CLOUD_URL) ?? '';
+export const LOVABLE_CLOUD_URL = env(process.env.EXPO_PUBLIC_LOVABLE_CLOUD_URL) ?? 'https://c--1829371b-7ee9-4f4a-8408-8f045a1e362b-prod.lovable.cloud';
 
 /** Lovable Cloud publishable anon key (unwired placeholder until your Lovable Cloud backend is connected). */
-export const LOVABLE_CLOUD_ANON_KEY = env(process.env.EXPO_PUBLIC_LOVABLE_CLOUD_ANON_KEY) ?? '';
+export const LOVABLE_CLOUD_ANON_KEY = env(process.env.EXPO_PUBLIC_LOVABLE_CLOUD_ANON_KEY) ?? 'sb_publishable_yByktsPhjBMpcYv3W1A6Mw_tOdkI6dc';
