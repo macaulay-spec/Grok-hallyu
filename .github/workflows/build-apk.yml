@@ -27,72 +27,110 @@ jobs:
     env:
       EXPO_NO_TELEMETRY: "1"
       CI: "1"
-      # Expo SDK 51 / React Native 0.74 compatible NDK.
+
+      # Android build compatibility
       ANDROID_NDK_VERSION: "26.1.10909125"
-      # Optional build-time overrides for the backend endpoints. Empty secrets are ignored by
-      # constants/keys.ts (which keeps its built-in defaults), so the APK still connects to the
-      # live backend when these are unset. Backend #3 keys are deliberately NOT injected here.
-      EXPO_PUBLIC_HALYU_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_HALYU_SUPABASE_URL }}
-      EXPO_PUBLIC_HALYU_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_HALYU_SUPABASE_ANON_KEY }}
-      EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
-      EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+
+      # ============================================================
+      # LIVE BACKEND: LOVABLE CLOUD
+      # These are injected at Expo build time so they are bundled
+      # into the release APK.
+      # ============================================================
+      EXPO_PUBLIC_LOVABLE_CLOUD_URL: ${{ secrets.LOVABLE_CLOUD_URL }}
+      EXPO_PUBLIC_LOVABLE_CLOUD_ANON_KEY: ${{ secrets.LOVABLE_CLOUD_ANON_KEY }}
+
+      # ============================================================
+      # TMDB
+      # Used directly by the app for catalog discovery.
+      # ============================================================
       EXPO_PUBLIC_TMDB_ACCESS_TOKEN: ${{ secrets.EXPO_PUBLIC_TMDB_ACCESS_TOKEN }}
       EXPO_PUBLIC_TMDB_API_KEY: ${{ secrets.EXPO_PUBLIC_TMDB_API_KEY }}
-      # Backend #3 (video fallback): when these secrets are set, video uploads automatically
-      # redirect to that project whenever Backend #2 is exhausted or unavailable
-      # (lib/video.ts). Unset → the app behaves exactly as before, Backend #2 only.
-      EXPO_PUBLIC_BACKEND_3_URL: ${{ secrets.EXPO_PUBLIC_BACKEND_3_URL }}
-      EXPO_PUBLIC_BACKEND_3_ANON_KEY: ${{ secrets.EXPO_PUBLIC_BACKEND_3_ANON_KEY }}
 
     steps:
+      # ============================================================
+      # CHECKOUT
+      # ============================================================
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ============================================================
+      # NODE
+      # ============================================================
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
+      # ============================================================
+      # BUN
+      # ============================================================
       - name: Setup bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
+      # ============================================================
+      # JAVA
+      # ============================================================
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
 
+      # ============================================================
+      # ANDROID SDK
+      # ============================================================
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          # NOTE: setup-android splits `packages` on SPACES, not newlines.
           packages: 'platforms;android-34 build-tools;34.0.0 ndk;26.1.10909125'
 
+      # ============================================================
+      # DEPENDENCIES
+      # ============================================================
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # ============================================================
+      # TYPECHECK
+      # ============================================================
       - name: Typecheck
         run: npm run typecheck
 
+      # ============================================================
+      # EXPO PREBUILD
+      # ============================================================
       - name: Expo prebuild
         run: npx expo prebuild --platform android --clean --no-install
 
+      # ============================================================
+      # VERIFY GENERATED ANDROID PROJECT
+      # ============================================================
       - name: Verify generated Android project
         run: |
+          set -euo pipefail
+
           test -f android/gradlew
           test -f android/settings.gradle
           test -f android/build.gradle
 
+      # ============================================================
+      # ANDROID TOOL VERSIONS
+      # ============================================================
       - name: Show Android tool versions
         working-directory: android
         run: |
           ./gradlew --version
+
           echo "ANDROID_HOME=${ANDROID_HOME}"
           echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT}"
+
           ls -la "$ANDROID_SDK_ROOT/ndk" || true
 
+      # ============================================================
+      # GRADLE CACHE
+      # ============================================================
       - name: Cache Gradle
         uses: actions/cache@v4
         with:
@@ -103,6 +141,9 @@ jobs:
           restore-keys: |
             gradle-${{ runner.os }}-
 
+      # ============================================================
+      # RELEASE APK BUILD
+      # ============================================================
       - name: Build release APK
         working-directory: android
         env:
@@ -112,6 +153,7 @@ jobs:
             -Dfile.encoding=UTF-8
         run: |
           set -euo pipefail
+
           chmod +x gradlew
 
           ./gradlew assembleRelease \
@@ -122,16 +164,17 @@ jobs:
 
           test -f app/build/outputs/apk/release/app-release.apk
 
-      # Fail the build here — before the APK is uploaded or released — if it would not install or
-      # launch cleanly. Catches the classic release-APK regressions: an unaligned zip (INSTALL_FAILED),
-      # a missing/broken signature (Android 7+ requires v2), and a missing JS bundle (white screen on
-      # launch). Uses the build-tools that were installed above; nothing here touches signing keys.
+      # ============================================================
+      # APK INSTALL / SIGNATURE / BUNDLE VERIFICATION
+      # ============================================================
       - name: Verify release APK (install-safety)
         working-directory: android
         run: |
           set -euo pipefail
+
           APK=app/build/outputs/apk/release/app-release.apk
           BT="${ANDROID_SDK_ROOT}/build-tools/34.0.0"
+
           echo "APK: $APK ($(du -h "$APK" | cut -f1))"
 
           echo "— zipalign (4-byte) —"
@@ -147,26 +190,30 @@ jobs:
             echo "::error::assets/index.android.bundle missing — the app would white-screen on launch."
             exit 1
           }
+
           echo "JS bundle: present"
 
           echo "— manifest sanity (package / sdk / launcher) —"
-          "$BT/aapt2" dump badging "$APK" | grep -E "package:|sdkVersion|targetSdkVersion|launchable-activity" | head -6
+          "$BT/aapt2" dump badging "$APK" |
+            grep -E "package:|sdkVersion|targetSdkVersion|launchable-activity" |
+            head -6
 
           echo "APK install-safety verification passed."
 
+      # ============================================================
+      # KVM
+      # ============================================================
       - name: Enable KVM permissions
         run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' |
+            sudo tee /etc/udev/rules.d/99-kvm4all.rules
+
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm || true
 
-      # Automated emulator boot check: verifies the release APK installs and launches on a clean Android environment
-      # without crashing or ANRing before or during JavaScript initialization.
-      # Hard gate: installs the release APK on a clean emulator, cold-starts it, and asserts the
-      # app reached its own `[hallyu:boot] index:redirect` marker with no JS crash / FATAL / ANR.
-      # The logic lives in a committed POSIX-sh file because the action runs a multi-line inline
-      # `script:` one line at a time with /usr/bin/sh (dash); the previous inline version died on
-      # `set -o pipefail` before installing anything, and `continue-on-error` hid that.
+      # ============================================================
+      # EMULATOR BOOT TEST
+      # ============================================================
       - name: Verify release APK boot on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -177,6 +224,9 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           script: sh scripts/ci/boot-check.sh
 
+      # ============================================================
+      # BOOT LOG ARTIFACT
+      # ============================================================
       - name: Upload emulator boot logcat artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -189,6 +239,9 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      # ============================================================
+      # GRADLE DIAGNOSTICS
+      # ============================================================
       - name: Print Gradle diagnostics on failure
         if: failure()
         working-directory: android
@@ -206,13 +259,22 @@ jobs:
           echo "Installed Android SDK packages:"
           sdkmanager --list_installed || true
 
+      # ============================================================
+      # PREPARE APK ARTIFACT
+      # ============================================================
       - name: Prepare artifact
         run: |
           set -euo pipefail
+
           cp android/app/build/outputs/apk/release/app-release.apk hallyu.apk
+
           ls -lh hallyu.apk
+
           echo "APK_SIZE=$(du -h hallyu.apk | cut -f1)" >> "$GITHUB_ENV"
 
+      # ============================================================
+      # UPLOAD APK
+      # ============================================================
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
@@ -221,6 +283,9 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      # ============================================================
+      # GITHUB RELEASE
+      # ============================================================
       - name: Publish GitHub Release
         if: github.ref == 'refs/heads/main'
         env:
@@ -234,6 +299,6 @@ jobs:
             --title "Hallyu APK #${{ github.run_number }}" \
             --notes "Installable Android APK (${APK_SIZE}).
 
-          Connected to live Supabase backend via constants/keys.ts.
+          Connected to Lovable Cloud backend.
 
           Install: download APK → allow unknown apps → open file."
