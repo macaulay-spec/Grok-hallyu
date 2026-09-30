@@ -55,10 +55,12 @@ export default function Shorts() {
     StatusBar.setBarStyle('light-content');
   }, []);
 
+  const closeShorts = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)'));
+
   if (!list.length) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.canvas, paddingTop: insets.top }}>
-        <IconButton icon="close" label="Close" onPress={() => router.back()} style={{ margin: space.x2 }} />
+        <IconButton icon="close" label="Close" onPress={closeShorts} style={{ margin: space.x2 }} />
         <EmptyState icon="videocam-outline" title="No shorts here yet" body={params.dramaId ? 'Nobody has cut a short for this drama. Yours could be the first.' : 'Shorts from people and dramas you follow will show up here.'} actionLabel="Make a short" onAction={() => router.replace({ pathname: '/create/[type]', params: { type: 'short', ...(params.dramaId ? { dramaId: params.dramaId } : {}) } })} />
       </View>
     );
@@ -83,7 +85,7 @@ export default function Shorts() {
         renderItem={({ item, index }) => <ShortItem post={item} height={itemH} width={width} active={index === active} muted={muted} paused={paused} onTogglePause={() => setPaused((p) => !p)} onToggleMute={() => setMuted((m) => !m)} position={`${index + 1}/${list.length}`} />}
       />
       <View style={[styles.top, { top: insets.top }]}>
-        <IconButton icon="close" label="Close shorts" onPress={() => router.back()} tone="onMedia" />
+        <IconButton icon="close" label="Close shorts" onPress={closeShorts} tone="onMedia" />
         <Text variant="label" style={{ color: colors.onMedia }}>
           Shorts
         </Text>

@@ -38,17 +38,38 @@ export default function ActorPage() {
   const actor = getActor(id);
   const online = useNetwork();
 
-  // Catalog enrichment: biography, headshot and the full Korean filmography for anyone with a catalog id.
-  const thin = !!actor?.provider && (!actor.bio || actor.knownFor.length < 3);
-  const detail = useLoad(async (signal) => (actor?.provider ? catalog.getActor(actor.provider.id, signal) : null), [actor?.provider?.id], thin && catalog.available && online);
+  // Catalog enrichment: biography, headshot and the full filmography for anyone with a catalog id or resolvable name.
+  const parsedTmdb = !actor && id ? /^tmdb-(\d+)$/.exec(id) : null;
+  const thin = (!!actor && (!actor.photoUrl || !actor.bio || actor.knownFor.length < 4)) || !!parsedTmdb;
+  const detail = useLoad(
+    async (signal) => {
+      if (actor?.provider) return catalog.getActor(actor.provider.id, signal);
+      if (parsedTmdb) return catalog.getActor(Number(parsedTmdb[1]), signal);
+      if (actor) {
+        const resolved = await catalog.resolveActor(actor.name, actor.koreanName, signal);
+        if (resolved?.provider) return catalog.getActor(resolved.provider.id, signal);
+        if (resolved) return { actor: resolved, credits: resolved.knownForDramas ?? [] };
+      }
+      return null;
+    },
+    [actor?.id ?? id],
+    thin && catalog.available && online,
+  );
   useEffect(() => {
-    if (!detail.data || !actor) return;
+    if (!detail.data) return;
+    const targetId = actor?.id ?? id;
+    if (!targetId) return;
     const known = allDramas(state);
-    const byProvider = new Map(known.filter((d) => d.provider).map((d) => [d.provider!.id, d]));
-    const credits = detail.data.credits.map((c) => byProvider.get(c.provider!.id) ?? c);
-    const fresh = credits.filter((c) => !known.some((d) => d.id === c.id));
-    const merged = { ...actor, ...detail.data.actor, id: actor.id, followerCount: actor.followerCount, knownFor: credits.slice(0, 8).map((c) => c.id) };
-    dispatch({ type: 'import', actors: [merged], dramas: fresh.length ? fresh : undefined });
+    const byProvider = new Map(known.filter((d) => d.provider).map((d) => [`${d.provider!.mediaType ?? d.mediaType ?? 'tv'}:${d.provider!.id}`, d]));
+    const credits = detail.data.credits.map((c) => (c.provider ? byProvider.get(`${c.provider.mediaType ?? c.mediaType ?? 'tv'}:${c.provider.id}`) ?? c : c));
+    const merged = {
+      ...(actor ?? detail.data.actor),
+      ...detail.data.actor,
+      id: targetId,
+      followerCount: Math.max(actor?.followerCount ?? 0, detail.data.actor.followerCount),
+      knownFor: [...new Set([...(actor?.knownFor ?? []), ...credits.slice(0, 12).map((c) => c.id)])],
+    };
+    dispatch({ type: 'import', actors: [merged], dramas: credits.length ? credits : undefined });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detail.data]);
 

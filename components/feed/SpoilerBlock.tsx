@@ -46,7 +46,8 @@ export function SpoilerBlock({ id, level, drama, season, episode, veiled, childr
     AccessibilityInfo.announceForAccessibility?.('Spoiler revealed');
     if (markWatched && drama && episode) {
       require('mark episodes watched', () => {
-        const total = drama.seasons.find((s) => s.number === (season ?? 1))?.episodeCount ?? drama.episodeCount;
+        const rawTotal = drama.seasons.find((s) => s.number === (season ?? 1))?.episodeCount ?? drama.episodeCount;
+        const total = rawTotal || (drama.mediaType === 'movie' ? 1 : 16);
         dispatch({ type: 'progress', dramaId: drama.id, season: season ?? 1, episode, total });
         toast.show({ message: `Marked ${drama.title} Ep ${episode} watched`, icon: 'checkmark-circle' });
       });

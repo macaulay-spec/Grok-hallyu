@@ -18,7 +18,7 @@ export default function UserProfile() {
   if (!user) {
     return (
       <Screen header={<TopBar mode="stack" title="Profile" />}>
-        <ErrorState kind="notFound" title={`@${clean} isn’t here`} body="The account may have been deleted or the handle changed." onRetry={() => router.back()} />
+        <ErrorState kind="notFound" title={`@${clean} isn’t here`} body="The account may have been deleted or the handle changed." onRetry={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)'))} />
       </Screen>
     );
   }

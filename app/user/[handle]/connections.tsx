@@ -18,7 +18,11 @@ export default function Connections() {
   const [tab, setTab] = useState<'followers' | 'following'>(initial ?? 'followers');
   const user = handle?.toLowerCase() === me.handle.toLowerCase() ? me : getUserByHandle(handle ?? '');
   const isMe = user?.id === me.id;
-  const list = useLoad(async (signal) => (handle ? (await fetchConnections(handle, tab)).filter((u) => !state.blockedUsers.includes(u.id)) : []), [handle, tab], !!handle && !!user);
+  const list = useLoad(
+    async () => (handle ? (await fetchConnections(handle, tab)).filter((u) => !state.blockedUsers.includes(u.id)) : []),
+    [handle, tab, state.follows.users.length, state.blockedUsers.length],
+    !!handle && !!user,
+  );
   const rows = (list.data ?? []) as User[];
   return (
     <Screen header={<TopBar mode="stack" title={user ? `@${user.handle}` : 'Connections'} />}>

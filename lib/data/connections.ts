@@ -24,13 +24,12 @@ export async function fetchConnections(handle: string, tab: 'followers' | 'follo
   const others = Object.values(s.users).filter((u) => u.id !== user.id && !s.blockedUsers.includes(u.id));
 
   if (tab === 'following') {
-    // Mine is the real graph; a followed account I hold a record for gets the same treatment.
-    const mine = user.id === s.profile.id ? s.follows.users : [];
-    const known = mine.map((id) => sel.getUser(s, id)).filter((u): u is User => !!u);
-    if (known.length) return known;
-    return [...others].sort((a, b) => b.followers - a.followers).slice(0, 6);
+    if (user.id === s.profile.id) {
+      return s.follows.users.map((id) => sel.getUser(s, id)).filter((u): u is User => !!u);
+    }
+    return [...others].sort((a, b) => b.followers - a.followers).slice(0, Math.min(6, user.following));
   }
 
   // No incoming edges exist locally, so show the community this account sits in, most followed first.
-  return [...others].sort((a, b) => b.followers - a.followers).slice(0, 8);
+  return [...others].sort((a, b) => b.followers - a.followers).slice(0, Math.min(8, user.followers));
 }

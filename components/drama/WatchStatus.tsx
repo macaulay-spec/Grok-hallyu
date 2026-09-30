@@ -54,7 +54,8 @@ export function WatchStatusSheet({ drama, visible, onClose }: { drama: Drama; vi
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
-  const total = drama.seasons.find((s) => s.number === season)?.episodeCount ?? drama.episodeCount;
+  const rawTotal = drama.seasons.find((s) => s.number === season)?.episodeCount ?? drama.episodeCount;
+  const total = rawTotal || (drama.mediaType === 'movie' ? 1 : 16);
   const current = item?.season === season ? item.currentEpisode : 0;
 
   const reduce = useReduceMotion();

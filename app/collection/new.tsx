@@ -34,8 +34,12 @@ export default function NewCollection() {
     dispatch({ type: 'upsertCollection', collection: c });
     haptic.success();
     toast.show({ message: existing ? 'Collection updated' : `Created “${c.title}”`, icon: 'albums' });
-    if (existing) router.back();
-    else router.replace(`/collection/${c.id}`);
+    if (existing) {
+      if (router.canGoBack()) router.back();
+      else router.replace(`/collection/${c.id}`);
+    } else {
+      router.replace(`/collection/${c.id}`);
+    }
   };
 
   return (

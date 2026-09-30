@@ -41,8 +41,12 @@ export default function MediaViewer() {
       onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 12 && Math.abs(g.dy) > Math.abs(g.dx) * 1.5,
       onPanResponderMove: (_, g) => y.setValue(g.dy),
       onPanResponderRelease: (_, g) => {
-        if (Math.abs(g.dy) > 120 || Math.abs(g.vy) > 1.2) router.back();
-        else Animated.spring(y, { toValue: 0, useNativeDriver: true }).start();
+        if (Math.abs(g.dy) > 120 || Math.abs(g.vy) > 1.2) {
+          if (router.canGoBack()) router.back();
+          else router.replace('/(tabs)');
+        } else {
+          Animated.spring(y, { toValue: 0, useNativeDriver: true }).start();
+        }
       },
     }),
   ).current;
@@ -118,7 +122,7 @@ export default function MediaViewer() {
       </Animated.View>
       {chrome ? (
         <View style={[styles.bar, { top: insets.top }]}>
-          <IconButton icon="close" label="Close" tone="onMedia" onPress={() => router.back()} />
+          <IconButton icon="close" label="Close" tone="onMedia" onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)'))} />
           <Text variant="label" style={{ color: colors.onMedia, flex: 1 }} numberOfLines={1}>
             {title}
             {slides.length > 1 ? `  ${index + 1}/${slides.length}` : ''}

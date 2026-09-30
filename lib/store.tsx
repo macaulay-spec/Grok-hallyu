@@ -532,42 +532,139 @@ function reducer(s: AppState, a: Action): AppState {
       if (!a.q) return s;
       return { ...s, recentSearches: [a.q, ...s.recentSearches.filter((x) => x !== a.q)].slice(0, 8) };
     case 'import': {
-      // A thin list record (no episodes/cast) must never overwrite a rich one already held — it only
-      // refreshes the volatile bits (art, rating, status, next air date).
+      const normName = (n?: string) => (n ?? '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '').trim();
+      const rawDramas = [...(a.dramas ?? []), ...(a.actors ?? []).flatMap((ac) => ac.knownForDramas ?? [])];
+      const rawActors = [...(a.actors ?? []), ...rawDramas.flatMap((d) => d.castActors ?? [])];
+
+      let actors = [...s.importedActors];
+      const actorIdMap = new Map<string, string>();
+      if (rawActors.length) {
+        const byId = new Map(actors.map((x) => [x.id, x]));
+        const byProvider = new Map(actors.filter((x) => x.provider).map((x) => [x.provider!.id, x]));
+        const byName = new Map(actors.map((x) => [normName(x.name), x]));
+        for (const inc of rawActors) {
+          const existing =
+            byId.get(inc.id) ??
+            (inc.provider ? byProvider.get(inc.provider.id) : undefined) ??
+            (normName(inc.name) ? byName.get(normName(inc.name)) : undefined);
+          const targetId = existing?.id ?? inc.id;
+          if (inc.id !== targetId) actorIdMap.set(inc.id, targetId);
+          const merged: Actor = existing
+            ? {
+                ...existing,
+                name: existing.name || inc.name,
+                koreanName: existing.koreanName ?? inc.koreanName,
+                photoUrl: inc.photoUrl ?? existing.photoUrl,
+                birthDate: inc.birthDate ?? existing.birthDate,
+                bio: inc.bio && inc.bio.length > (existing.bio?.length ?? 0) ? inc.bio : existing.bio,
+                knownFor: [...new Set([...existing.knownFor, ...inc.knownFor])],
+                followerCount: Math.max(existing.followerCount, inc.followerCount),
+                provider: existing.provider ?? inc.provider,
+              }
+            : {
+                id: inc.id,
+                name: inc.name,
+                koreanName: inc.koreanName,
+                photoUrl: inc.photoUrl,
+                birthDate: inc.birthDate,
+                bio: inc.bio,
+                knownFor: [...new Set(inc.knownFor)],
+                followerCount: inc.followerCount,
+                provider: inc.provider,
+              };
+          byId.set(targetId, merged);
+          if (merged.provider) byProvider.set(merged.provider.id, merged);
+          if (normName(merged.name)) byName.set(normName(merged.name), merged);
+        }
+        actors = [...byId.values()];
+      }
+
       const mergeDrama = (prev: Drama | undefined, next: Drama): Drama => {
-        if (!prev) return next;
-        const thin = next.episodes.length === 0 && next.cast.length === 0;
-        const rich = prev.episodes.length > 0 || prev.cast.length > 0;
-        if (!(thin && rich)) return next;
+        const remapCast = (list: Drama['cast']) =>
+          list.map((c, i) => ({ ...c, actorId: actorIdMap.get(c.actorId) ?? c.actorId, order: i }));
+        const nextCast = remapCast(next.cast);
+        if (!prev) {
+          const { castActors: _ca, ...clean } = next;
+          return { ...clean, cast: nextCast };
+        }
+        const prevCast = remapCast(prev.cast);
+        const seenCast = new Set<string>();
+        const combinedCast = [...prevCast, ...nextCast]
+          .filter((c) => (seenCast.has(c.actorId) ? false : (seenCast.add(c.actorId), true)))
+          .map((c, i) => ({ ...c, order: i }));
+        const nextEps = next.episodes.map((e) => ({
+          ...e,
+          dramaId: prev.id,
+          id: e.id.startsWith(prev.id) ? e.id : `${prev.id}-s${e.season}e${e.number}`,
+        }));
+        const epMap = new Map(prev.episodes.map((e) => [`${e.season}:${e.number}`, e]));
+        for (const e of nextEps) {
+          const k = `${e.season}:${e.number}`;
+          const existingEp = epMap.get(k);
+          if (prev.status === 'airing' && existingEp?.airDate) {
+            epMap.set(k, { ...e, id: existingEp.id, airDate: existingEp.airDate });
+          } else {
+            epMap.set(k, e);
+          }
+        }
+        const combinedEps = [...epMap.values()].sort((x, y) => x.season - y.season || x.number - y.number);
+        const combinedStreaming = [...new Set([...(prev.streamingOn ?? []), ...(next.streamingOn ?? [])])];
         return {
           ...prev,
           posterUrl: next.posterUrl ?? prev.posterUrl,
+          posterLocal: prev.posterLocal ?? next.posterLocal,
           backdropUrl: next.backdropUrl ?? prev.backdropUrl,
+          trailerUrl: next.trailerUrl ?? prev.trailerUrl,
+          runtime: next.runtime ?? prev.runtime,
           rating: next.rating ?? prev.rating,
-          status: next.status,
+          status: prev.status === 'airing' ? 'airing' : next.status,
+          synopsis: next.synopsis && next.synopsis !== 'No synopsis yet.' && next.synopsis.length > prev.synopsis.length ? next.synopsis : prev.synopsis,
+          episodeCount: Math.max(prev.episodeCount, next.episodeCount),
+          seasons: next.seasons.length > prev.seasons.length || (next.seasons.length && !prev.seasons.length) ? next.seasons : prev.seasons,
+          episodes: combinedEps,
+          cast: combinedCast,
+          creators: next.creators?.length ? next.creators : prev.creators,
+          network: next.network ?? prev.network,
+          streamingOn: combinedStreaming.length ? combinedStreaming : undefined,
+          tags: prev.tags?.length ? prev.tags : next.tags,
+          airsOn: prev.airsOn ?? next.airsOn,
           nextEpisodeAt: next.nextEpisodeAt ?? prev.nextEpisodeAt,
           followerCount: Math.max(prev.followerCount, next.followerCount),
           provider: prev.provider ?? next.provider,
         };
       };
-      let dramas = s.importedDramas;
-      if (a.dramas?.length) {
-        const prevById = new Map(s.importedDramas.map((d) => [d.id, d]));
-        const incoming = new Map(a.dramas.map((d) => [d.id, mergeDrama(prevById.get(d.id), d)]));
-        dramas = [...s.importedDramas.filter((d) => !incoming.has(d.id)), ...incoming.values()];
+
+      let dramas = [...s.importedDramas];
+      const dramaIdMap = new Map<string, string>();
+      if (rawDramas.length) {
+        const pKey = (d: Pick<Drama, 'provider' | 'mediaType'>) => (d.provider ? `${d.provider.name}:${d.provider.mediaType ?? d.mediaType ?? 'tv'}:${d.provider.id}` : null);
+        const byId = new Map(dramas.map((d) => [d.id, d]));
+        const byProvider = new Map(dramas.filter((d) => pKey(d)).map((d) => [pKey(d)!, d]));
+        for (const inc of rawDramas) {
+          const pk = pKey(inc);
+          const existing = byId.get(inc.id) ?? (pk ? byProvider.get(pk) : undefined);
+          const targetId = existing?.id ?? inc.id;
+          if (inc.id !== targetId) dramaIdMap.set(inc.id, targetId);
+          const merged = mergeDrama(existing, { ...inc, id: targetId });
+          byId.set(targetId, merged);
+          const mpk = pKey(merged);
+          if (mpk) byProvider.set(mpk, merged);
+        }
+        dramas = [...byId.values()];
         // Keep the persisted cache bounded: evict the oldest thin records nobody tracks or follows.
         const MAX = 400;
         if (dramas.length > MAX) {
-          const pinned = new Set([...Object.keys(s.watchlist), ...s.follows.dramas, ...s.users[s.profile.id]?.favoriteDramaIds ?? []]);
+          const pinned = new Set([...Object.keys(s.watchlist), ...s.follows.dramas, ...(s.users[s.profile.id]?.favoriteDramaIds ?? [])]);
           const evictable = dramas.filter((d) => !pinned.has(d.id) && d.episodes.length === 0 && d.cast.length === 0);
           const drop = new Set(evictable.slice(0, dramas.length - MAX).map((d) => d.id));
           dramas = dramas.filter((d) => !drop.has(d.id));
         }
       }
-      let actors = s.importedActors;
-      if (a.actors?.length) {
-        const incoming = new Map(a.actors.map((x) => [x.id, x]));
-        actors = [...s.importedActors.filter((x) => !incoming.has(x.id)), ...incoming.values()];
+      if (dramaIdMap.size) {
+        actors = actors.map((ac) => ({
+          ...ac,
+          knownFor: [...new Set(ac.knownFor.map((k) => dramaIdMap.get(k) ?? k))],
+        }));
       }
       return { ...s, importedDramas: dramas, importedActors: actors };
     }

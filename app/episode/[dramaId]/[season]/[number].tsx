@@ -22,9 +22,10 @@ import { useToast } from '../../../../components/ui/Toast';
 import { TopBar } from '../../../../components/ui/TopBar';
 import { colors, fonts, radius, space } from '../../../../constants/theme';
 import { countdown, dayLabel, runtimeLabel, shortDate, timeOfDay } from '../../../../lib/format';
-import { haptic, useApp, useLayout, useReduceMotion, useRequireMember } from '../../../../lib/hooks';
+import { catalog } from '../../../../lib/catalog';
+import { haptic, useApp, useLayout, useLoad, useReduceMotion, useRequireMember } from '../../../../lib/hooks';
 import { heroInterpolations, useScrollY, withAlpha } from '../../../../lib/motion';
-import { emptyReactions, Post } from '../../../../lib/model';
+import { emptyReactions, Episode, Post } from '../../../../lib/model';
 import { getEpisode, isPostVeiled, postsForEpisode } from '../../../../lib/selectors';
 import { hasWatched } from '../../../../lib/spoiler';
 
@@ -97,18 +98,62 @@ export default function EpisodeRoom() {
   const { scrollY, onScroll } = useScrollY();
 
   const drama = getDrama(dramaId);
+  const hasSeasonEpisodes = useMemo(
+    () => !!drama?.episodes.some((e) => e.season === season),
+    [drama?.episodes, season],
+  );
+  const enrich = useLoad(
+    async (signal) => (drama?.provider ? catalog.getDrama(drama.provider.id, drama.mediaType ?? 'tv', signal) : null),
+    [drama?.id],
+    !!drama?.provider && drama.episodes.length === 0 && catalog.available,
+  );
+  useEffect(() => {
+    if (enrich.data && drama) dispatch({ type: 'import', dramas: [{ ...enrich.data, id: drama.id }] });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enrich.data]);
+
+  const seasonLoad = useLoad(
+    async (signal) =>
+      drama?.provider && drama.mediaType !== 'movie'
+        ? catalog.getSeasonEpisodes(drama.provider.id, season, drama.id, signal)
+        : [],
+    [drama?.id, season],
+    !!drama?.provider && drama.mediaType !== 'movie' && season > 1 && !hasSeasonEpisodes && catalog.available,
+  );
+  useEffect(() => {
+    if (seasonLoad.data?.length && drama) {
+      dispatch({ type: 'import', dramas: [{ ...drama, episodes: seasonLoad.data }] });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seasonLoad.data]);
 
   // Spec 4.9B: the spoiler stance defaults to your watch progress and follows it when it changes.
   const watchedEarly = hasWatched(watch(drama?.id ?? ''), season, number);
+  const [safeInit] = useState(!watchedEarly);
   useEffect(() => {
-    setSafe(watchedEarly);
-  }, [watchedEarly]);
-  const episode = drama ? getEpisode(drama, season, number) : undefined;
+    setSafe(!watchedEarly);
+  }, [watchedEarly, safeInit]);
+  const episode: Episode | undefined = useMemo(() => {
+    if (!drama) return undefined;
+    const found = getEpisode(drama, season, number);
+    if (found) return found;
+    if (number >= 1) {
+      return {
+        id: `${drama.id}-s${season}e${number}`,
+        dramaId: drama.id,
+        season,
+        number,
+        title: drama.mediaType === 'movie' ? drama.title : `Episode ${number}`,
+        runtime: drama.runtime ?? 60,
+      };
+    }
+    return undefined;
+  }, [drama, season, number]);
   const posts = useMemo(() => (drama ? postsForEpisode(state, drama.id, season, number) : []), [state, drama, season, number]);
   const typed = useMemo(() => (filter === 'all' ? posts : posts.filter((p) => p.type === filter)), [posts, filter]);
   const episodeShorts = useMemo(() => posts.filter((p) => p.type === 'short' && p.context.episode === number), [posts, number]);
-  const veiledForMe = useMemo(() => typed.filter((p) => isPostVeiled(state, p)).length, [state, typed]);
-  const filtered = useMemo(() => (safe && veiledForMe ? typed.filter((p) => !isPostVeiled(state, p)) : typed), [typed, safe, veiledForMe, state]);
+  const veiledForMe = useMemo(() => typed.filter((p) => p.spoiler !== 'none' || isPostVeiled(state, p)).length, [state, typed]);
+  const filtered = useMemo(() => (safe && veiledForMe ? typed.filter((p) => p.spoiler === 'none' && !isPostVeiled(state, p)) : typed), [typed, safe, veiledForMe, state]);
   const meter = useMemo(
     () =>
       posts.reduce((acc, p) => {
@@ -133,10 +178,19 @@ export default function EpisodeRoom() {
 
   const item = watch(drama.id);
   const watched = hasWatched(item, season, number);
-  const st = episodeState(episode);
-  const total = drama.seasons.find((s) => s.number === season)?.episodeCount ?? drama.episodeCount;
-  const prev = getEpisode(drama, season, number - 1);
-  const next = getEpisode(drama, season, number + 1);
+  const st = episodeState(episode, drama.status);
+  const rawTotal = drama.seasons.find((s) => s.number === season)?.episodeCount ?? drama.episodeCount;
+  const total = rawTotal || (drama.mediaType === 'movie' ? 1 : 16);
+  const prev =
+    getEpisode(drama, season, number - 1) ??
+    (number > 1
+      ? { id: `${drama.id}-s${season}e${number - 1}`, dramaId: drama.id, season, number: number - 1, title: `Episode ${number - 1}` }
+      : undefined);
+  const next =
+    getEpisode(drama, season, number + 1) ??
+    (number < total
+      ? { id: `${drama.id}-s${season}e${number + 1}`, dramaId: drama.id, season, number: number + 1, title: `Episode ${number + 1}` }
+      : undefined);
   const multi = drama.seasons.length > 1;
   const showGate = st !== 'upcoming' && !watched && !gateDismissed && state.prefs.protection !== 'off' && item?.status !== 'completed';
   const veiledCount = posts.filter((p) => p.spoiler !== 'none').length;

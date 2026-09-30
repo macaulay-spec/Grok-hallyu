@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, View } from 'react-native';
 import { DramaListRow } from '../components/drama/DramaCard';
 import { WatchStatusSheet } from '../components/drama/WatchStatus';
+import { Chip, ChipRow } from '../components/ui/Chip';
 import { IconButton } from '../components/ui/IconButton';
 import { Screen, useListPadding } from '../components/ui/Screen';
 import { ProgressBar } from '../components/ui/Section';
@@ -13,9 +14,10 @@ import { Text } from '../components/ui/Text';
 import { useToast } from '../components/ui/Toast';
 import { TopBar } from '../components/ui/TopBar';
 import { colors, radius, space } from '../constants/theme';
+import { FANDOMS, formatFandomOf } from '../lib/fandoms';
 import { countdown, dayLabel } from '../lib/format';
 import { haptic, useApp } from '../lib/hooks';
-import { Drama, WatchStatus } from '../lib/model';
+import { Drama, FandomId, WatchStatus } from '../lib/model';
 import { upNext, watchlistByStatus } from '../lib/selectors';
 
 type Sort = 'recent' | 'title' | 'progress';
@@ -24,21 +26,50 @@ type Sort = 'recent' | 'title' | 'progress';
 export default function Watchlist() {
   const router = useRouter();
   const toast = useToast();
-  const params = useLocalSearchParams<{ status?: WatchStatus }>();
+  const params = useLocalSearchParams<{ status?: WatchStatus; world?: FandomId | 'all' }>();
   const { state, dispatch, getDrama } = useApp();
   const padding = useListPadding(false);
   const [status, setStatus] = useState<WatchStatus>(params.status ?? 'watching');
+  const [worldFilter, setWorldFilter] = useState<FandomId | 'all'>((params.world as FandomId | 'all') ?? 'all');
   const [sort, setSort] = useState<Sort>('recent');
   const [editing, setEditing] = useState<Drama | null>(null);
+
+  useEffect(() => {
+    if (params.status && ['watching', 'want', 'completed', 'dropped'].includes(params.status)) {
+      setStatus(params.status);
+    }
+  }, [params.status]);
+
+  useEffect(() => {
+    if (params.world) {
+      setWorldFilter(params.world as FandomId | 'all');
+    }
+  }, [params.world]);
+
   const items = useMemo(() => {
-    const list = watchlistByStatus(state, status).map((item) => ({ item, drama: getDrama(item.dramaId) })).filter((x) => x.drama);
+    const list = watchlistByStatus(state, status)
+      .map((item) => ({ item, drama: getDrama(item.dramaId) }))
+      .filter((x) => x.drama && (worldFilter === 'all' || formatFandomOf(x.drama) === worldFilter));
     if (sort === 'title') list.sort((a, b) => a.drama!.title.localeCompare(b.drama!.title));
-    if (sort === 'progress') list.sort((a, b) => b.item.currentEpisode / Math.max(1, b.drama!.episodeCount) - a.item.currentEpisode / Math.max(1, a.drama!.episodeCount));
+    if (sort === 'progress') list.sort((a, b) => b.item.currentEpisode / Math.max(1, b.drama!.episodeCount || 16) - a.item.currentEpisode / Math.max(1, a.drama!.episodeCount || 16));
     return list;
-  }, [state, status, sort, getDrama]);
-  const next = useMemo(() => upNext(state), [state]);
-  const counts = { want: watchlistByStatus(state, 'want').length, watching: watchlistByStatus(state, 'watching').length, completed: watchlistByStatus(state, 'completed').length, dropped: watchlistByStatus(state, 'dropped').length };
-  const hours = Math.round(Object.values(state.watchlist).reduce((a, w) => { const d = getDrama(w.dramaId); return a + (w.status === 'completed' ? (d?.episodeCount ?? 0) : w.currentEpisode) * 65; }, 0) / 60);
+  }, [state, status, sort, getDrama, worldFilter]);
+  const next = useMemo(
+    () => upNext(state).filter((x) => worldFilter === 'all' || formatFandomOf(x.drama) === worldFilter),
+    [state, worldFilter],
+  );
+  const countFor = (st: WatchStatus) =>
+    watchlistByStatus(state, st).filter((w) => {
+      const d = getDrama(w.dramaId);
+      return d && (worldFilter === 'all' || formatFandomOf(d) === worldFilter);
+    }).length;
+  const counts = {
+    want: countFor('want'),
+    watching: countFor('watching'),
+    completed: countFor('completed'),
+    dropped: countFor('dropped'),
+  };
+  const hours = Math.round(Object.values(state.watchlist).reduce((a, w) => { const d = getDrama(w.dramaId); return a + (w.status === 'completed' ? ((d?.episodeCount || (d?.mediaType === 'movie' ? 1 : 16))) : w.currentEpisode) * 65; }, 0) / 60);
 
   const empty: Record<WatchStatus, { title: string; body: string; action?: string; go?: () => void }> = {
     want: { title: 'Nothing queued', body: 'Save dramas you mean to start. We’ll tell you when they air.', action: 'Browse Explore', go: () => router.push('/(tabs)/explore') },
@@ -49,7 +80,13 @@ export default function Watchlist() {
 
   return (
     <Screen header={<TopBar mode="stack" title="Watchlist" subtitle={hours ? `≈ ${hours} hours watched` : undefined} right={<IconButton icon="swap-vertical" label={`Sort: ${sort}`} onPress={() => setSort((s) => (s === 'recent' ? 'title' : s === 'title' ? 'progress' : 'recent'))} />} />}>
-      <Segmented variant="pill" scrollable items={[{ key: 'watching', label: 'Watching', count: counts.watching }, { key: 'want', label: 'Want to watch', count: counts.want }, { key: 'completed', label: 'Completed', count: counts.completed }, { key: 'dropped', label: 'Dropped', count: counts.dropped }]} value={status} onChange={setStatus} style={{ marginHorizontal: space.margin, marginVertical: space.x3 }} />
+      <Segmented variant="pill" scrollable items={[{ key: 'watching', label: 'Watching', count: counts.watching }, { key: 'want', label: 'Want to watch', count: counts.want }, { key: 'completed', label: 'Completed', count: counts.completed }, { key: 'dropped', label: 'Dropped', count: counts.dropped }]} value={status} onChange={setStatus} style={{ marginHorizontal: space.margin, marginTop: space.x3, marginBottom: space.x2 }} />
+      <ChipRow style={{ paddingHorizontal: space.margin, marginBottom: space.x2 }}>
+        <Chip label="All worlds" selected={worldFilter === 'all'} onPress={() => setWorldFilter('all')} />
+        {FANDOMS.map((w) => (
+          <Chip key={w.id} label={`${w.flag} ${w.short}`} selected={worldFilter === w.id} onPress={() => setWorldFilter(w.id)} />
+        ))}
+      </ChipRow>
       <FlatList
         data={items}
         keyExtractor={(x) => x.item.dramaId}
@@ -75,7 +112,8 @@ export default function Watchlist() {
           ) : null
         }
         renderItem={({ item: { item, drama } }) => {
-          const total = drama!.seasons.find((s) => s.number === item.season)?.episodeCount ?? drama!.episodeCount;
+          const rawTotal = drama!.seasons.find((s) => s.number === item.season)?.episodeCount ?? drama!.episodeCount;
+          const total = rawTotal || (drama!.mediaType === 'movie' ? 1 : 16);
           return (
             <View>
               <DramaListRow

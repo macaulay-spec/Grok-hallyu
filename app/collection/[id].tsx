@@ -42,7 +42,7 @@ export default function CollectionDetail() {
   if (!col || (col.visibility === 'private' && !isMine)) {
     return (
       <Screen header={<TopBar mode="stack" title="Collection" />}>
-        <ErrorState kind={col ? 'forbidden' : 'notFound'} title={col ? 'This collection is private' : 'Collection not found'} body={col ? 'Only its owner can see it.' : 'It may have been deleted.'} onRetry={() => router.back()} />
+        <ErrorState kind={col ? 'forbidden' : 'notFound'} title={col ? 'This collection is private' : 'Collection not found'} body={col ? 'Only its owner can see it.' : 'It may have been deleted.'} onRetry={() => (router.canGoBack() ? router.back() : router.replace('/collections'))} />
       </Screen>
     );
   }
@@ -131,7 +131,7 @@ export default function CollectionDetail() {
           <SheetRow icon="flag-outline" label="Report" tone="danger" onPress={() => { setMenu(false); router.push({ pathname: '/report', params: { targetId: col.id, kind: 'collection' } }); }} />
         )}
       </Sheet>
-      <Dialog visible={confirmDelete} title={`Delete “${col.title}”?`} body={`${items.length} ${items.length === 1 ? 'drama' : 'dramas'} and ${compact(col.followerCount)} followers. This can’t be undone.`} confirmLabel="Delete" confirmVariant="danger" onConfirm={() => { dispatch({ type: 'deleteCollection', id: col.id }); setConfirmDelete(false); router.back(); toast.show({ message: 'Collection deleted' }); }} onCancel={() => setConfirmDelete(false)} />
+      <Dialog visible={confirmDelete} title={`Delete “${col.title}”?`} body={`${items.length} ${items.length === 1 ? 'drama' : 'dramas'} and ${compact(col.followerCount)} followers. This can’t be undone.`} confirmLabel="Delete" confirmVariant="danger" onConfirm={() => { dispatch({ type: 'deleteCollection', id: col.id }); setConfirmDelete(false); if (router.canGoBack()) router.back(); else router.replace('/collections'); toast.show({ message: 'Collection deleted' }); }} onCancel={() => setConfirmDelete(false)} />
       <Sheet visible={!!noteFor} onClose={() => setNoteFor(null)} title="Why is it on this shelf?" subtitle="Shown under the title, public if the collection is.">
         <View style={{ padding: space.x4, gap: space.x3 }}>
           <TextField value={note} onChangeText={setNote} counter={LIMITS.note} maxLength={LIMITS.note} multiline multilineHeight={80} autoFocus placeholder="One line…" />

@@ -2,15 +2,17 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import { SectionList, View } from 'react-native';
 import { EpisodeCard } from '../components/drama/EpisodeCard';
+import { Chip, ChipRow } from '../components/ui/Chip';
 import { Screen, useListPadding } from '../components/ui/Screen';
 import { Segmented } from '../components/ui/Segmented';
 import { EmptyState } from '../components/ui/States';
 import { Text } from '../components/ui/Text';
 import { TopBar } from '../components/ui/TopBar';
 import { colors, space } from '../constants/theme';
+import { FANDOMS, formatFandomOf } from '../lib/fandoms';
 import { dayLabel } from '../lib/format';
 import { useApp } from '../lib/hooks';
-import { Drama, Episode } from '../lib/model';
+import { Drama, Episode, FandomId } from '../lib/model';
 import { postsForEpisode, scheduleByDay } from '../lib/selectors';
 
 type Scope = 'mine' | 'all';
@@ -25,11 +27,11 @@ function dayTitle(day: string): { label: string; date: string } {
 
 /**
  * Airing schedule — the next seven days grouped by day. "Mine" is what you follow or track; "All"
- * is the whole Korean grid. Upcoming rows carry the reminder bell, aired rows the watched check.
+ * is the full grid across K-Drama, C-Drama, Anime & Hollywood.
  */
 export default function Schedule() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ scope?: Scope }>();
+  const params = useLocalSearchParams<{ scope?: Scope; world?: FandomId | 'all' }>();
   const { state } = useApp();
   const padding = useListPadding(false);
   const mineIds = useMemo(
@@ -43,25 +45,40 @@ export default function Schedule() {
     [state.follows.dramas, state.watchlist],
   );
   const [scope, setScope] = useState<Scope>(params.scope ?? (mineIds.size ? 'mine' : 'all'));
+  const [worldFilter, setWorldFilter] = useState<FandomId | 'all'>((params.world as FandomId | 'all') ?? 'all');
   const all = useMemo(() => scheduleByDay(state, 7), [state]);
+  const filteredDays = useMemo(
+    () =>
+      all.map((d) => ({
+        ...d,
+        items: worldFilter === 'all' ? d.items : d.items.filter((it) => formatFandomOf(it.drama) === worldFilter),
+      })),
+    [all, worldFilter],
+  );
   const sections = useMemo(
-    () => all.map((d) => ({ ...dayTitle(d.day), key: d.day, data: scope === 'all' ? d.items : d.items.filter((it) => mineIds.has(it.drama.id)) })).filter((s) => s.data.length),
-    [all, scope, mineIds],
+    () => filteredDays.map((d) => ({ ...dayTitle(d.day), key: d.day, data: scope === 'all' ? d.items : d.items.filter((it) => mineIds.has(it.drama.id)) })).filter((s) => s.data.length),
+    [filteredDays, scope, mineIds],
   );
   const total = sections.reduce((n, s) => n + s.data.length, 0);
 
   return (
-    <Screen header={<TopBar mode="stack" title="This week" subtitle="Korean broadcast times, shown in your local time" />}>
+    <Screen header={<TopBar mode="stack" title="This week" subtitle="Broadcast times across your worlds, in local time" />}>
       <Segmented
         variant="pill"
         items={[
-          { key: 'mine', label: 'Mine', count: all.reduce((n, d) => n + d.items.filter((it) => mineIds.has(it.drama.id)).length, 0) || undefined },
-          { key: 'all', label: 'Everything', count: all.reduce((n, d) => n + d.items.length, 0) || undefined },
+          { key: 'mine', label: 'Mine', count: filteredDays.reduce((n, d) => n + d.items.filter((it) => mineIds.has(it.drama.id)).length, 0) || undefined },
+          { key: 'all', label: 'Everything', count: filteredDays.reduce((n, d) => n + d.items.length, 0) || undefined },
         ]}
         value={scope}
         onChange={(k) => setScope(k as Scope)}
         style={{ marginHorizontal: space.margin, marginBottom: space.x2 }}
       />
+      <ChipRow style={{ paddingHorizontal: space.margin, marginBottom: space.x2 }}>
+        <Chip label="All worlds" selected={worldFilter === 'all'} onPress={() => setWorldFilter('all')} />
+        {FANDOMS.map((w) => (
+          <Chip key={w.id} label={`${w.flag} ${w.short}`} selected={worldFilter === w.id} onPress={() => setWorldFilter(w.id)} />
+        ))}
+      </ChipRow>
       <SectionList<{ drama: Drama; episode: Episode }, { label: string; date: string; key: string }>
         sections={sections}
         keyExtractor={(x) => x.episode.id}

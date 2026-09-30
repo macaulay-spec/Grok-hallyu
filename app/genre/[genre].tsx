@@ -68,7 +68,7 @@ export default function GenrePage() {
     return pages.flat().filter((d) => (seen.has(d.id) ? false : (seen.add(d.id), true)));
   }, [pages]);
   const saved = useMemo(() => dramasByGenre(state, name), [state, name]);
-  const list = live.length ? live : error ? saved : live;
+  const list = live.length ? live : !loading ? saved : live;
   const offlineFallback = !live.length && !!error && saved.length > 0;
 
   const more = () => {
@@ -81,7 +81,7 @@ export default function GenrePage() {
   return (
     <Screen
       header={
-        <TopBar mode="stack" title={name} subtitle={offlineFallback ? `${saved.length} saved titles` : live.length ? `${live.length}${done ? '' : '+'} titles · by popularity` : 'Korean dramas'} />
+        <TopBar mode="stack" title={name} subtitle={offlineFallback ? `${saved.length} saved titles` : list.length ? `${list.length}${done ? '' : '+'} titles · by popularity` : 'Across all 4 fandoms'} />
       }
     >
       {loading && !list.length ? (

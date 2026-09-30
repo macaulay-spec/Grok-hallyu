@@ -1,7 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, View } from 'react-native';
 import { colors, radius, space } from '../../constants/theme';
+import { catalog } from '../../lib/catalog';
+import { adoptActors, adoptDramas } from '../../lib/catalogSync';
 import { useApp } from '../../lib/hooks';
 import { Actor, Drama, SpoilerLevel } from '../../lib/model';
 import { allActors, allDramas } from '../../lib/store';
@@ -15,10 +17,22 @@ import { Chip, ChipRow } from '../ui/Chip';
 import { Sheet, SheetRow } from '../ui/Sheet';
 import { Text } from '../ui/Text';
 
-/** Drama picker: your watchlist first, then everything. */
+/** Drama picker: your watchlist first, then everything (including live catalog search). */
 export function DramaPickerSheet({ visible, onClose, onPick, title = 'Which drama?', exclude }: { visible: boolean; onClose: () => void; onPick: (d: Drama) => void; title?: string; exclude?: string }) {
   const { state } = useApp();
   const [q, setQ] = useState('');
+  useEffect(() => {
+    const query = q.trim();
+    if (!visible || query.length < 2 || !catalog.available) return;
+    const ctrl = new AbortController();
+    const t = setTimeout(() => {
+      catalog.searchDramas(query, ctrl.signal).then((res) => adoptDramas(res)).catch(() => {});
+    }, 250);
+    return () => {
+      clearTimeout(t);
+      ctrl.abort();
+    };
+  }, [q, visible]);
   const list = useMemo(() => {
     const all = allDramas(state).filter((d) => d.id !== exclude);
     const mine = new Set(Object.keys(state.watchlist));
@@ -41,7 +55,8 @@ export function EpisodePickerSheet({ visible, onClose, drama, value, onPick }: {
   const { watch } = useApp();
   const [season, setSeason] = useState(value?.season ?? watch(drama.id)?.season ?? 1);
   const eps = drama.episodes.filter((e) => e.season === season);
-  const total = drama.seasons.find((s) => s.number === season)?.episodeCount ?? drama.episodeCount;
+  const rawTotal = drama.seasons.find((s) => s.number === season)?.episodeCount ?? drama.episodeCount;
+  const total = rawTotal || (drama.mediaType === 'movie' ? 1 : 16);
   const numbers = eps.length ? eps.map((e) => e.number) : Array.from({ length: total }, (_, i) => i + 1);
   const current = watch(drama.id)?.season === season ? watch(drama.id)?.currentEpisode ?? 0 : 0;
   return (
@@ -75,6 +90,18 @@ export function EpisodePickerSheet({ visible, onClose, drama, value, onPick }: {
 export function ActorPickerSheet({ visible, onClose, selected, onChange, dramaId, max = 3 }: { visible: boolean; onClose: () => void; selected: string[]; onChange: (ids: string[]) => void; dramaId?: string; max?: number }) {
   const { state, getDrama } = useApp();
   const [q, setQ] = useState('');
+  useEffect(() => {
+    const query = q.trim();
+    if (!visible || query.length < 2 || !catalog.available) return;
+    const ctrl = new AbortController();
+    const t = setTimeout(() => {
+      catalog.searchActors(query, ctrl.signal).then((res) => adoptActors(res)).catch(() => {});
+    }, 250);
+    return () => {
+      clearTimeout(t);
+      ctrl.abort();
+    };
+  }, [q, visible]);
   const list = useMemo(() => {
     const cast = new Set(getDrama(dramaId)?.cast.map((c) => c.actorId) ?? []);
     const all = [...allActors(state)].sort((a, b) => Number(cast.has(b.id)) - Number(cast.has(a.id)) || b.followerCount - a.followerCount);

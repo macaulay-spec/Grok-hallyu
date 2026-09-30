@@ -78,7 +78,7 @@ export default function PostDetail() {
   if (!post || post.state === 'deleted') {
     return (
       <Screen header={<TopBar mode="stack" title="Post" />}>
-        <ErrorState kind="notFound" title={post ? 'This post was deleted' : 'Post unavailable'} body={post ? 'The author removed it. Replies are gone with it.' : 'It may have been removed, or the link is wrong.'} onRetry={() => router.back()} />
+        <ErrorState kind="notFound" title={post ? 'This post was deleted' : 'Post unavailable'} body={post ? 'The author removed it. Replies are gone with it.' : 'It may have been removed, or the link is wrong.'} onRetry={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)'))} />
       </Screen>
     );
   }

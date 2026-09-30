@@ -1,5 +1,6 @@
+import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Easing, PanResponder, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
+import { Animated, Easing, PanResponder, Pressable, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 import { Poster } from '../ui/Poster';
 import { Text } from '../ui/Text';
 import { Button } from '../ui/Button';
@@ -26,6 +27,7 @@ const EXIT_MS = 260;
  * Three cards deep, each offset 8px and scaled 4%; the top card flies out with --ease-exit.
  */
 export function ForYouDeck({ items, style }: ForYouDeckProps) {
+  const router = useRouter();
   const { width, margin } = useLayout();
   const { dispatch } = useApp();
   const require = useRequireMember();
@@ -105,7 +107,9 @@ export function ForYouDeck({ items, style }: ForYouDeckProps) {
               {...(isTop ? pan.panHandlers : {})}
               style={[(isTop ? styles.cardHost : styles.cardBehind), { width: cardW, alignSelf: 'center', transform, opacity: depth === DEPTH - 1 ? 0.6 : 1 }]}
             >
-              <Poster drama={entry.drama} width={cardW} />
+              <Pressable onPress={() => router.push(`/drama/${entry.drama.id}`)} accessibilityRole="button" accessibilityLabel={entry.drama.title}>
+                <Poster drama={entry.drama} width={cardW} />
+              </Pressable>
               {isTop ? (
                 <View style={styles.under}>
                   {entry.reason ? (

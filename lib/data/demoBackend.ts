@@ -39,8 +39,9 @@ function seed(): void {
  * callers share one pass, and a repeat call for the same account is a no-op.
  */
 async function ensureSeeded(): Promise<void> {
-  const id = getState().profile.id;
-  if (seededFor === id) return;
+  const s = getState();
+  const id = s.profile.id;
+  if (seededFor === id && s.importedDramas.length >= DEMO_DRAMAS.length && s.posts.length > 0) return;
   if (inFlight) return inFlight;
   inFlight = Promise.resolve()
     .then(() => {
