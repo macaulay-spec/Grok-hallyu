@@ -18,11 +18,11 @@ import * as sel from '../selectors';
 import { Action, AppState, dispatch, dispatchLocal, getState, Mutation, setDispatchMiddleware, useSlice } from '../store';
 import { Backend, BackendError, PullScope } from './backend';
 import { demoBackend } from './demoBackend';
-import { rorkBackend, rorkBackendAvailable } from './rorkBackend';
+import { lovableBackend, lovableBackendAvailable } from './lovableBackend';
 import { track, reportError } from '../analytics';
 
-/** The cloud backend is the default when a functions URL is configured; demo otherwise. */
-let backend: Backend = rorkBackendAvailable ? rorkBackend : demoBackend;
+/** The Lovable Cloud backend is active when credentials are configured; demoBackend otherwise. */
+let backend: Backend = lovableBackendAvailable ? lovableBackend : demoBackend;
 /** Swap the backend implementation (a server-backed adapter registers itself here; tests inject fakes). */
 export function setBackend(b: Backend): void {
   backend = b;
