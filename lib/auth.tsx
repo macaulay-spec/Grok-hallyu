@@ -1,19 +1,19 @@
 /**
- * Hallyu authentication — Rork Auth (Google / Apple OAuth), with device-local demo + guest modes.
+ * Hallyu authentication — three doors into one cloud identity:
  *
- *   • OAuth: the app talks directly to Rork's auth API (PKCE + deep-link callback). Access and
- *     refresh tokens live in SecureStore (Keychain/Keystore). Identity is the verified JWT `sub`.
- *   • Server: every backend request carries `Authorization: Bearer <token>`; the platform verifies
- *     it and stamps X-Rork-User-Id — clients can never forge an identity.
+ *   • Email: email + password against the app's own cloud (`/auth/*` in functions/). Passwords are
+ *     PBKDF2-hashed server-side; sessions are HMAC-signed tokens; password reset works via a
+ *     recovery key shown once at signup (no email infrastructure needed).
+ *   • OAuth: Rork Auth (Google/Apple, PKCE + deep-link callback). Tokens live in SecureStore. The
+ *     platform verifies the JWT server-side and stamps X-Rork-User-Id — clients cannot forge it.
  *   • Demo/guest: local modes so the full app works with zero credentials.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Ionicons } from '@expo/vector-icons';
 import * as Linking from 'expo-linking';
 import * as SecureStore from 'expo-secure-store';
 import * as WebBrowser from 'expo-web-browser';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
+import { Platform } from 'react-native';
 import { reportError, track } from './analytics';
 import { markBoot } from './boot';
 import { RORK_APP_KEY, RORK_AUTH_URL, RORK_SCHEME, RORK_FUNCTIONS_URL, rorkAuthAvailable, rorkBackendAvailable } from '../constants/keys';
@@ -23,7 +23,7 @@ WebBrowser.maybeCompleteAuthSession();
 export type AuthStatus = 'loading' | 'signedOut' | 'guest' | 'signedIn';
 
 /** How this account was established. 'demo' is the shared, pre-populated device account. */
-export type AuthProviderName = 'google' | 'apple' | 'demo';
+export type AuthProviderName = 'email' | 'google' | 'apple' | 'demo';
 
 export interface AuthUser {
   id: string;
@@ -56,6 +56,10 @@ interface AuthValue {
   clearError: () => void;
   signInWithGoogle: () => Promise<void>;
   signInWithApple: () => Promise<void>;
+  /** Returns the one-time recovery key — the screen MUST show it for the user to save. */
+  signUp: (email: string, password: string, displayName: string) => Promise<string>;
+  signIn: (email: string, password: string) => Promise<void>;
+  recoverPassword: (email: string, recoveryKey: string, newPassword: string) => Promise<void>;
   signInDemo: () => Promise<void>;
   continueAsGuest: () => void;
   signOut: () => Promise<void>;
@@ -69,6 +73,7 @@ const GUEST_KEY = 'hallyu.auth.guest';
 const DEMO_ACCOUNT_KEY = 'hallyu.auth.demo.v1';
 const AT_KEY = 'hallyu.auth.accessToken';
 const RT_KEY = 'hallyu.auth.refreshToken';
+const USER_KEY = 'hallyu.auth.user.v2';
 
 const DEMO_USER: AuthUser = { id: 'demo-member', handle: 'you', displayName: 'You', email: 'demo@hallyu.app', emailVerified: true, provider: 'demo' };
 
@@ -128,6 +133,24 @@ async function authPost<T>(path: string, body: Json): Promise<T> {
   const res = await fetch(`${RORK_AUTH_URL}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const payload = (await res.json().catch(() => ({}))) as T & { error?: string; message?: string };
   if (!res.ok) throw new AuthError('credentials', payload.error ?? payload.message ?? `Sign-in failed (${res.status})`);
+  return payload;
+}
+
+/** POST to the app's own cloud auth; maps status codes onto AuthError codes. */
+async function cloudPost<T extends Json>(path: string, body: Json): Promise<T> {
+  if (!rorkBackendAvailable) throw new AuthError('unavailable', 'The cloud backend isn’t configured in this build.');
+  let res: Response;
+  try {
+    res = await fetch(`${RORK_FUNCTIONS_URL}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  } catch {
+    throw new AuthError('network', 'Could not reach the cloud — check your connection.');
+  }
+  const payload = (await res.json().catch(() => ({}))) as T & { error?: string };
+  if (!res.ok) {
+    const message = payload.error ?? `That didn’t work (${res.status})`;
+    const code: AuthError['code'] = res.status === 409 ? 'exists' : res.status === 429 ? 'rate_limit' : res.status === 400 ? 'weak_password' : 'credentials';
+    throw new AuthError(code, message);
+  }
   return payload;
 }
 
@@ -195,6 +218,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setUser(restored);
           setStatus('signedIn');
           markBoot('auth:restored');
+          return;
+        }
+        // Email session: the token is opaque (server HMAC), so validate it against the cloud and
+        // refresh the profile snapshot while we're at it. Offline: trust the stored snapshot.
+        const storedUser = at ? await SecureStore.getItemAsync(USER_KEY).catch(() => null) : null;
+        if (at && storedUser) {
+          const fallback = JSON.parse(storedUser) as AuthUser;
+          if (rorkBackendAvailable) {
+            const res = await fetch(`${RORK_FUNCTIONS_URL}/auth/session`, { headers: { Authorization: `Bearer ${at}` } }).catch(() => null);
+            if (res?.ok) {
+              const { user: fresh } = (await res.json()) as { user?: { id: string; email?: string; displayName: string; handle: string } };
+              const next: AuthUser = fresh
+                ? { id: fresh.id, email: fresh.email ?? fallback.email, displayName: fresh.displayName, handle: fresh.handle, emailVerified: true, provider: 'email' }
+                : fallback;
+              tokenCache = { access: at };
+              await SecureStore.setItemAsync(USER_KEY, JSON.stringify(next)).catch(() => {});
+              setUser(next);
+              setStatus('signedIn');
+              markBoot('auth:email');
+              return;
+            }
+            // Expired/revoked session: clear it and land on the sign-in screen.
+            tokenCache = {};
+            await SecureStore.deleteItemAsync(AT_KEY).catch(() => {});
+            await SecureStore.deleteItemAsync(USER_KEY).catch(() => {});
+            setStatus('signedOut');
+            markBoot('auth:email-expired');
+            return;
+          }
+          tokenCache = { access: at };
+          setUser(fallback);
+          setStatus('signedIn');
+          markBoot('auth:email-offline');
           return;
         }
         const viaRefresh = await refresh();
@@ -281,6 +337,61 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signInWithGoogle = useCallback(() => signInWithProvider('google'), [signInWithProvider]);
   const signInWithApple = useCallback(() => signInWithProvider('apple'), [signInWithProvider]);
 
+  const adoptSession = useCallback(async (token: string, next: AuthUser) => {
+    tokenCache = { access: token };
+    await SecureStore.setItemAsync(AT_KEY, token).catch(() => {});
+    await SecureStore.setItemAsync(USER_KEY, JSON.stringify(next)).catch(() => {});
+    await AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
+    await AsyncStorage.removeItem(DEMO_ACCOUNT_KEY).catch(() => {});
+    setUser(next);
+    setStatus('signedIn');
+  }, []);
+
+  const signUp = useCallback(
+    async (email: string, password: string, displayName: string): Promise<string> => {
+      const address = email.trim().toLowerCase();
+      if (!address.includes('@')) throw new AuthError('credentials', 'That email address does not look right.');
+      if (password.length < 8) throw new AuthError('weak_password', 'Use at least 8 characters for your password.');
+      setError(null);
+      const out = await cloudPost<{ token: string; user: { id: string; email?: string; displayName: string; handle: string }; recovery_code: string }>('/auth/signup', {
+        email: address,
+        password,
+        displayName: displayName.trim(),
+      });
+      await adoptSession(out.token, { id: out.user.id, email: out.user.email ?? address, displayName: out.user.displayName, handle: out.user.handle, emailVerified: true, provider: 'email' });
+      track('auth.signup', { provider: 'email' });
+      return out.recovery_code;
+    },
+    [adoptSession],
+  );
+
+  const signIn = useCallback(
+    async (email: string, password: string): Promise<void> => {
+      const address = email.trim().toLowerCase();
+      if (!address.includes('@')) throw new AuthError('credentials', 'Enter the email address you signed up with.');
+      setError(null);
+      const out = await cloudPost<{ token: string; user: { id: string; email?: string; displayName: string; handle: string } }>('/auth/signin', { email: address, password });
+      await adoptSession(out.token, { id: out.user.id, email: out.user.email ?? address, displayName: out.user.displayName, handle: out.user.handle, emailVerified: true, provider: 'email' });
+      track('auth.signin', { provider: 'email' });
+    },
+    [adoptSession],
+  );
+
+  const recoverPassword = useCallback(
+    async (email: string, recoveryKey: string, newPassword: string): Promise<void> => {
+      const address = email.trim().toLowerCase();
+      setError(null);
+      const out = await cloudPost<{ token: string; user: { id: string; email?: string; displayName: string; handle: string } }>('/auth/recover', {
+        email: address,
+        code: recoveryKey.trim(),
+        newPassword,
+      });
+      await adoptSession(out.token, { id: out.user.id, email: out.user.email ?? address, displayName: out.user.displayName, handle: out.user.handle, emailVerified: true, provider: 'email' });
+      track('auth.signin', { provider: 'email-recovery' });
+    },
+    [adoptSession],
+  );
+
   const signInDemo = useCallback(async () => {
     await AsyncStorage.setItem(DEMO_ACCOUNT_KEY, '1').catch(() => {});
     await AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
@@ -298,20 +409,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    // Revoke the server session for email accounts (OAuth tokens simply expire). Fire-and-forget.
+    if (user?.provider === 'email' && tokenCache.access) {
+      void fetch(`${RORK_FUNCTIONS_URL}/auth/logout`, { method: 'POST', headers: { Authorization: `Bearer ${tokenCache.access}` } }).catch(() => {});
+    }
     tokenCache = {};
     await SecureStore.deleteItemAsync(AT_KEY).catch(() => {});
     await SecureStore.deleteItemAsync(RT_KEY).catch(() => {});
+    await SecureStore.deleteItemAsync(USER_KEY).catch(() => {});
     await AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
     await AsyncStorage.removeItem(DEMO_ACCOUNT_KEY).catch(() => {});
     setUser(null);
     setStatus('signedOut');
-  }, []);
+  }, [user]);
 
   const deleteAccount = useCallback(async () => {
     const token = currentAccessToken();
     if (token && rorkBackendAvailable) {
       // The server purges every row the user owns (posts, comments, reactions, follows, saves,
-      // watchlist, collections, notifications, events, profile) — a hard, GDPR-style wipe.
+      // watchlist, collections, notifications, events, account, profile) — a hard, GDPR-style wipe.
       await fetch(`${RORK_FUNCTIONS_URL}/account`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
     }
     await signOut();
@@ -328,12 +444,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       clearError,
       signInWithGoogle,
       signInWithApple,
+      signUp,
+      signIn,
+      recoverPassword,
       signInDemo,
       continueAsGuest,
       signOut,
       deleteAccount,
     }),
-    [status, user, isSigningIn, error, clearError, signInWithGoogle, signInWithApple, signInDemo, continueAsGuest, signOut, deleteAccount],
+    [status, user, isSigningIn, error, clearError, signInWithGoogle, signInWithApple, signUp, signIn, recoverPassword, signInDemo, continueAsGuest, signOut, deleteAccount],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
@@ -344,18 +463,3 @@ export function useAuth(): AuthValue {
   if (!v) throw new Error('useAuth must be used inside AuthProvider');
   return v;
 }
-
-/** Compact Apple door — mirrors GoogleButton's geometry (white G ↔ black ). */
-export function AppleSignInSpinner() {
-  return (
-    <View style={styles.center}>
-      <ActivityIndicator />
-      <Ionicons name="logo-apple" size={18} style={styles.mark} />
-    </View>
-  );
-}
-
-const styles = StyleSheet.create({
-  center: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
-  mark: { opacity: 0.6 },
-});

@@ -6,7 +6,8 @@ import { TopBar } from '../../components/ui/TopBar';
 import { useAuth } from '../../lib/auth';
 import { useApp } from '../../lib/hooks';
 
-const METHOD_LABEL: Record<string, string> = { google: 'Google', apple: 'Apple', demo: 'Demo (device only)' };
+const METHOD_LABEL: Record<string, string> = { email: 'Email & password', google: 'Google', apple: 'Apple', demo: 'Demo (device only)' };
+const METHOD_ICON: Record<string, string> = { email: 'mail-outline', google: 'logo-google', apple: 'logo-apple', demo: 'sparkles-outline' };
 
 /** Account — identity, sign-in method, data controls. */
 export default function AccountSettings() {
@@ -20,7 +21,7 @@ export default function AccountSettings() {
           <SettingsRow icon="person-outline" label="Profile" value={`@${me.handle}`} onPress={() => router.push('/edit-profile')} />
           <SettingsRow icon="mail-outline" label="Email" value={auth.user?.email ?? '—'} />
           <SettingsRow
-            icon={auth.user?.provider === 'demo' ? 'sparkles-outline' : auth.user?.provider === 'apple' ? 'logo-apple' : 'logo-google'}
+            icon={(METHOD_ICON[auth.user?.provider ?? 'google'] ?? 'logo-google') as React.ComponentProps<typeof SettingsRow>['icon']}
             label="Sign-in method"
             value={METHOD_LABEL[auth.user?.provider ?? 'google'] ?? 'Google'}
           />

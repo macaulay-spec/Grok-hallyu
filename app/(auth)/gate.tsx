@@ -72,6 +72,8 @@ export default function Gate() {
         <View style={{ gap: space.x2, marginTop: space.x5 }}>
           <GoogleButton label="Continue with Google" size="md" onPress={enter(auth.signInWithGoogle, setGoogleBusy)} loading={googleBusy} disabled={googleBusy} />
           <AppleButton label="Continue with Apple" size="md" onPress={enter(auth.signInWithApple, setAppleBusy)} loading={appleBusy} disabled={appleBusy} />
+          <Button label="Continue with email" icon="mail-outline" variant="secondary" block onPress={() => router.push('/(auth)/sign-up')} />
+          <Button label="Sign in" variant="ghost" onPress={() => router.push('/(auth)/sign-in')} />
           <Pressable onPress={() => auth.signInDemo().then(() => close())} accessibilityRole="button" accessibilityLabel="Explore the demo" hitSlop={10} style={styles.demoLink}>
             <Ionicons name="sparkles" size={13} color={colors.textSecondary} />
             <Text variant="bodySmall" tone="secondary">Just exploring? Open the demo</Text>
