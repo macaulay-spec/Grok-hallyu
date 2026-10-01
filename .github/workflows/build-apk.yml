@@ -7,7 +7,6 @@ on:
       - main
       - "arena/**"
     paths-ignore:
-      - "supabase/**"
       - "docs/**"
       - "*.md"
 
@@ -32,12 +31,13 @@ jobs:
       ANDROID_NDK_VERSION: "26.1.10909125"
 
       # ============================================================
-      # LIVE BACKEND: LOVABLE CLOUD
-      # These are injected at Expo build time so they are bundled
-      # into the release APK.
+      # LIVE BACKEND: HALLYU'S OWN RORK CLOUD
+      # (Cloudflare Worker + Durable Object database + Supabase Postgres)
+      # Injected at Expo build time so they are bundled into the APK.
       # ============================================================
-      EXPO_PUBLIC_LOVABLE_CLOUD_URL: ${{ secrets.LOVABLE_CLOUD_URL }}
-      EXPO_PUBLIC_LOVABLE_CLOUD_ANON_KEY: ${{ secrets.LOVABLE_CLOUD_ANON_KEY }}
+      EXPO_PUBLIC_RORK_FUNCTIONS_URL: "https://app-ui-redesign-yws4ash-backend.rork.app"
+      EXPO_PUBLIC_RORK_AUTH_URL: "https://api.rork.com"
+      EXPO_PUBLIC_RORK_APP_KEY: ${{ secrets.EXPO_PUBLIC_RORK_APP_KEY }}
 
       # ============================================================
       # TMDB
@@ -299,6 +299,6 @@ jobs:
             --title "Hallyu APK #${{ github.run_number }}" \
             --notes "Installable Android APK (${APK_SIZE}).
 
-          Connected to Lovable Cloud backend.
+          Connected to Hallyu's own Rork cloud backend — email, Google & Apple sign-in.
 
           Install: download APK → allow unknown apps → open file."

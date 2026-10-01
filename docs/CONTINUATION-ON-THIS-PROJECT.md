@@ -15,7 +15,8 @@ primitives are already live in the cloud.*
 | Identity | ✅ Rork Auth (Google/Apple, PKCE + SecureStore). Server-side JWT verification; spoofing impossible |
 | Moderation primitives | ✅ Reports, blocks, mutes, spoiler levels, bans, feed hygiene server-side |
 | Trust | ✅ `verified` badge + `role` on every profile; role-gated `/admin/*` endpoints |
-| Analytics | ✅ `POST /events` pipeline into the cloud database |
+| Analytics | ✅ `POST /events` pipeline; mirrored into Supabase Postgres for global reporting |
+| Postgres | ✅ Managed Supabase (Rork Cloud): `analytics_events`, `moderation_reports`, `member_snapshots` + SQL aggregate function |
 | Monetization | ⬜ Nothing yet — by design, until retention is proven |
 
 ## 2. Product principles (why people stay)
@@ -46,8 +47,10 @@ the product; these would kill it.
 
 ## 4. Admin dashboard — yes, we need one
 
-Phase 1 (the cloud is ready for it): a small **web console** (separate Rork web app) calling the same
-role-gated `/admin/*` endpoints with an admin JWT:
+Phase 1 — **SHIPPED as an in-app console** (Settings → Admin console; the admin role is checked
+server-side on every call): KPIs, live Postgres analytics (14-day event chart, top events), moderation
+queue with one-tap resolutions, people search with verify/ban, and an audit trail. A standalone web
+can reuse the same role-gated `/admin/*` endpoints later:
 - **KPIs:** signups, posts/day, reaction volume, events today, active reports (already returned by `GET /admin/overview`).
 - **Moderation queue:** open reports with target previews → action (dismiss / remove content / ban author).
 - **People:** search members, verify, ban/unban, grant roles.
@@ -62,23 +65,25 @@ role-gated `/admin/*` endpoints with an admin JWT:
 
 ## 6. Analytics
 
-- Pipeline is live (`POST /events`, batched). Instrument next: onboarding funnel steps, feed engagement,
-  post/reaction creation, watchlist adds, session starts (retention proxy).
+- Pipeline is live end-to-end: `track()` → cloud sink batching → `POST /events` → Durable Object →
+  HMAC-signed mirror → Supabase Postgres → admin console (14-day trends, top events).
+- Instrument next: onboarding funnel steps, feed engagement, watchlist adds, session starts (retention proxy).
 - Privacy rule: **no PII in events** — pseudonymous user id + aggregate dashboards only.
 
 ## 7. Moderation & safety
 
 - **In place:** report flow everywhere, blocks, mutes (people + dramas), muted words, spoiler levels,
   server-side feed filtering, instant ban enforcement.
-- **Next:** admin queue tooling (§4), spam heuristics (link floods, mass-posting), consequences ladder
-  (warning → 24h restrict → ban), appeals flow, moderation audit log.
+- **Shipped:** admin queue tooling (§4) and the moderation audit log (every verify/ban/resolution).
+- **Next:** spam heuristics (link floods, mass-posting), consequences ladder
+  (warning → 24h restrict → ban), appeals flow.
 
 ## 8. Security
 
 - **In place:** platform-verified JWT identity, ownership checks on every mutation, 120 writes/min rate
   limit, strict input caps, hard account deletion (full GDPR-style wipe), banned-state enforcement.
-- **Next:** `GET /me/export` (data portability), admin action audit log, mention/report abuse throttles,
-  quarterly dependency audit.
+- **Shipped:** `GET /me/export` (data portability) and the admin action audit log.
+- **Next:** mention/report abuse throttles, quarterly dependency audit.
 
 ## 9. Growth loop
 
@@ -88,10 +93,10 @@ moments** (C-Drama Week etc.) → creator program.
 
 ## 10. Roadmap (build order)
 
-1. **Admin web console** — trust tooling before scale. *(Cloud endpoints ready.)*
+1. **Admin console** — ✅ shipped in-app (KPIs, Postgres analytics, queue, people, audit). A web console is optional later.
 2. **Push notifications** — episode air + social; the retention engine.
 3. **Hallyu Pass + RevenueCat** — first revenue.
-4. **Data export + appeals** — platform hygiene.
+4. **Data export (✅ shipped) + appeals** — platform hygiene.
 5. **Share cards, deep links, creator program** — the acquisition loop.
 
 *Every item above lands in the same cloud (`functions/`) and the same app — no second backend, no new

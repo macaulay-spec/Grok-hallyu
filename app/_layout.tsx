@@ -19,6 +19,7 @@ import { MilestoneWatcher } from '../components/moments/MilestoneWatcher';
 import { ToastProvider } from '../components/ui/Toast';
 import { colors } from '../constants/theme';
 import { reportError } from '../lib/analytics';
+import { attachCloudAnalytics } from '../lib/analyticsCloud';
 import { AuthProvider, useAuth } from '../lib/auth';
 import { markBoot } from '../lib/boot';
 import { SyncProvider, getBackend } from '../lib/data/sync';
@@ -28,6 +29,9 @@ import { setDownloadScope } from '../lib/media';
 import { freshMemberState, getState, GUEST_ID, guestState, StoreProvider, useHallyu, useSlice, useStore } from '../lib/store';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
+
+// Analytics pipeline: track() events batch and flush to the cloud (mirrored into Postgres).
+attachCloudAnalytics();
 
 export const unstable_settings = { initialRouteName: 'index' };
 

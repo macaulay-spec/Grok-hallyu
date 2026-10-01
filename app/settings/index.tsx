@@ -11,6 +11,7 @@ import { useToast } from '../../components/ui/Toast';
 import { TopBar } from '../../components/ui/TopBar';
 import { space } from '../../constants/theme';
 import { useAuth } from '../../lib/auth';
+import { useIsAdmin } from '../../lib/admin';
 import { useApp } from '../../lib/hooks';
 
 const PROTECTION_LABEL = { strict: 'Strict', balanced: 'Balanced', off: 'Off' } as const;
@@ -23,6 +24,7 @@ export default function Settings() {
   const { state, me } = useApp();
   const [confirmOut, setConfirmOut] = useState(false);
   const signedIn = auth.status === 'signedIn';
+  const admin = useIsAdmin();
   const version = Application.nativeApplicationVersion ?? '1.0.0';
   return (
     <Screen header={<TopBar mode="stack" title="Settings" />}>
@@ -47,6 +49,7 @@ export default function Settings() {
         )}
         <SettingsGroup title="Account">
           {signedIn ? <SettingsRow icon="person-outline" label="Account" detail="Sign-in method, email, data" onPress={() => router.push('/settings/account')} /> : <SettingsRow icon="log-in-outline" label="Sign in or create account" onPress={() => router.push('/(auth)/welcome')} />}
+          {signedIn && admin && <SettingsRow icon="speedometer-outline" label="Admin console" detail="Analytics, moderation queue, members" onPress={() => router.push('/(admin)')} />}
           <SettingsRow icon="notifications-outline" label="Notifications" detail="Episodes, social, highlights, quiet hours" onPress={() => router.push('/settings/notifications')} />
           <SettingsRow icon="eye-off-outline" label="Content & spoilers" value={PROTECTION_LABEL[state.prefs.protection]} onPress={() => router.push('/settings/content')} />
           <SettingsRow icon="shield-checkmark-outline" label="Privacy & safety" onPress={() => router.push('/settings/privacy')} />
