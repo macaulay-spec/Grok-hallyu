@@ -17,7 +17,7 @@ import { pathToFileURL } from 'node:url';
 
 const out = mkdtempSync(join(tmpdir(), 'hallyu-fandoms-'));
 try {
-  execSync(`npx tsc lib/fandoms.ts lib/model.ts --outDir ${out} --module esnext --target es2020 --moduleResolution bundler --skipLibCheck`, { stdio: 'inherit' });
+  execSync(`node node_modules/typescript/bin/tsc lib/fandoms.ts lib/model.ts --outDir ${out} --module esnext --target es2020 --moduleResolution bundler --skipLibCheck`, { stdio: 'inherit' });
   const { FANDOMS, FANDOM_IDS, dramaFandom, dramaFormat, formatLabel, dramaLabel, inferFormat, isFilm, runtimeLabel, fandomLine, toFandoms, contentContext, inWorlds, fandomById } = await import(pathToFileURL(join(out, 'fandoms.js')).href);
 
   let failures = 0;

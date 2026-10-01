@@ -19,7 +19,7 @@ import { pathToFileURL } from 'node:url';
 
 const out = mkdtempSync(join(tmpdir(), 'hallyu-pending-'));
 try {
-  execSync(`npx tsc lib/data/pending.ts --outDir ${out} --module esnext --target es2020 --moduleResolution bundler --skipLibCheck`, { stdio: 'inherit' });
+  execSync(`node node_modules/typescript/bin/tsc lib/data/pending.ts --outDir ${out} --module esnext --target es2020 --moduleResolution bundler --skipLibCheck`, { stdio: 'inherit' });
   const mod = await import(pathToFileURL(join(out, 'pending.js')).href);
   const { pendingIds, mergePending, mergePendingMap, pendingPrefKeys, mergePendingPrefs } = mod;
 
