@@ -3,14 +3,15 @@ import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { ProfileView } from '../../components/profile/ProfileView';
-import { Button } from '../../components/ui/Button';
+import { AppleButton } from '../../components/ui/AppleButton';
 import { GoogleButton } from '../../components/ui/GoogleButton';
 import { IconButton } from '../../components/ui/IconButton';
 import { Screen } from '../../components/ui/Screen';
 import { Text } from '../../components/ui/Text';
+import { toast } from '../../components/ui/Toast';
 import { TopBar } from '../../components/ui/TopBar';
 import { colors, radius, space } from '../../constants/theme';
-import { useAuth } from '../../lib/auth';
+import { AuthError, useAuth } from '../../lib/auth';
 import { useApp } from '../../lib/hooks';
 
 /** You — your profile as others see it, plus your shelves and the way into Settings. */
@@ -20,13 +21,18 @@ export default function You() {
   const { me, state } = useApp();
   const drafts = state.drafts.length;
   const [googleBusy, setGoogleBusy] = useState(false);
+  const [appleBusy, setAppleBusy] = useState(false);
 
-  const continueWithGoogle = async () => {
-    setGoogleBusy(true);
+  /** Spin the tapped door; toast real failures (cancels stay silent). */
+  const enter = (door: () => Promise<void>, setBusy: (busy: boolean) => void) => async () => {
+    setBusy(true);
     try {
-      await auth.signInWithGoogle();
+      await door();
+    } catch (e) {
+      const err = e as AuthError;
+      if (err.code !== 'cancelled') toast.show({ message: err.message || 'Sign-in failed — try again.', tone: 'danger' });
     } finally {
-      setGoogleBusy(false);
+      setBusy(false);
     }
   };
 
@@ -44,9 +50,8 @@ export default function You() {
             Track what you watch, keep spoilers away, follow your fandoms and post with your people.
           </Text>
           <View style={{ gap: space.x2, marginTop: space.x6, width: '100%' }}>
-            <GoogleButton label="Continue with Google" size="lg" onPress={continueWithGoogle} loading={googleBusy} disabled={googleBusy} />
-            <Button label="Create an account" size="lg" block onPress={() => router.push('/(auth)/sign-up')} />
-            <Button label="Sign in" variant="secondary" size="lg" block onPress={() => router.push('/(auth)/sign-in')} />
+            <GoogleButton label="Continue with Google" size="lg" onPress={enter(auth.signInWithGoogle, setGoogleBusy)} loading={googleBusy} disabled={googleBusy} />
+            <AppleButton label="Continue with Apple" size="lg" onPress={enter(auth.signInWithApple, setAppleBusy)} loading={appleBusy} disabled={appleBusy} />
           </View>
           <Text variant="caption" tone="tertiary" align="center" style={{ marginTop: space.x4 }}>
             Guest mode keeps working. Nothing you browse is lost when you join.

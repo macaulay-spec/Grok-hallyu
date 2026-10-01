@@ -3,9 +3,9 @@
  * (lib/data/sync.ts) replays those actions against whatever implements `Backend`, and screens
  * call `pull(scope)` to refresh cached content.
  *
- * Default offline mode: `demoBackend` (lib/data/demoBackend.ts). When `LOVABLE_CLOUD_URL` and
- * `LOVABLE_CLOUD_ANON_KEY` are configured in `constants/keys.ts`, `lib/data/sync.ts` automatically
- * switches to `lovableBackend` (lib/data/lovableBackend.ts) backed by `lovable-cloud/`.
+ * Default: `rorkBackend` (lib/data/rorkBackend.ts) — the Hallyu cloud (Rork Worker + Durable
+ * Object database, `functions/`). Without a configured backend, `demoBackend`
+ * (lib/data/demoBackend.ts) runs everything on-device.
  */
 import type { Mutation } from '../store';
 

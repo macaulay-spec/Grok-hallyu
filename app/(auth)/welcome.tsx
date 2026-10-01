@@ -3,13 +3,14 @@ import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Button } from '../../components/ui/Button';
+import { AppleButton } from '../../components/ui/AppleButton';
 import { GoogleButton } from '../../components/ui/GoogleButton';
 import { Text } from '../../components/ui/Text';
+import { toast } from '../../components/ui/Toast';
 import { LivingWall } from '../../components/onboarding/LivingWall';
 import { Wordmark } from '../../components/ui/TopBar';
 import { colors, motion, space } from '../../constants/theme';
-import { useAuth } from '../../lib/auth';
+import { AuthError, useAuth } from '../../lib/auth';
 import { useLayout, useLoad } from '../../lib/hooks';
 import { catalog } from '../../lib/catalog';
 import { adoptDramas } from '../../lib/catalogSync';
@@ -19,7 +20,7 @@ import { allDramas, useSlice } from '../../lib/store';
  * Welcome — the promise, then the doors.
  *
  * The mark leads, the promise is set in the display serif, and the choices arrive as a short stack:
- * Google, then email, then a quiet sign-in link. "Look around first" is a text link, not a third
+ * Google, then Apple, then a quiet guest link. "Look around first" is a text link, not a third
  * button — it should never compete with the two ways in. The background is a quiet poster mosaic
  * under a scrim: cinematic, never a gradient.
  */
@@ -29,6 +30,7 @@ export default function Welcome() {
   const insets = useSafeAreaInsets();
   const { width } = useLayout();
   const [googleBusy, setGoogleBusy] = useState(false);
+  const [appleBusy, setAppleBusy] = useState(false);
   const rise = useRef(new Animated.Value(24)).current;
   const fade = useRef(new Animated.Value(0)).current;
 
@@ -39,14 +41,17 @@ export default function Welcome() {
     ]).start();
   }, [rise, fade]);
 
-  // The Google door: the same account shape a server-backed OAuth build would hand back.
-  const continueWithGoogle = async () => {
-    setGoogleBusy(true);
+  /** One entry helper: spin the tapped door, land home on success, toast on real failures. */
+  const enter = (door: () => Promise<void>, setBusy: (busy: boolean) => void) => async () => {
+    setBusy(true);
     try {
-      await auth.signInWithGoogle();
+      await door();
       router.replace('/');
+    } catch (e) {
+      const err = e as AuthError;
+      if (err.code !== 'cancelled') toast.show({ message: err.message || 'Sign-in failed — try again.', tone: 'danger' });
     } finally {
-      setGoogleBusy(false);
+      setBusy(false);
     }
   };
 
@@ -91,9 +96,8 @@ export default function Welcome() {
         </Text>
 
         <View style={{ gap: space.x3, marginTop: space.x8 }}>
-          <GoogleButton label="Continue with Google" size="lg" onPress={continueWithGoogle} loading={googleBusy} disabled={googleBusy} />
-          <Button label="Create an account" icon="mail-outline" variant="secondary" size="lg" block onPress={() => router.push('/(auth)/sign-up')} />
-          <Button label="I already have an account" variant="ghost" size="md" block onPress={() => router.push('/(auth)/sign-in')} />
+          <GoogleButton label="Continue with Google" size="lg" onPress={enter(auth.signInWithGoogle, setGoogleBusy)} loading={googleBusy} disabled={googleBusy} />
+          <AppleButton label="Continue with Apple" size="lg" onPress={enter(auth.signInWithApple, setAppleBusy)} loading={appleBusy} disabled={appleBusy} />
         </View>
 
         <View style={styles.guestRow}>
@@ -115,7 +119,7 @@ export default function Welcome() {
         </View>
 
         <Text variant="caption" tone="tertiary" align="center" style={{ marginTop: space.x4 }}>
-          Demo build — accounts, posts and watchlists are stored on this device only.
+          Free with Google or Apple — your watchlist, posts and reactions live in the cloud.
         </Text>
         <View style={styles.tmdb}>
           <Ionicons name="film-outline" size={12} color={colors.textDisabled} />

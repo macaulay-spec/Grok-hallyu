@@ -33,7 +33,7 @@ export default function Settings() {
             <View style={{ flex: 1 }}>
               <Text variant="titleSmall">{me.displayName}</Text>
               <Text variant="caption" tone="secondary">
-                @{me.handle} · {auth.user?.provider === 'google' ? 'Google' : auth.user?.provider === 'demo' ? 'Demo' : 'Email'}
+                @{me.handle} · {auth.user?.provider === 'google' ? 'Google' : auth.user?.provider === 'apple' ? 'Apple' : 'Demo'}
               </Text>
             </View>
           </View>
@@ -46,7 +46,7 @@ export default function Settings() {
           </View>
         )}
         <SettingsGroup title="Account">
-          {signedIn ? <SettingsRow icon="person-outline" label="Account" detail="Email, password, connected sign-in" onPress={() => router.push('/settings/account')} /> : <SettingsRow icon="log-in-outline" label="Sign in or create account" onPress={() => router.push('/(auth)/welcome')} />}
+          {signedIn ? <SettingsRow icon="person-outline" label="Account" detail="Sign-in method, email, data" onPress={() => router.push('/settings/account')} /> : <SettingsRow icon="log-in-outline" label="Sign in or create account" onPress={() => router.push('/(auth)/welcome')} />}
           <SettingsRow icon="notifications-outline" label="Notifications" detail="Episodes, social, highlights, quiet hours" onPress={() => router.push('/settings/notifications')} />
           <SettingsRow icon="eye-off-outline" label="Content & spoilers" value={PROTECTION_LABEL[state.prefs.protection]} onPress={() => router.push('/settings/content')} />
           <SettingsRow icon="shield-checkmark-outline" label="Privacy & safety" onPress={() => router.push('/settings/privacy')} />

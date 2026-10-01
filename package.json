@@ -21,7 +21,6 @@
     "@expo/vector-icons": "^14.0.0",
     "@react-native-async-storage/async-storage": "^1.23.1",
     "@react-native-community/netinfo": "^11.3.1",
-    "@supabase/supabase-js": "^2.45.0",
     "expo": "~51.0.28",
     "expo-application": "~5.9.1",
     "expo-av": "~14.0.7",
@@ -39,6 +38,7 @@
     "expo-media-library": "~16.0.5",
     "expo-notifications": "~0.28.19",
     "expo-router": "~3.5.23",
+    "expo-secure-store": "~13.0.2",
     "expo-splash-screen": "^0.27.7",
     "expo-status-bar": "~1.12.1",
     "expo-system-ui": "~3.0.7",
@@ -54,7 +54,6 @@
     "zustand": "^4.5.7"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "^0.5.8",
     "@types/pngjs": "^6.0.5",
     "@types/react": "~18.2.79",
     "eslint": "^8.57.0",

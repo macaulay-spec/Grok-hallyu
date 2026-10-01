@@ -7,7 +7,7 @@ import '../lib/textEncoding';
 import '../lib/crash';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFonts } from 'expo-font';
-import { Stack, useRootNavigationState, useRouter, useSegments } from 'expo-router';
+import { Stack, useRootNavigationState, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useRef, useState } from 'react';
@@ -173,8 +173,6 @@ export default function RootLayout() {
 function AccountSync() {
   const auth = useAuth();
   const { state, reset, dispatch } = useStore();
-  const router = useRouter();
-  const segments = useSegments();
   // `applied` = the account whose sync has COMPLETED (not merely started). `inFlight` = the account
   // currently syncing (prevents re-entrancy while the first sync is still running). `gen` is bumped on
   // every identity change (sign-in, sign-out, account switch) so any in-flight continuation from a
@@ -182,7 +180,6 @@ function AccountSync() {
   const applied = useRef<string | null>(null);
   const inFlight = useRef<string | null>(null);
   const gen = useRef(0);
-  const navReady = useRootNavigationState()?.key != null;
 
   // Save per-account state snapshot so signing out and back in (or reloading) never loses
   // onboarding completion, watchlist progress, follows, saves, posts, or profile edits.
@@ -292,13 +289,6 @@ function AccountSync() {
       }
     })();
   }, [auth.status, auth.user, state.hydrated, state.profile.id, reset, state.prefs.reduceMotion, state.prefs.trueBlack, dispatch]);
-
-  useEffect(() => {
-    // Guard: a recovery deep link can resolve before the root navigator finishes registering.
-    // Navigating before that throws "Attempted to navigate before mounting the Root Layout".
-    if (!navReady) return;
-    if (auth.recoveryPending && segments[1] !== 'reset-password') router.push('/(auth)/reset-password');
-  }, [navReady, auth.recoveryPending, segments, router]);
 
   return null;
 }

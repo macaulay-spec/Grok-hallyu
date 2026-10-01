@@ -267,7 +267,7 @@ function Home() {
               <Text variant="bodySmall" tone="secondary" style={{ marginTop: 2 }}>
                 Join to follow dramas, track episodes and keep spoilers away from you.
               </Text>
-              <Button label="Join Hallyu" size="sm" style={{ marginTop: space.x3 }} onPress={() => router.push('/(auth)/sign-up')} />
+              <Button label="Join Hallyu" size="sm" style={{ marginTop: space.x3 }} onPress={() => router.push('/(auth)/welcome')} />
             </View>
           );
         case 'worlds':
@@ -351,7 +351,7 @@ function Home() {
           title="Following is yours to build"
           body="Sign in and follow dramas, actors and people. Their posts land here, newest first."
           actionLabel="Join Hallyu"
-          onAction={() => router.push('/(auth)/sign-up')}
+          onAction={() => router.push('/(auth)/welcome')}
         />
       ) : (
         <EmptyState

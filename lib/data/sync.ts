@@ -18,11 +18,11 @@ import * as sel from '../selectors';
 import { Action, AppState, dispatch, dispatchLocal, getState, Mutation, setDispatchMiddleware, useSlice } from '../store';
 import { Backend, BackendError, PullScope } from './backend';
 import { demoBackend } from './demoBackend';
-import { lovableBackend, lovableBackendAvailable } from './lovableBackend';
+import { rorkBackend, rorkBackendAvailable } from './rorkBackend';
 import { track, reportError } from '../analytics';
 
-/** The Lovable Cloud backend is active when credentials are configured; demoBackend otherwise. */
-let backend: Backend = lovableBackendAvailable ? lovableBackend : demoBackend;
+/** Hallyu cloud (Rork Worker + Durable Object) when configured; demoBackend otherwise. */
+let backend: Backend = rorkBackendAvailable ? rorkBackend : demoBackend;
 /** Swap the backend implementation (a server-backed adapter registers itself here; tests inject fakes). */
 export function setBackend(b: Backend): void {
   backend = b;

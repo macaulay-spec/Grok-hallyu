@@ -4,10 +4,12 @@ import React, { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '../../components/ui/Button';
+import { AppleButton } from '../../components/ui/AppleButton';
 import { GoogleButton } from '../../components/ui/GoogleButton';
 import { Text } from '../../components/ui/Text';
+import { toast } from '../../components/ui/Toast';
 import { colors, radius, space } from '../../constants/theme';
-import { useAuth } from '../../lib/auth';
+import { AuthError, useAuth } from '../../lib/auth';
 
 type Frame = { icon: React.ComponentProps<typeof Ionicons>['name']; title: string; body: string };
 
@@ -35,16 +37,21 @@ export default function Gate() {
   const insets = useSafeAreaInsets();
   const { reason } = useLocalSearchParams<{ reason?: string }>();
   const [googleBusy, setGoogleBusy] = useState(false);
+  const [appleBusy, setAppleBusy] = useState(false);
   const close = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)'));
   const frame = frameFor(reason);
 
-  const continueWithGoogle = async () => {
-    setGoogleBusy(true);
+  /** One entry helper: spin the tapped door, land home on success, toast on real failures. */
+  const enter = (door: () => Promise<void>, setBusy: (busy: boolean) => void) => async () => {
+    setBusy(true);
     try {
-      await auth.signInWithGoogle();
+      await door();
       router.replace('/');
+    } catch (e) {
+      const err = e as AuthError;
+      if (err.code !== 'cancelled') toast.show({ message: err.message || 'Sign-in failed — try again.', tone: 'danger' });
     } finally {
-      setGoogleBusy(false);
+      setBusy(false);
     }
   };
 
@@ -63,9 +70,8 @@ export default function Gate() {
           {frame.body}
         </Text>
         <View style={{ gap: space.x2, marginTop: space.x5 }}>
-          <GoogleButton label="Continue with Google" size="md" onPress={continueWithGoogle} loading={googleBusy} disabled={googleBusy} />
-          <Button label="Create an account" icon="mail-outline" variant="secondary" block onPress={() => router.replace('/(auth)/sign-up')} />
-          <Button label="I already have an account" variant="ghost" onPress={() => router.replace('/(auth)/sign-in')} />
+          <GoogleButton label="Continue with Google" size="md" onPress={enter(auth.signInWithGoogle, setGoogleBusy)} loading={googleBusy} disabled={googleBusy} />
+          <AppleButton label="Continue with Apple" size="md" onPress={enter(auth.signInWithApple, setAppleBusy)} loading={appleBusy} disabled={appleBusy} />
           <Pressable onPress={() => auth.signInDemo().then(() => close())} accessibilityRole="button" accessibilityLabel="Explore the demo" hitSlop={10} style={styles.demoLink}>
             <Ionicons name="sparkles" size={13} color={colors.textSecondary} />
             <Text variant="bodySmall" tone="secondary">Just exploring? Open the demo</Text>

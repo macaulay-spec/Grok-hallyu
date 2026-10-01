@@ -2,11 +2,11 @@
  * Client configuration & public API keys.
  *
  * 1. TMDB read-only credentials (used by `lib/catalog.ts` for live 4-world catalog discovery).
- * 2. Lovable Cloud connection (`LOVABLE_CLOUD_URL` & `LOVABLE_CLOUD_ANON_KEY`).
- *    Production APKs get these from `EXPO_PUBLIC_LOVABLE_CLOUD_URL` / `EXPO_PUBLIC_LOVABLE_CLOUD_ANON_KEY`,
- *    which `.github/workflows/build-apk.yml` injects from GitHub Secrets at Expo build time
- *    (Metro inlines `process.env.EXPO_PUBLIC_*` into the JS bundle). When both are set,
- *    `lib/data/sync.ts` and `lib/auth.tsx` use `lovableBackend` (Lovable Cloud Auth + data).
+ * 2. Hallyu cloud (Rork Cloudflare Worker + Durable Object database, `functions/`):
+ *    - `RORK_FUNCTIONS_URL` — the app's own backend. Public fallback keeps every build
+ *      (Rork CI, GitHub APK) pointed at the same cloud without secrets.
+ *    - `RORK_AUTH_URL` / `RORK_APP_KEY` — Rork Auth (Google/Apple OAuth). Public values,
+ *      injected at build time; sign-in degrades gracefully when absent.
  */
 const env = (v: string | undefined): string | undefined => {
   const t = v?.trim();
@@ -22,19 +22,22 @@ export const TMDB_ACCESS_TOKEN =
 export const TMDB_API_KEY = env(process.env.EXPO_PUBLIC_TMDB_API_KEY) ?? 'ff01f28fc5c47791e28038349445bf58';
 
 // Must stay as literal `process.env.EXPO_PUBLIC_*` member expressions so Metro inlines them.
-const ENV_CLOUD_URL = env(process.env.EXPO_PUBLIC_LOVABLE_CLOUD_URL);
-const ENV_CLOUD_KEY = env(process.env.EXPO_PUBLIC_LOVABLE_CLOUD_ANON_KEY);
+const ENV_FUNCTIONS_URL = env(process.env.EXPO_PUBLIC_RORK_FUNCTIONS_URL);
+const ENV_PROJECT_ID = env(process.env.EXPO_PUBLIC_PROJECT_ID);
+const ENV_AUTH_URL = env(process.env.EXPO_PUBLIC_RORK_AUTH_URL);
+const ENV_APP_KEY = env(process.env.EXPO_PUBLIC_RORK_APP_KEY);
 
-/** Local/dev fallback pair (one backend). Only used when the build did not supply BOTH values. */
-const FALLBACK_CLOUD_URL = 'https://c--1829371b-7ee9-4f4a-8408-8f045a1e362b-prod.lovable.cloud';
-const FALLBACK_CLOUD_KEY = 'sb_publishable_yByktsPhjBMpcYv3W1A6Mw_tOdkI6dc';
+/** Hallyu cloud backend (Worker + Durable Object). */
+export const RORK_FUNCTIONS_URL = (ENV_FUNCTIONS_URL ?? 'https://app-ui-redesign-yws4ash-backend.rork.app').replace(/\/+$/, '');
 
-// URL and key are taken as a pair — never mix a build-time key with the fallback URL (or vice
-// versa), which authenticates against the wrong backend and makes every request fail.
-const useEnvPair = Boolean(ENV_CLOUD_URL && ENV_CLOUD_KEY);
+/** True when the cloud backend is configured for this build. */
+export const rorkBackendAvailable = !!RORK_FUNCTIONS_URL;
 
-/** Lovable Cloud project URL (no trailing slash — supabase-js appends `/auth/v1`, `/rest/v1`). */
-export const LOVABLE_CLOUD_URL = (useEnvPair ? (ENV_CLOUD_URL as string) : FALLBACK_CLOUD_URL).replace(/\/+$/, '');
+/** Rork Auth (Google / Apple OAuth). Both values required; absent → sign-in buttons degrade. */
+export const RORK_PROJECT_ID = ENV_PROJECT_ID ?? 'sjrfbjtc53nefg7r7516j';
+export const RORK_AUTH_URL = ENV_AUTH_URL;
+export const RORK_APP_KEY = ENV_APP_KEY;
+export const rorkAuthAvailable = !!(RORK_AUTH_URL && RORK_APP_KEY);
 
-/** Lovable Cloud publishable anon key. */
-export const LOVABLE_CLOUD_ANON_KEY = useEnvPair ? (ENV_CLOUD_KEY as string) : FALLBACK_CLOUD_KEY;
+/** Deep-link scheme the OAuth browser redirects back into (registered in app.json). */
+export const RORK_SCHEME = `rork-${RORK_PROJECT_ID}`;

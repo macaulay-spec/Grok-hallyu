@@ -88,7 +88,7 @@ export default function Activity() {
   if (guest) {
     return (
       <Screen header={<TopBar mode="root" title="Activity" large />}>
-        <EmptyState icon="notifications-outline" title="Your activity lives here" body="Reactions, replies, episode nights and mentions — once you join." actionLabel="Join Hallyu" onAction={() => router.push('/(auth)/sign-up')} secondaryLabel="Sign in" onSecondary={() => router.push('/(auth)/sign-in')} />
+        <EmptyState icon="notifications-outline" title="Your activity lives here" body="Reactions, replies, episode nights and mentions — once you join." actionLabel="Join Hallyu" onAction={() => router.push('/(auth)/welcome')} />
       </Screen>
     );
   }
