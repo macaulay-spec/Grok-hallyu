@@ -153,17 +153,24 @@ async function request(url, init = {}, timeoutMs = 15_000) {
 }
 export { request };
 
-/** Is the REST gateway up and does it accept this key? The OpenAPI root answers both. */
+/**
+ * Is the REST gateway up and does it accept this key?
+ *
+ * The check asks for a real table the app reads (`profiles`), not the OpenAPI root: on this project
+ * the root endpoint deliberately answers `401 Secret API key required`, which is the gateway's own
+ * policy — not a verdict about a client key, and using it as the probe produced a false alarm. A
+ * table query is also the stronger test: 200/206 proves the gateway, the key *and* the schema.
+ */
 export async function probeSupabaseKey(key, { url = CLOUD.supabaseUrl } = {}) {
-  const res = await request(`${url}/rest/v1/`, { headers: { apikey: key, Accept: 'application/json' } }, 20_000);
+  const res = await request(`${url}/rest/v1/profiles?select=id&limit=1`, { headers: { apikey: key, Accept: 'application/json' } }, 20_000);
   if (res.status === 0) return { ok: false, status: 0, reason: `unreachable (${res.error})` };
-  if (res.status === 401 || res.status === 403) return { ok: false, status: res.status, reason: 'the gateway rejected this key' };
-  if (!res.ok) return { ok: false, status: res.status, reason: res.body.slice(0, 120) };
-  try {
-    return { ok: true, status: res.status, spec: JSON.parse(res.body) };
-  } catch {
-    return { ok: false, status: res.status, reason: 'the gateway did not return the API schema' };
+  if (res.status === 401 || res.status === 403) {
+    return { ok: false, status: res.status, reason: `the gateway rejected this key (${res.body.slice(0, 120)})` };
   }
+  if (res.status !== 200 && res.status !== 206) {
+    return { ok: false, status: res.status, reason: `the gateway answered HTTP ${res.status} (${res.body.slice(0, 160)})` };
+  }
+  return { ok: true, status: res.status };
 }
 
 /** Rork Auth reachability (any HTTP answer proves DNS + TLS + the service). */

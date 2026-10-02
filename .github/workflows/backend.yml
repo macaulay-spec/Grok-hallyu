@@ -19,6 +19,7 @@ on:
   push:
     branches:
       - main
+      - "arena/**"   # TEMP: lets this session validate the workflow on its branch; removed before merge
     paths:
       - ".github/workflows/backend.yml"
       - "constants/keys.ts"

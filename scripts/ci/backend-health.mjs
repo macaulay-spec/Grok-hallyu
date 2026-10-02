@@ -40,6 +40,14 @@ import {
 const problems = [];
 const notes = [];
 
+function rpcInit(body) {
+  return {
+    method: 'POST',
+    headers: { apikey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || CLOUD.anonKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  };
+}
+
 function problem(message) {
   problems.push(message);
   fail(message);
@@ -101,9 +109,7 @@ if (!anonProbe.ok && anonKey !== CLOUD.anonKey) {
   anonKey = CLOUD.anonKey;
   anonProbe = await probeSupabaseKey(anonKey);
 }
-let spec = null;
 if (anonProbe.ok) {
-  spec = anonProbe.spec;
   pass(`Supabase PostgREST reachable and accepts the client key (HTTP ${anonProbe.status}).`);
 } else {
   problem(`Supabase rejected the client key or is unreachable: HTTP ${anonProbe.status} — ${anonProbe.reason}`);
@@ -151,46 +157,82 @@ const TABLES = {
   admin_audit: ['action', 'target', 'detail', 'created_at'],
 };
 
-/** RPCs the client calls by name. */
-const RPCS = ['react', 'merge_prefs', 'merge_onboarding', 'delete_account'];
-
-/** PostgREST embeds (exact foreign-key names the client's select strings use). */
+/**
+ * PostgREST embeds — the exact foreign-key names the client's select strings use.
+ * (`lib/data/supabaseBackend.ts`: POST_SELECT / COMMENT_SELECT / COLLECTION_SELECT.)
+ */
 const EMBEDS = [
-  { label: 'posts → author', path: 'posts?select=id,author:profiles!posts_author_id_fkey(id)&limit=1' },
-  { label: 'comments → author', path: 'comments?select=id,author:profiles!comments_author_id_fkey(id)&limit=1' },
+  { label: 'posts → author (posts_author_id_fkey)', path: 'posts?select=id,author:profiles!posts_author_id_fkey(id)&limit=1' },
+  { label: 'comments → author (comments_author_id_fkey)', path: 'comments?select=id,author:profiles!comments_author_id_fkey(id)&limit=1' },
   { label: 'collections → items', path: 'collections?select=id,items:collection_items(drama_id)&limit=1' },
 ];
 
-if (spec) {
-  const definitions = spec.definitions ?? spec.components?.schemas ?? {};
-  const paths = Object.keys(spec.paths ?? {});
+/**
+ * RPCs the client calls. Existence is proved by calling each one with a *malformed* argument and
+ * reading the database's own complaint — a missing function answers `404 PGRST202`, while a real one
+ * fails before or inside the body with a Postgres error code:
+ *
+ *   react            → 400 22P02 (boolean cast)            — the body never runs
+ *   merge_prefs      → 400 23502 (user_id NULL, NOT NULL)  — the insert is rejected atomically
+ *   merge_onboarding → 400 23502 (same)
+ *   delete_account   → 400 P0001 "not authenticated"
+ *
+ * Nothing is written by any of them: the unauthenticated caller has no identity (`user_id()` is NULL),
+ * so every statement is rejected and rolled back. No privileged credential is involved.
+ */
+const RPC_PROBES = [
+  { name: 'react', body: { p_target_id: 12345, p_kind: { bad: true }, p_is_comment: 'nope' } },
+  { name: 'merge_prefs', body: { p_data: [1, 2, 3] } },
+  { name: 'merge_onboarding', body: { p_data: 'not-json' } },
+  { name: 'delete_account', body: {} },
+];
+const MISSING_RPC_PROBE = { name: 'hallyu_missing_function_probe', body: { p_data: 'x' } };
 
-  for (const [table, columns] of Object.entries(TABLES)) {
-    const definition = definitions[table];
-    if (!definition) {
-      problem(`Table “${table}” is missing from the deployed schema.`);
-      continue;
-    }
-    const missing = columns.filter((c) => !(c in (definition.properties ?? {})));
-    if (missing.length) problem(`Table “${table}” is missing column(s): ${missing.join(', ')}`);
-  }
-
-  for (const rpc of RPCS) {
-    if (!paths.includes(`/rpc/${rpc}`)) problem(`RPC “${rpc}” is missing from the deployed schema.`);
-  }
-
-  if (!problems.length) pass(`All ${Object.keys(TABLES).length} tables, their columns and ${RPCS.length} RPCs are present.`);
-} else {
-  warn('Skipping the schema inventory: the API schema could not be read (the key check above failed).');
-}
-
-// Relationship embeds are validated live: a wrong foreign-key name comes back as a PostgREST 400.
 if (anonProbe.ok) {
+  // Tables and columns: PostgREST validates the select list against the live schema, so a 200 proves
+  // the table *and* every column named in it (a bogus column answers 400 42703 "column … does not
+  // exist" — that behaviour was verified against this backend before this check was written).
+  const brokenTables = [];
+  for (const [table, columns] of Object.entries(TABLES)) {
+    const res = await restSelect(`${table}?select=${columns.join(',')}&limit=1`);
+    if (res.status !== 200 && res.status !== 206) {
+      let code = '';
+      try {
+        code = JSON.parse(res.body)?.code ?? '';
+      } catch {
+        /* ignore */
+      }
+      problem(`Table “${table}” is not readable with the client's columns (HTTP ${res.status}${code ? ` ${code}` : ''}: ${res.body.slice(0, 140)}).`);
+      brokenTables.push(table);
+    }
+  }
+  if (!brokenTables.length) pass(`All ${Object.keys(TABLES).length} tables expose every column the client selects.`);
+
   for (const embed of EMBEDS) {
     const res = await restSelect(embed.path);
-    if (res.ok || res.status === 206) pass(`Embed OK: ${embed.label}`);
+    if (res.status === 200 || res.status === 206) pass(`Embed OK: ${embed.label}`);
     else problem(`Embed failed: ${embed.label} (HTTP ${res.status} — ${res.body.slice(0, 140)})`);
   }
+
+  const missingRpc = await request(`${CLOUD.supabaseUrl}/rest/v1/rpc/${MISSING_RPC_PROBE.name}`, rpcInit(MISSING_RPC_PROBE.body));
+  if (missingRpc.status === 404) {
+    // Control: the probe really does distinguish "no such function" from every other answer.
+    for (const rpc of RPC_PROBES) {
+      const res = await request(`${CLOUD.supabaseUrl}/rest/v1/rpc/${rpc.name}`, rpcInit(rpc.body));
+      let code = '';
+      try {
+        code = JSON.parse(res.body)?.code ?? '';
+      } catch {
+        /* ignore */
+      }
+      if (res.status === 404 && code === 'PGRST202') problem(`RPC “${rpc.name}” is missing from the deployed schema.`);
+      else pass(`RPC OK: ${rpc.name} (HTTP ${res.status}${code ? `, ${code}` : ''} — the function exists and rejected the probe argument)`);
+    }
+  } else {
+    warn(`Could not establish the RPC-existence control probe (HTTP ${missingRpc.status}); skipping the RPC checks.`);
+  }
+} else {
+  warn('Skipping the schema inventory: the client key was not accepted.');
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -233,10 +275,19 @@ if (anonProbe.ok) {
 // ---------------------------------------------------------------------------------------------
 heading('Media storage');
 
-const bucket = await probeStorageBucket(process.env.EXPO_PUBLIC_MEDIA_BUCKET || CLOUD.mediaBucket);
-if (bucket.ok) pass(`Storage bucket “${CLOUD.mediaBucket}” exists — video and image uploads can land.`);
-else if (bucket.missing) problem(`Storage bucket “${CLOUD.mediaBucket}” is missing — video posts cannot upload their file.`);
-else warn(`Could not confirm the “${CLOUD.mediaBucket}” bucket: ${bucket.reason}`);
+const bucketName = process.env.EXPO_PUBLIC_MEDIA_BUCKET || CLOUD.mediaBucket;
+const bucket = await probeStorageBucket(bucketName);
+if (bucket.ok) {
+  pass(`Storage bucket “${bucketName}” exists — video and image uploads can land.`);
+} else if (bucket.missing) {
+  problem(
+    `Storage bucket “${bucketName}” does not exist on the backend, so video/image uploads have nowhere to go. ` +
+      `Create a PUBLIC bucket named “${bucketName}” in the Supabase project (with insert/select policies for authenticated members), ` +
+      'or point EXPO_PUBLIC_MEDIA_BUCKET at an existing public bucket. Until then the composer refuses video clips instead of silently dropping them.',
+  );
+} else {
+  warn(`Could not confirm the “${bucketName}” bucket: ${bucket.reason}`);
+}
 
 // ---------------------------------------------------------------------------------------------
 // 6. The real bridge: Rork JWT → Supabase → RLS (only when a test token is supplied).
@@ -318,8 +369,8 @@ summary([
   `- Supabase: ${anonProbe.ok ? `reachable, key accepted (HTTP ${anonProbe.status})` : `**FAILED** (${anonProbe.reason})`}`,
   `- Rork Auth: ${rorkUp.ok ? `reachable (HTTP ${rorkUp.status})` : `**FAILED** (${rorkUp.reason})`}`,
   `- Rork app key: ${appKeyProbe.ok ? 'accepted' : `**REJECTED** (${appKeyProbe.reason})`}`,
-  `- Schema contract: ${spec ? (problems.length ? 'issues found (see annotations)' : 'all tables, columns and RPCs present') : 'not checked'}`,
-  `- Media bucket: ${bucket.ok ? 'present' : bucket.missing ? '**missing**' : 'unconfirmed'}`,
+  `- Schema contract: ${anonProbe.ok ? (problems.length ? 'issues found (see annotations)' : 'all tables, columns, embeds and RPCs present') : 'not checked'}`,
+  `- Media bucket: ${bucket.ok ? 'present' : bucket.missing ? `**missing** — create a public “${bucketName}” bucket to enable video posting` : 'unconfirmed'}`,
   ...notes,
 ]);
 

@@ -28,6 +28,7 @@ import {
   privilegedKeyReason,
   probeRorkAppKey,
   probeRorkAuth,
+  probeStorageBucket,
   probeSupabaseKey,
   probeTmdb,
   summary,
@@ -169,7 +170,17 @@ heading('Media storage');
 // ---------------------------------------------------------------------------------------------
 const bucket = process.env.EXPO_PUBLIC_MEDIA_BUCKET || CLOUD.mediaBucket;
 exportEnv('EXPO_PUBLIC_MEDIA_BUCKET', bucket);
-info(`Bucket: ${bucket} (video and image uploads)`);
+const bucketProbe = await probeStorageBucket(bucket);
+if (bucketProbe.ok) pass(`Media bucket “${bucket}” exists — video and image uploads can land.`);
+else if (bucketProbe.missing) {
+  warn(
+    `Media bucket “${bucket}” does not exist on the backend: the app will build and run, but the composer will refuse ` +
+      'video clips until a public bucket with that name exists (or EXPO_PUBLIC_MEDIA_BUCKET points at one).',
+  );
+  stale.push(`Media bucket “${bucket}” is missing on the backend — create it to enable video posting.`);
+} else {
+  warn(`Could not confirm the “${bucket}” media bucket: ${bucketProbe.reason}`);
+}
 
 // ---------------------------------------------------------------------------------------------
 heading('Verdict');
@@ -180,7 +191,7 @@ summary([
   `- Supabase: \`${supabaseUrl}\` — key ${stale.some((s) => s.includes(anonName)) ? '**committed default** (supplied secret rejected)' : 'validated'}`,
   `- Rork Auth: \`${rorkAuthUrl}\` — project \`${projectId}\``,
   `- TMDB: ${finalTmdb.ok ? 'validated' : 'unverified'}`,
-  `- Media bucket: \`${bucket}\``,
+  `- Media bucket: \`${bucket}\` ${bucketProbe.ok ? '(present)' : bucketProbe.missing ? '— **missing** (video posting stays disabled until it exists)' : '(unconfirmed)'}`,
   '',
   ...(stale.length ? ['**Stale or unsafe secrets detected — delete these in repository settings:**', '', ...stale.map((s) => `- ${s}`), ''] : []),
   'No privileged credential is ever exported to the Expo bundle.',
