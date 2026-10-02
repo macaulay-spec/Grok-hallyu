@@ -31,22 +31,17 @@ jobs:
       ANDROID_NDK_VERSION: "26.1.10909125"
 
       # ============================================================
-      # LIVE BACKEND: HALLYU'S OWN CLOUD (Rork-managed Supabase Postgres)
-      # The anon key is a public client credential; all authorization is server-side (RLS).
-      # Injected at Expo build time so they are bundled into the APK.
+      # LIVE BACKEND: HALLYU'S OWN CLOUD (Rork-managed Supabase Postgres + Rork Auth).
+      #
+      # These are PUBLIC client values, not secrets — they ship inside every APK either way
+      # (constants/keys.ts holds the same defaults). The build does NOT trust them blindly: the
+      # "Resolve and validate client configuration" step probes each one against the live backend
+      # and only then exports it, so a stale GitHub secret can no longer poison the APK. A value
+      # that must never ship (service-role / secret key) stops the build.
       # ============================================================
       EXPO_PUBLIC_SUPABASE_URL: "https://mwgmzncsitgibbkhsktt.supabase.co"
-      EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_k-MC7g7Wn-jXFtmki2DDGg_LuMOS8la' }}
       EXPO_PUBLIC_RORK_AUTH_URL: "https://api.rork.com"
-      EXPO_PUBLIC_RORK_APP_KEY: ${{ secrets.EXPO_PUBLIC_RORK_APP_KEY }}
-      EXPO_PUBLIC_PROJECT_ID: ${{ secrets.EXPO_PUBLIC_PROJECT_ID || 'ss819xdajyzsa3znsyi9t' }}
-
-      # ============================================================
-      # TMDB
-      # Used directly by the app for catalog discovery.
-      # ============================================================
-      EXPO_PUBLIC_TMDB_ACCESS_TOKEN: ${{ secrets.EXPO_PUBLIC_TMDB_ACCESS_TOKEN }}
-      EXPO_PUBLIC_TMDB_API_KEY: ${{ secrets.EXPO_PUBLIC_TMDB_API_KEY }}
+      EXPO_PUBLIC_MEDIA_BUCKET: "media"
 
     steps:
       # ============================================================
@@ -87,6 +82,17 @@ jobs:
         uses: android-actions/setup-android@v3
         with:
           packages: 'platforms;android-34 build-tools;34.0.0 ndk;26.1.10909125'
+
+      # ============================================================
+      # CLIENT CONFIGURATION (validated before anything is compiled)
+      # ============================================================
+      - name: Resolve and validate client configuration
+        env:
+          CANDIDATE_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+          CANDIDATE_RORK_APP_KEY: ${{ secrets.EXPO_PUBLIC_RORK_APP_KEY }}
+          CANDIDATE_TMDB_ACCESS_TOKEN: ${{ secrets.EXPO_PUBLIC_TMDB_ACCESS_TOKEN }}
+          CANDIDATE_TMDB_API_KEY: ${{ secrets.EXPO_PUBLIC_TMDB_API_KEY }}
+        run: node scripts/ci/resolve-client-config.mjs
 
       # ============================================================
       # DEPENDENCIES
@@ -201,6 +207,14 @@ jobs:
             head -6
 
           echo "APK install-safety verification passed."
+
+      # ============================================================
+      # EMBEDDED CONFIGURATION VERIFICATION
+      # Reads the config back out of the artefact itself: the shipped bundle must point at the live
+      # Rork backend, and must not contain a privileged key or a retired backend host.
+      # ============================================================
+      - name: Verify the APK targets the live Rork backend
+        run: node scripts/ci/verify-apk-config.mjs android/app/build/outputs/apk/release/app-release.apk
 
       # ============================================================
       # KVM
