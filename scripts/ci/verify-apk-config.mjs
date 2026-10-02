@@ -50,6 +50,7 @@ const REQUIRED = [
   [CLOUD.rorkProjectId, 'the Rork project id (OAuth deep-link scheme)'],
   ['rpk_', 'a Rork app key'],
   ['storage/v1/object/', 'the Storage upload path (video/image posting)'],
+  ['/oauth/refresh', 'the Rork session-renewal call (a pass lasts one hour)'],
   ['api.themoviedb.org', 'the TMDB catalog host'],
 ];
 
