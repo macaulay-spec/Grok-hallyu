@@ -9,7 +9,7 @@
  * Guests (no token) pull real public rows too — there is no mock content anywhere in the app.
  */
 import { reportError } from '../analytics';
-import { currentAccessToken } from '../auth';
+import { freshAccessToken, hasCloudSession } from '../auth';
 import { Collection, Comment, emptyReactions, Notification, Post, ReactionCounts, ReactionKind, User, WatchlistItem, WatchStatus } from '../model';
 import { dispatchLocal, getState, MePayload, Mutation } from '../store';
 import { uploadMedia } from '../storage';
@@ -255,9 +255,9 @@ async function mergeFeed(rows: PostRow[], feedKey?: string, cursor?: string, app
     const authors = rows.map((r) => r.author).filter((a): a is ProfileRow => !!a).map(userFromRow);
     if (authors.length) dispatchLocal({ type: 'mergeUsers', users: authors });
 
-    const token = currentAccessToken();
     const ids = posts.map((p) => p.id);
-    if (token && ids.length) {
+    // The client renews and attaches the pass itself; here only a session is needed.
+    if (hasCloudSession() && ids.length) {
       const [reactions, saves] = await Promise.all([
         supabase.from('reactions').select('target_id, kind').in('target_id', ids),
         supabase.from('saves').select('post_id').in('post_id', ids),
@@ -374,7 +374,21 @@ export const supabaseBackend: Backend = {
 
   async push(mutation: Mutation): Promise<void> {
     const me = getState().profile.id;
-    if (!currentAccessToken() || !me || me === 'guest' || !isServerAction(mutation.action.type)) return;
+    if (!me || me === 'guest' || !isServerAction(mutation.action.type)) return; // guests are local-only
+    // A member's write must never be dropped as if it had been delivered. The pass is renewed on
+    // demand (Rork passes last one hour); only a real session failure stops the write, and when it
+    // does the outbox has to hear about it so the optimistic change is rolled back with a reason.
+    let token: string | null;
+    try {
+      token = await freshAccessToken();
+    } catch (e) {
+      const offline = (e as { code?: string })?.code === 'network';
+      throw new BackendError(offline ? 'No connection' : 'Your session expired — sign in again', offline);
+    }
+    if (!token) {
+      if (hasCloudSession()) throw new BackendError('Your session expired — sign in again', false);
+      return; // signed out with nothing cached: there is no account to write to
+    }
     const a = mutation.action;
     try {
       switch (a.type) {
@@ -499,8 +513,19 @@ export const supabaseBackend: Backend = {
           const row: Json = {};
           for (const [from, to] of Object.entries(PROFILE_PATCH_KEYS)) if (patch[from] !== undefined) row[to] = patch[from];
           if (!Object.keys(row).length) return;
-          const { error } = await supabase.from('profiles').update(row).eq('id', me);
-          return fail(error, 'Could not save the profile');
+          // `update` on a row that does not exist succeeds with zero affected rows, which would be a
+          // save that never happened. Ask for the id back and create the row when it is missing.
+          const { data, error } = await supabase.from('profiles').update(row).eq('id', me).select('id');
+          fail(error, 'Could not save the profile');
+          if (!data?.length) {
+            const local = getState().profile;
+            const { error: upsertError } = await supabase.from('profiles').upsert(
+              { id: me, handle: local.handle ?? null, display_name: local.displayName ?? null, avatar_url: local.avatarUrl ?? null, ...row },
+              { onConflict: 'id' },
+            );
+            fail(upsertError, 'Could not save the profile');
+          }
+          return;
         }
         case 'prefs': {
           const patch = pickServerPrefs(a.patch as unknown as Json);
@@ -593,8 +618,11 @@ export const supabaseBackend: Backend = {
       purgedDemo = true;
       dispatchLocal({ type: 'purgeDemo' });
     }
-    if (!currentAccessToken() && scope !== 'home' && !scope.startsWith('feed:') && scope !== 'trending' && scope !== 'shorts' && !scope.startsWith('drama:') && !scope.startsWith('post:') && !scope.startsWith('user:') && !scope.startsWith('search:') && scope !== 'collections' && !scope.startsWith('collection:')) return;
-    const signedIn = !!currentAccessToken();
+    // Public scopes are readable with the anon key; everything personal needs a live pass. A
+    // renewal failure counts as "not signed in" only for scopes that would have run anyway.
+    const signedIn = await freshAccessToken().then((t) => !!t).catch(() => false);
+    const anonymousOk = scope === 'home' || scope.startsWith('feed:') || scope === 'trending' || scope === 'shorts' || scope.startsWith('drama:') || scope.startsWith('post:') || scope.startsWith('user:') || scope.startsWith('search:') || scope === 'collections' || scope.startsWith('collection:');
+    if (!signedIn && !anonymousOk) return;
 
     try {
       if (scope === 'me') {

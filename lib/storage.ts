@@ -17,7 +17,7 @@
  */
 import * as FileSystem from 'expo-file-system';
 import { MEDIA_BUCKET, SUPABASE_ANON_KEY, SUPABASE_URL } from '../constants/keys';
-import { currentAccessToken } from './auth';
+import { freshAccessToken } from './auth';
 import { BackendError } from './data/backend';
 import { uid } from './format';
 import { supabase } from './supabase';
@@ -147,7 +147,7 @@ export async function uploadMedia(
 ): Promise<UploadedMedia> {
   if (/^https?:\/\//i.test(localOrRemoteUri)) return { url: localOrRemoteUri, key: '' };
 
-  const token = currentAccessToken();
+  const token = await freshAccessToken();
   if (!token) throw new BackendError('Sign in to upload media', false);
 
   const ext = extensionOf(localOrRemoteUri, opts.kind);

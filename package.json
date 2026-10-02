@@ -11,9 +11,10 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "ios": "expo run:ios",
-    "check": "npm run typecheck && npm run lint && npm run test:save && npm run test:fandoms",
+    "check": "npm run typecheck && npm run lint && npm run test:save && npm run test:fandoms && npm run test:session",
     "test:save": "node scripts/verify-save-flow.mjs",
-    "test:fandoms": "node scripts/verify-fandoms.mjs"
+    "test:fandoms": "node scripts/verify-fandoms.mjs",
+    "test:session": "node scripts/verify-session-renewal.mjs"
   },
   "dependencies": {
     "@expo/cli": "^0.18.31",

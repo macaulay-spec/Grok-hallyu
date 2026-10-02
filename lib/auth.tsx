@@ -18,11 +18,12 @@ import * as Linking from 'expo-linking';
 import * as SecureStore from 'expo-secure-store';
 import * as WebBrowser from 'expo-web-browser';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Platform } from 'react-native';
+import { AppState as RNAppState, Platform } from 'react-native';
 import { RORK_APP_KEY, RORK_AUTH_URL, RORK_SCHEME, rorkAuthAvailable } from '../constants/keys';
 import { reportError, track } from './analytics';
 import { markBoot } from './boot';
 import { setAccessTokenProvider, supabase } from './supabase';
+import { canRenew, expiryOf, passIsFresh } from './session';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -161,15 +162,94 @@ async function generateCodeChallenge(verifier: string): Promise<string> {
   return bytesToB64Url(bytes);
 }
 
-/** The live access token for backend calls (lib/supabase.ts, lib/data/supabaseBackend.ts). */
+/**
+ * The live access token for backend calls (lib/supabase.ts, lib/data/supabaseBackend.ts).
+ *
+ * A Rork sign-in pass is valid for one hour; Rork expects the app to renew it quietly, and
+ * `POST /oauth/refresh` swaps the long-lived refresh token for a new pass. Renewal therefore has
+ * to happen while the app runs, not only at boot: an expired pass still *looks* like a session
+ * (the id decodes, the cache is non-empty) but every cloud request is rejected, which shows up as
+ * "nothing saves" and empty screens. Everything that talks to the cloud goes through
+ * {@link freshAccessToken}, which renews ahead of expiry, single-flight, and only ever gives up
+ * when the refresh token itself is refused.
+ */
 let tokenCache: { access?: string; refresh?: string } = {};
+/** Epoch ms at which `tokenCache.access` stops being accepted (from the JWT's `exp`). */
+let tokenExpiresAt = 0;
+let renewing: Promise<string | null> | null = null;
+let sessionLost: (() => void) | null = null;
 
+/** A synchronous peek. Means "this device thinks it is signed in", never "the pass is valid". */
 export function currentAccessToken(): string | null {
   return tokenCache.access ?? null;
 }
 
-// Feed the cloud client the live token (lib/supabase attaches it to every request).
-setAccessTokenProvider(currentAccessToken);
+/** True when a signed-in session exists on this device (valid, stale or renewable). */
+export function hasCloudSession(): boolean {
+  return !!(tokenCache.access || tokenCache.refresh);
+}
+
+export function setSessionLostHandler(handler: (() => void) | null): void {
+  sessionLost = handler;
+}
+
+/**
+ * The token to put on a cloud request. Renews the pass when it is missing, expired, or about to
+ * expire; concurrent callers share one refresh. Resolves `null` only when there is no session at
+ * all (guest / signed out) — a *failed* renewal throws so the caller can tell network from refusal
+ * instead of dropping the work silently.
+ */
+export function freshAccessToken(): Promise<string | null> {
+  const cached = tokenCache.access;
+  if (passIsFresh(cached, tokenExpiresAt)) return Promise.resolve(cached!);
+  if (!hasCloudSession()) return Promise.resolve(null);
+  if (!renewing) renewing = renewPass().finally(() => (renewing = null));
+  return renewing;
+}
+
+/** Swap the refresh token for a new one-hour pass (single-flight; see freshAccessToken). */
+async function renewPass(): Promise<string | null> {
+  const rt = tokenCache.refresh ?? (await SecureStore.getItemAsync(RT_KEY).catch(() => null));
+  if (!canRenew({ refresh: rt ?? undefined }) || !rorkAuthAvailable) {
+    // The pass expired and there is nothing to renew it with: the session is over. (Guests have
+    // neither token and are untouched.) Clear the dead pass so the UI stops claiming a session.
+    if (tokenCache.access) {
+      tokenCache = {};
+      tokenExpiresAt = 0;
+      await SecureStore.deleteItemAsync(AT_KEY).catch(() => {});
+      sessionLost?.();
+    }
+    return null;
+  }
+  try {
+    const out = await authPost<{ access_token: string }>('/oauth/refresh', { app_key: RORK_APP_KEY, refresh_token: rt });
+    await persistToken(out.access_token);
+    return out.access_token;
+  } catch (e) {
+    // "credentials" means Rork refused the refresh token: the session is genuinely over, so drop
+    // it and tell the UI. Anything else (offline, timeout, 5xx) keeps the session — the pass is
+    // still renewable and a retry will succeed.
+    if (e instanceof AuthError && e.code === 'credentials') {
+      tokenCache = {};
+      tokenExpiresAt = 0;
+      await SecureStore.deleteItemAsync(AT_KEY).catch(() => {});
+      await SecureStore.deleteItemAsync(RT_KEY).catch(() => {});
+      sessionLost?.();
+    }
+    throw e;
+  }
+}
+
+/** Store a fresh pass together with its expiry (SecureStore + the request cache). */
+async function persistToken(access: string, refresh?: string): Promise<void> {
+  tokenCache = { access, refresh: refresh ?? tokenCache.refresh };
+  tokenExpiresAt = expiryOf(access);
+  await SecureStore.setItemAsync(AT_KEY, access).catch(() => {});
+  if (refresh) await SecureStore.setItemAsync(RT_KEY, refresh).catch(() => {});
+}
+
+// Feed the cloud client live tokens (lib/supabase attaches one to every request).
+setAccessTokenProvider(freshAccessToken);
 
 async function authPost<T>(path: string, body: Json): Promise<T> {
   // Hard timeout: a stalled network must surface as an error, never hang the spinner forever.
@@ -223,27 +303,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const clearError = useCallback(() => setError(null), []);
 
   const persistTokens = useCallback(async (access: string, refresh?: string) => {
-    tokenCache = { access, refresh: refresh ?? tokenCache.refresh };
-    await SecureStore.setItemAsync(AT_KEY, access).catch(() => {});
-    if (refresh) await SecureStore.setItemAsync(RT_KEY, refresh).catch(() => {});
+    await persistToken(access, refresh);
   }, []);
 
+  /**
+   * Boot-time (and manual) renewal. Uses the shared {@link freshAccessToken}, so a renewal that
+   * fails because the network is down leaves the session intact for a retry instead of signing the
+   * member out; only a refused refresh token ends the session.
+   */
   const refresh = useCallback(async (): Promise<AuthUser | null> => {
-    const rt = tokenCache.refresh ?? (await SecureStore.getItemAsync(RT_KEY).catch(() => null));
-    if (!rt || !rorkAuthAvailable) return null;
     try {
-      const out = await authPost<{ access_token: string }>('/oauth/refresh', { app_key: RORK_APP_KEY, refresh_token: rt });
-      await persistTokens(out.access_token);
-      const next = userFromToken(out.access_token);
+      const access = await freshAccessToken();
+      if (!access) return null;
+      const next = userFromToken(access);
       if (next) setUser(next);
       return next;
     } catch {
-      tokenCache = {};
-      await SecureStore.deleteItemAsync(AT_KEY).catch(() => {});
-      await SecureStore.deleteItemAsync(RT_KEY).catch(() => {});
       return null;
     }
-  }, [persistTokens]);
+  }, []);
+
+  // A refused refresh token ends the session for good: reflect it in the UI immediately.
+  useEffect(() => {
+    setSessionLostHandler(() => {
+      setUser(null);
+      setStatus('signedOut');
+      reportError('auth.session-expired', new Error('Rork refused the refresh token'));
+    });
+    return () => setSessionLostHandler(null);
+  }, []);
+
+  // On foreground, renew a pass that aged while the app was in the background, so the first tap is
+  // never the thing that discovers the session went stale.
+  useEffect(() => {
+    const sub = RNAppState.addEventListener('change', (st) => {
+      if (st !== 'active' || !hasCloudSession()) return;
+      void freshAccessToken().catch(() => {});
+    });
+    return () => sub.remove();
+  }, []);
 
   // Boot: restore the session from SecureStore (refreshing an expired token).
   useEffect(() => {
@@ -258,8 +356,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         const at = await SecureStore.getItemAsync(AT_KEY).catch(() => null);
         const restored = at ? userFromToken(at) : null;
-        if (restored) {
-          tokenCache = { access: at ?? undefined };
+        if (restored && at) {
+          // Cache the pass *with* its expiry and the refresh token: renewal later in the session
+          // must not have to re-read the keychain, and freshness checks need `exp`.
+          const rt = await SecureStore.getItemAsync(RT_KEY).catch(() => null);
+          tokenCache = { access: at, refresh: rt ?? undefined };
+          tokenExpiresAt = expiryOf(at);
           setUser(restored);
           setStatus('signedIn');
           void ensureProfile(restored);
@@ -398,7 +500,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const deleteAccount = useCallback(async () => {
-    if (currentAccessToken()) {
+    if (hasCloudSession()) {
       // The database RPC purges every row the account owns (posts, comments, reactions, saves,
       // follows, watchlist, collections, notifications, events, profile) — a hard, GDPR-style wipe.
       const { error } = await supabase.rpc('delete_account');

@@ -9,7 +9,11 @@ import 'react-native-url-polyfill/auto';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { SUPABASE_ANON_KEY, SUPABASE_URL, supabaseAvailable } from '../constants/keys';
 
-export type AccessTokenProvider = () => string | null;
+/**
+ * Supplies the token for a request. Async on purpose: the provider renews a nearly-expired Rork
+ * pass before handing it over, so a request made an hour into a session is still authorized.
+ */
+export type AccessTokenProvider = () => string | null | Promise<string | null>;
 
 let tokenProvider: AccessTokenProvider | null = null;
 
@@ -26,7 +30,8 @@ export const supabase: SupabaseClient = createClient(
   SUPABASE_ANON_KEY,
   {
     auth: {
-      // No Supabase sessions — Rork Auth owns identity; the JWT is attached per request.
+      // No Supabase sessions — Rork Auth owns identity; the JWT is attached per request, and the
+      // provider renews it (Rork passes last one hour) before it can go stale.
       persistSession: false,
       autoRefreshToken: false,
       detectSessionInUrl: false,

@@ -683,7 +683,17 @@ async function genreParams(genre: string, media: MediaType, signal?: AbortSignal
 }
 
 const isAbort = (e: unknown) => (e as Error)?.name === 'AbortError';
-const markFallbackOk = () => setHealth({ state: 'ok', at: Date.now(), latencyMs: 1, status: 200 });
+/**
+ * Called when a live request failed and the provider falls back to an empty list. It must NOT mark
+ * the catalog healthy: doing that turned a rejected credential or an unreachable host into an
+ * empty-but-"fine" Explore rail, which is exactly the "TMDB never loads" experience — no titles and
+ * no explanation. `tmdb()` already recorded the precise reason (status + message); keep it when it
+ * is recent, otherwise record a plain connectivity failure so the UI can show its retry copy.
+ */
+const markDegraded = () => {
+  if (health.state === 'error' && Date.now() - (health.at ?? 0) < 30_000) return;
+  setHealth({ state: 'error', at: Date.now(), message: 'Couldn’t reach the live catalog' });
+};
 
 export const tmdbProvider: CatalogProvider = {
   name: 'TMDB',
@@ -701,7 +711,7 @@ export const tmdbProvider: CatalogProvider = {
         .slice(0, 20);
     } catch (e) {
       if (isAbort(e)) throw e;
-      markFallbackOk();
+      markDegraded();
       return []; // offline: no mock rows — the UI shows its degraded/offline copy
     }
   },
@@ -716,7 +726,7 @@ export const tmdbProvider: CatalogProvider = {
         .map(mapPerson);
     } catch (e) {
       if (isAbort(e)) throw e;
-      markFallbackOk();
+      markDegraded();
       return []; // offline: no mock rows — the UI shows its degraded/offline copy
     }
   },
@@ -733,7 +743,7 @@ export const tmdbProvider: CatalogProvider = {
       return mapTv(full);
     } catch (e) {
       if (isAbort(e)) throw e;
-      markFallbackOk();
+      markDegraded();
       return null; // offline: no mock rows
     }
   },
@@ -744,7 +754,7 @@ export const tmdbProvider: CatalogProvider = {
       return (data.episodes ?? []).map((e) => mapEpisode(dramaId, e));
     } catch (e) {
       if (isAbort(e)) throw e;
-      markFallbackOk();
+      markDegraded();
       return []; // offline: no mock rows
     }
   },
@@ -775,7 +785,7 @@ export const tmdbProvider: CatalogProvider = {
       };
     } catch (e) {
       if (isAbort(e)) throw e;
-      markFallbackOk();
+      markDegraded();
       return null; // offline: no mock rows
     }
   },
@@ -808,7 +818,7 @@ export const tmdbProvider: CatalogProvider = {
       }
     } catch (e) {
       if (isAbort(e)) throw e;
-      markFallbackOk();
+      markDegraded();
     }
     return null; // offline: no mock rows
   },
@@ -821,7 +831,7 @@ export const tmdbProvider: CatalogProvider = {
       return pick ? mapPerson(pick) : null;
     } catch (e) {
       if (isAbort(e)) throw e;
-      markFallbackOk();
+      markDegraded();
       return null; // offline: no mock rows
     }
   },
@@ -853,7 +863,7 @@ export const tmdbProvider: CatalogProvider = {
       } catch (e) {
         if (isAbort(e)) throw e;
       }
-      markFallbackOk();
+      markDegraded();
       return []; // offline: no mock rows — the UI shows its degraded/offline copy
     });
   },
@@ -864,7 +874,7 @@ export const tmdbProvider: CatalogProvider = {
         return await discoverMixed((media) => ({ ...modeParams('popular', media), page: String(page) }), {}, signal);
       } catch (e) {
         if (isAbort(e)) throw e;
-        markFallbackOk();
+        markDegraded();
         return []; // offline: no mock rows
       }
     });
@@ -876,7 +886,7 @@ export const tmdbProvider: CatalogProvider = {
         return await discoverMixed((media) => modeParams('airing', media, days), { seriesOnly: true }, signal);
       } catch (e) {
         if (isAbort(e)) throw e;
-        markFallbackOk();
+        markDegraded();
         return []; // offline: no mock rows
       }
     });
@@ -888,7 +898,7 @@ export const tmdbProvider: CatalogProvider = {
         return await discoverMixed((media) => ({ ...modeParams('top', media), page: String(page) }), { perWorld: 6 }, signal);
       } catch (e) {
         if (isAbort(e)) throw e;
-        markFallbackOk();
+        markDegraded();
         return []; // offline: no mock rows
       }
     });
@@ -900,7 +910,7 @@ export const tmdbProvider: CatalogProvider = {
         return await discoverMixed((media) => modeParams('new', media), {}, signal);
       } catch (e) {
         if (isAbort(e)) throw e;
-        markFallbackOk();
+        markDegraded();
         return []; // offline: no mock rows
       }
     });
@@ -923,7 +933,7 @@ export const tmdbProvider: CatalogProvider = {
         return interleave([tv, movie], page === 1 ? 10 : 20);
       } catch (e) {
         if (isAbort(e)) throw e;
-        markFallbackOk();
+        markDegraded();
         return []; // offline: no mock rows
       }
     });
@@ -936,7 +946,7 @@ export const tmdbProvider: CatalogProvider = {
         return fandom ? await discoverWorld(fandomById(fandom), params, signal) : await discoverMixed(params, {}, signal);
       } catch (e) {
         if (isAbort(e)) throw e;
-        markFallbackOk();
+        markDegraded();
         return []; // offline: no mock rows
       }
     });
@@ -957,7 +967,7 @@ export const tmdbProvider: CatalogProvider = {
         );
       } catch (e) {
         if (isAbort(e)) throw e;
-        markFallbackOk();
+        markDegraded();
         return []; // offline: no mock rows
       }
     });
@@ -969,7 +979,7 @@ export const tmdbProvider: CatalogProvider = {
       const picks = await Promise.all(
         others.map(async (world) => {
           let items = await discoverWorld(world, (media) => modeParams('top', media), signal).catch(() => [] as Drama[]);
-          if (!items.length) markFallbackOk();
+          if (!items.length) markDegraded();
           const overlap = (d: Drama) => d.genres.filter((g) => anchor.genres.includes(g)).length;
           return [...items]
             .sort((a, b) => overlap(b) - overlap(a) || b.followerCount - a.followerCount)
@@ -996,7 +1006,7 @@ export const tmdbProvider: CatalogProvider = {
       } catch (e) {
         if (isAbort(e)) throw e;
       }
-      markFallbackOk();
+      markDegraded();
       return []; // offline: no mock rows
     });
   },
@@ -1011,7 +1021,7 @@ export const tmdbProvider: CatalogProvider = {
           .slice(0, 12);
       } catch (e) {
         if (isAbort(e)) throw e;
-        markFallbackOk();
+        markDegraded();
         return []; // offline: no mock rows
       }
     });
