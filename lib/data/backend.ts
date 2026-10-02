@@ -4,8 +4,7 @@
  * call `pull(scope)` to refresh cached content.
  *
  * Default: `supabaseBackend` (lib/data/supabaseBackend.ts) — the Hallyu cloud (managed Supabase
- * Postgres, Rork cloud database, RLS + triggers). Without a configured backend, `demoBackend`
- * (lib/data/demoBackend.ts) runs everything on-device.
+ * Postgres, Rork cloud database, RLS + triggers), the app's single backend.
  */
 import type { Mutation } from '../store';
 

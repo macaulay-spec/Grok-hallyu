@@ -207,7 +207,7 @@ export type Action =
   // one-shot cleanup: drops demo-fixture rows from a persisted state so live backend data is the only source
   | { type: 'purgeDemo' };
 
-/** An account snapshot, already mapped to store shapes (see lib/data/demoBackend.ts). */
+/** An account snapshot, already mapped to store shapes (see lib/data/supabaseBackend.ts). */
 export interface MePayload {
   profile?: Partial<User>;
   prefs?: Partial<Prefs>;

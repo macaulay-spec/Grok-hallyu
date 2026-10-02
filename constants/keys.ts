@@ -36,10 +36,11 @@ export const SUPABASE_ANON_KEY = ENV_SUPABASE_ANON_KEY ?? 'sb_publishable_k-MC7g
 /** True when the cloud backend is configured for this build. */
 export const supabaseAvailable = !!(SUPABASE_URL && SUPABASE_ANON_KEY);
 
-/** Rork Auth (Google / Apple OAuth). Both values required; absent → sign-in buttons degrade. */
+/** Rork Auth (Google / Apple OAuth). Public client values, baked as fallbacks so every build
+ * (Rork CI, GitHub APK) signs in without repo secrets. */
 export const RORK_PROJECT_ID = ENV_PROJECT_ID ?? 'ss819xdajyzsa3znsyi9t';
-export const RORK_AUTH_URL = ENV_AUTH_URL;
-export const RORK_APP_KEY = ENV_APP_KEY;
+export const RORK_AUTH_URL = ENV_AUTH_URL ?? 'https://api.rork.com';
+export const RORK_APP_KEY = ENV_APP_KEY ?? 'rpk_9zghvnfx64mxp9u8ghn4sbe9pk0a4c3u';
 export const rorkAuthAvailable = !!(RORK_AUTH_URL && RORK_APP_KEY);
 
 /** Deep-link scheme the OAuth browser redirects back into (registered in app.json). */

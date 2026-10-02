@@ -23,7 +23,6 @@ import { attachCloudAnalytics } from '../lib/analyticsCloud';
 import { AuthProvider, useAuth } from '../lib/auth';
 import { markBoot } from '../lib/boot';
 import { SyncProvider, getBackend } from '../lib/data/sync';
-import { demoMemberState } from '../lib/data/demoSeed';
 import { PushSync } from '../lib/push';
 import { installNotificationHandler, reminderUrl, remindersSupported, syncEpisodeReminders } from '../lib/reminders';
 import { setDownloadScope } from '../lib/media';
@@ -174,8 +173,7 @@ export default function RootLayout() {
 
 /**
  * Keeps the local store in step with the signed-in account:
- *  - "Explore the demo" signs in the pre-populated demo member (see demoMemberState)
- *  - a real email account starts from a fresh member state — a new account is genuinely empty
+ *  - a real account starts from a fresh member state — a new account is genuinely empty
  *  - guests/signed-out visitors get the empty guest state; device-only prefs are carried over
  */
 function AccountSync() {
@@ -264,19 +262,17 @@ function AccountSync() {
           }
           if (!restored) {
             reset(
-              u.provider === 'demo'
-                ? demoMemberState()
-                : freshMemberState({
-                    id: u.id,
-                    handle: u.handle,
-                    displayName: u.displayName,
-                    avatarUrl: u.avatarUrl,
-                    favoriteGenres: [],
-                    favoriteDramaIds: [],
-                    followers: 0,
-                    following: 0,
-                    joinedAt: new Date().toISOString(),
-                  }),
+              freshMemberState({
+                id: u.id,
+                handle: u.handle,
+                displayName: u.displayName,
+                avatarUrl: u.avatarUrl,
+                favoriteGenres: [],
+                favoriteDramaIds: [],
+                followers: 0,
+                following: 0,
+                joinedAt: new Date().toISOString(),
+              }),
             );
           }
           dispatch({ type: 'prefs', patch: device });

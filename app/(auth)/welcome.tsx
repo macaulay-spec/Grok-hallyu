@@ -55,8 +55,7 @@ export default function Welcome() {
     }
   };
 
-  // The demo door: a pre-populated local member, so the feed, threads, watchlist and spoiler
-  // machinery are all usable on first launch with no server behind them.
+  // The wall of real posters: what's trending this week (live), with saved art filling in.
   const importedDramas = useSlice((s) => s.importedDramas);
   const cols = width >= 840 ? 6 : width >= 600 ? 5 : 4;
   const posterW = Math.max(88, Math.floor((width - space.margin * 2 - space.x2 * (cols - 1)) / cols));

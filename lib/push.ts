@@ -82,8 +82,7 @@ export async function unregisterPush(): Promise<void> {
   }
 }
 
-const isRealMember = (id: string | undefined): boolean =>
-  !!id && id !== GUEST_ID && id !== 'demo-member';
+const isRealMember = (id: string | undefined): boolean => !!id && id !== GUEST_ID;
 
 /**
  * Non-visual startup component: registers push for real members, unregisters on sign-out/guest,

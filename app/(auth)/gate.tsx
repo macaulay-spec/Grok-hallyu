@@ -28,7 +28,7 @@ function frameFor(reason: string | undefined): Frame {
 }
 
 /**
- * Auth gate for guests: a sheet, not a wall. Says what the action needs, offers the three doors,
+ * Auth gate for guests: a sheet, not a wall. Says what the action needs, offers the two doors,
  * and "Not now" returns to exactly where they were.
  */
 export default function Gate() {
@@ -72,12 +72,6 @@ export default function Gate() {
         <View style={{ gap: space.x2, marginTop: space.x5 }}>
           <GoogleButton label="Continue with Google" size="md" onPress={enter(auth.signInWithGoogle, setGoogleBusy)} loading={googleBusy} disabled={googleBusy} />
           <AppleButton label="Continue with Apple" size="md" onPress={enter(auth.signInWithApple, setAppleBusy)} loading={appleBusy} disabled={appleBusy} />
-          <Button label="Continue with email" icon="mail-outline" variant="secondary" block onPress={() => router.push('/(auth)/sign-up')} />
-          <Button label="Sign in" variant="ghost" onPress={() => router.push('/(auth)/sign-in')} />
-          <Pressable onPress={() => auth.signInDemo().then(() => close())} accessibilityRole="button" accessibilityLabel="Explore the demo" hitSlop={10} style={styles.demoLink}>
-            <Ionicons name="sparkles" size={13} color={colors.textSecondary} />
-            <Text variant="bodySmall" tone="secondary">Just exploring? Open the demo</Text>
-          </Pressable>
           <Button label="Not now" variant="ghost" onPress={close} />
         </View>
       </View>
@@ -90,5 +84,4 @@ const styles = StyleSheet.create({
   sheet: { backgroundColor: colors.surface2, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: space.x6, paddingTop: space.x2 },
   handle: { width: 32, height: 4, borderRadius: 2, backgroundColor: colors.borderStrong, alignSelf: 'center', marginBottom: space.x4 },
   icon: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.accentSoft, alignItems: 'center', justifyContent: 'center' },
-  demoLink: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 8 },
 });

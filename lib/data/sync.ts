@@ -20,7 +20,7 @@ import { Backend, BackendError, PullScope } from './backend';
 import { supabaseBackend } from './supabaseBackend';
 import { track, reportError } from '../analytics';
 
-/** Hallyu cloud (managed Supabase Postgres + RLS) when configured; demoBackend otherwise. */
+/** Hallyu cloud — managed Supabase Postgres + RLS, the app's single backend. */
 let backend: Backend = supabaseBackend;
 /** Swap the backend implementation (a server-backed adapter registers itself here; tests inject fakes). */
 export function setBackend(b: Backend): void {

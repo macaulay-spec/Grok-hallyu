@@ -216,7 +216,7 @@ export const adminApi = {
 
 /**
  * Role gate for UI entry points. Reads the live profile row — the role lives in the database and
- * RLS allows reading own row, so this cannot be spoofed locally. Demo accounts are never admins.
+ * RLS allows reading own row, so this cannot be spoofed locally.
  */
 export function useIsAdmin(): boolean {
   const auth = useAuth();

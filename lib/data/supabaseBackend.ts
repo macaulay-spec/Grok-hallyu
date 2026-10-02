@@ -6,14 +6,12 @@
  * database authorizes each row server-side via `user_id()` (the JWT `sub`) — the client can
  * never forge an identity. Counters (reaction/save/comment totals) and notifications are kept
  * consistent by database triggers, so optimistic local state and the server converge.
- * Guests (no token) and demo mode pull real public rows too — demo fixtures are only used
- * in explicit demo mode (see pull).
+ * Guests (no token) pull real public rows too — there is no mock content anywhere in the app.
  */
 import { currentAccessToken } from '../auth';
 import { Collection, Comment, emptyReactions, Notification, Post, ReactionCounts, ReactionKind, User, WatchlistItem, WatchStatus } from '../model';
 import { dispatchLocal, getState, MePayload, Mutation } from '../store';
 import { Backend, BackendError, PullOptions, PullScope } from './backend';
-import { demoBackend } from './demoBackend';
 import { supabase } from '../supabase';
 
 const PAGE = 30;
@@ -550,8 +548,6 @@ export const supabaseBackend: Backend = {
   },
 
   async pull(scope: PullScope, opts?: PullOptions): Promise<void> {
-    // Demo mode (explicit): the whole session runs on local fixtures.
-    if (getState().profile.id === 'demo-member') return demoBackend.pull(scope, opts);
     // Live mode: backend data is the only source of truth. On the first pull of a session,
     // drop any demo-fixture rows that older builds persisted, then pull real rows.
     if (!purgedDemo) {

@@ -9,7 +9,6 @@
  */
 import { Platform } from 'react-native';
 import { TMDB_ACCESS_TOKEN, TMDB_API_KEY } from '../constants/keys';
-import { DEMO_ACTORS, DEMO_DRAMAS } from './data/demoSeed';
 import { FANDOMS, Fandom, fandomById, formatFandomOf, inferFormat } from './fandoms';
 import { Actor, Drama, Episode, FandomId, MediaType } from './model';
 
@@ -703,8 +702,7 @@ export const tmdbProvider: CatalogProvider = {
     } catch (e) {
       if (isAbort(e)) throw e;
       markFallbackOk();
-      const q = norm(query);
-      return DEMO_DRAMAS.filter((d) => norm(d.title).includes(q) || (d.originalTitle && (norm(d.originalTitle).includes(q) || d.originalTitle.includes(query.trim()))) || d.genres.some((g) => norm(g).includes(q)) || (d.tags ?? []).some((t) => norm(t).includes(q)));
+      return []; // offline: no mock rows — the UI shows its degraded/offline copy
     }
   },
 
@@ -719,8 +717,7 @@ export const tmdbProvider: CatalogProvider = {
     } catch (e) {
       if (isAbort(e)) throw e;
       markFallbackOk();
-      const q = norm(query);
-      return DEMO_ACTORS.filter((a) => norm(a.name).includes(q) || (a.koreanName && a.koreanName.includes(query.trim())));
+      return []; // offline: no mock rows — the UI shows its degraded/offline copy
     }
   },
 
@@ -737,10 +734,7 @@ export const tmdbProvider: CatalogProvider = {
     } catch (e) {
       if (isAbort(e)) throw e;
       markFallbackOk();
-      const hit = DEMO_DRAMAS.find((d) => d.provider?.id === providerId && (d.mediaType ?? 'tv') === media) ?? DEMO_DRAMAS.find((d) => d.provider?.id === providerId);
-      if (!hit) return null;
-      const castActors = hit.cast.map((c) => DEMO_ACTORS.find((a) => a.id === c.actorId)).filter((a): a is Actor => !!a);
-      return { ...hit, castActors: castActors.length ? castActors : undefined };
+      return null; // offline: no mock rows
     }
   },
 
@@ -751,18 +745,7 @@ export const tmdbProvider: CatalogProvider = {
     } catch (e) {
       if (isAbort(e)) throw e;
       markFallbackOk();
-      const hit = DEMO_DRAMAS.find((d) => d.id === dramaId || d.provider?.id === providerId);
-      const existing = (hit?.episodes ?? []).filter((ep) => ep.season === seasonNumber);
-      if (existing.length) return existing;
-      const seasonMeta = hit?.seasons.find((s) => s.number === seasonNumber);
-      const count = seasonMeta?.episodeCount ?? 12;
-      return Array.from({ length: count }, (_, i) => ({
-        id: `${dramaId}-s${seasonNumber}e${i + 1}`,
-        dramaId,
-        season: seasonNumber,
-        number: i + 1,
-        title: `Episode ${i + 1}`,
-      }));
+      return []; // offline: no mock rows
     }
   },
 
@@ -793,10 +776,7 @@ export const tmdbProvider: CatalogProvider = {
     } catch (e) {
       if (isAbort(e)) throw e;
       markFallbackOk();
-      const hit = DEMO_ACTORS.find((a) => a.provider?.id === providerId);
-      if (!hit) return null;
-      const credits = DEMO_DRAMAS.filter((d) => d.cast.some((c) => c.actorId === hit.id) || hit.knownFor.includes(d.id));
-      return { actor: { ...hit, knownForDramas: credits }, credits };
+      return null; // offline: no mock rows
     }
   },
 
@@ -830,7 +810,7 @@ export const tmdbProvider: CatalogProvider = {
       if (isAbort(e)) throw e;
       markFallbackOk();
     }
-    return DEMO_DRAMAS.find((d) => wanted.includes(norm(d.title)) || (d.originalTitle && wanted.includes(norm(d.originalTitle)))) ?? null;
+    return null; // offline: no mock rows
   },
 
   async resolveActor(name, koreanName, signal) {
@@ -842,7 +822,7 @@ export const tmdbProvider: CatalogProvider = {
     } catch (e) {
       if (isAbort(e)) throw e;
       markFallbackOk();
-      return DEMO_ACTORS.find((a) => norm(a.name) === norm(name) || (koreanName && a.koreanName === koreanName)) ?? null;
+      return null; // offline: no mock rows
     }
   },
 
@@ -874,7 +854,7 @@ export const tmdbProvider: CatalogProvider = {
         if (isAbort(e)) throw e;
       }
       markFallbackOk();
-      return [...DEMO_DRAMAS].sort((a, b) => b.followerCount - a.followerCount).slice(0, 20);
+      return []; // offline: no mock rows — the UI shows its degraded/offline copy
     });
   },
 
@@ -885,7 +865,7 @@ export const tmdbProvider: CatalogProvider = {
       } catch (e) {
         if (isAbort(e)) throw e;
         markFallbackOk();
-        return [...DEMO_DRAMAS].sort((a, b) => b.followerCount - a.followerCount);
+        return []; // offline: no mock rows
       }
     });
   },
@@ -897,7 +877,7 @@ export const tmdbProvider: CatalogProvider = {
       } catch (e) {
         if (isAbort(e)) throw e;
         markFallbackOk();
-        return DEMO_DRAMAS.filter((d) => d.status === 'airing');
+        return []; // offline: no mock rows
       }
     });
   },
@@ -909,7 +889,7 @@ export const tmdbProvider: CatalogProvider = {
       } catch (e) {
         if (isAbort(e)) throw e;
         markFallbackOk();
-        return [...DEMO_DRAMAS].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
+        return []; // offline: no mock rows
       }
     });
   },
@@ -921,7 +901,7 @@ export const tmdbProvider: CatalogProvider = {
       } catch (e) {
         if (isAbort(e)) throw e;
         markFallbackOk();
-        return DEMO_DRAMAS.filter((d) => d.status === 'upcoming' || d.status === 'airing');
+        return []; // offline: no mock rows
       }
     });
   },
@@ -944,7 +924,7 @@ export const tmdbProvider: CatalogProvider = {
       } catch (e) {
         if (isAbort(e)) throw e;
         markFallbackOk();
-        return DEMO_DRAMAS.filter((d) => d.genres.some((g) => g.toLowerCase() === genre.toLowerCase()) && (!fandom || formatFandomOf(d) === fandom));
+        return []; // offline: no mock rows
       }
     });
   },
@@ -957,7 +937,7 @@ export const tmdbProvider: CatalogProvider = {
       } catch (e) {
         if (isAbort(e)) throw e;
         markFallbackOk();
-        return DEMO_DRAMAS.filter((d) => !fandom || formatFandomOf(d) === fandom);
+        return []; // offline: no mock rows
       }
     });
   },
@@ -978,10 +958,7 @@ export const tmdbProvider: CatalogProvider = {
       } catch (e) {
         if (isAbort(e)) throw e;
         markFallbackOk();
-        const items = DEMO_DRAMAS.filter((d) => formatFandomOf(d) === fandom);
-        if (sort === 'top') return [...items].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
-        if (sort === 'new') return [...items].sort((a, b) => b.year - a.year);
-        return [...items].sort((a, b) => b.followerCount - a.followerCount);
+        return []; // offline: no mock rows
       }
     });
   },
@@ -992,10 +969,7 @@ export const tmdbProvider: CatalogProvider = {
       const picks = await Promise.all(
         others.map(async (world) => {
           let items = await discoverWorld(world, (media) => modeParams('top', media), signal).catch(() => [] as Drama[]);
-          if (!items.length) {
-            markFallbackOk();
-            items = DEMO_DRAMAS.filter((d) => formatFandomOf(d) === world.id);
-          }
+          if (!items.length) markFallbackOk();
           const overlap = (d: Drama) => d.genres.filter((g) => anchor.genres.includes(g)).length;
           return [...items]
             .sort((a, b) => overlap(b) - overlap(a) || b.followerCount - a.followerCount)
@@ -1023,7 +997,7 @@ export const tmdbProvider: CatalogProvider = {
         if (isAbort(e)) throw e;
       }
       markFallbackOk();
-      return [...DEMO_ACTORS].sort((a, b) => b.followerCount - a.followerCount).slice(0, 16);
+      return []; // offline: no mock rows
     });
   },
 
@@ -1038,7 +1012,7 @@ export const tmdbProvider: CatalogProvider = {
       } catch (e) {
         if (isAbort(e)) throw e;
         markFallbackOk();
-        return DEMO_DRAMAS.filter((d) => d.provider?.id !== providerId).slice(0, 12);
+        return []; // offline: no mock rows
       }
     });
   },

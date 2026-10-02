@@ -1,11 +1,16 @@
 /**
  * Hallyu authentication — Rork Auth (Google/Apple, PKCE + deep-link callback) is the single door
- * into the cloud identity; local demo/guest modes cover zero-credential use.
+ * into the cloud identity; guests browse the public world without credentials.
  *
  * The JWT lives in SecureStore. lib/supabase attaches it to every cloud request, and server-side
  * Row Level Security (`user_id()` = the JWT `sub`) authorizes each row — the client cannot forge
  * an identity. The Postgres `profiles` row is the social identity (handle, avatar, counts) and is
  * synced at sign-in; account deletion runs the `delete_account()` database RPC (a hard wipe).
+ *
+ * OAuth plumbing follows the Rork Auth contract exactly: on web (the Rork preview iframe) the
+ * sign-in popup completes on Rork's callback page and postMessages the code back; on native the
+ * browser session redirects to `rork-<project>://auth/callback`. Every fetch carries a hard
+ * timeout — a stalled network must surface as an error, never a spinner that never stops.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Crypto from 'expo-crypto';
@@ -23,8 +28,7 @@ WebBrowser.maybeCompleteAuthSession();
 
 export type AuthStatus = 'loading' | 'signedOut' | 'guest' | 'signedIn';
 
-/** How this account was established. 'demo' is the shared, pre-populated device account. */
-export type AuthProviderName = 'google' | 'apple' | 'demo';
+export type AuthProviderName = 'google' | 'apple';
 
 export interface AuthUser {
   id: string;
@@ -49,16 +53,12 @@ interface AuthValue {
   user: AuthUser | null;
   /** true while an OAuth browser session is in flight */
   isSigningIn: boolean;
-  /** true while this build runs without the cloud backend */
-  demo: boolean;
   /** true when this build has Rork Auth configuration (sign-in buttons explain themselves) */
   oauthReady: boolean;
   error: string | null;
   clearError: () => void;
   signInWithGoogle: () => Promise<void>;
   signInWithApple: () => Promise<void>;
-  /** Returns the one-time recovery key — the screen MUST show it for the user to save. */
-  signInDemo: () => Promise<void>;
   continueAsGuest: () => void;
   signOut: () => Promise<void>;
   deleteAccount: () => Promise<void>;
@@ -68,12 +68,9 @@ type Json = Record<string, unknown>;
 
 const Ctx = createContext<AuthValue | null>(null);
 const GUEST_KEY = 'hallyu.auth.guest';
-const DEMO_ACCOUNT_KEY = 'hallyu.auth.demo.v1';
 const AT_KEY = 'hallyu.auth.accessToken';
 const RT_KEY = 'hallyu.auth.refreshToken';
 const USER_KEY = 'hallyu.auth.user.v2';
-
-const DEMO_USER: AuthUser = { id: 'demo-member', handle: 'you', displayName: 'You', email: 'demo@hallyu.app', emailVerified: true, provider: 'demo' };
 
 function handleFrom(email?: string, name?: string): string {
   const base = (name ?? email?.split('@')[0] ?? 'member').toLowerCase().replace(/[^a-z0-9_.]/g, '').slice(0, 20) || 'member';
@@ -175,10 +172,25 @@ export function currentAccessToken(): string | null {
 setAccessTokenProvider(currentAccessToken);
 
 async function authPost<T>(path: string, body: Json): Promise<T> {
-  const res = await fetch(`${RORK_AUTH_URL}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  const payload = (await res.json().catch(() => ({}))) as T & { error?: string; message?: string };
-  if (!res.ok) throw new AuthError('credentials', payload.error ?? payload.message ?? `Sign-in failed (${res.status})`);
-  return payload;
+  // Hard timeout: a stalled network must surface as an error, never hang the spinner forever.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const res = await fetch(`${RORK_AUTH_URL}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    const payload = (await res.json().catch(() => ({}))) as T & { error?: string; message?: string };
+    if (!res.ok) throw new AuthError('credentials', payload.error ?? payload.message ?? `Sign-in failed (${res.status})`);
+    return payload;
+  } catch (e) {
+    if (e instanceof AuthError) throw e;
+    throw new AuthError('network', 'Could not reach sign-in — check your connection.');
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** Upsert the Postgres profile row — the social identity (handle uniqueness retried with a suffix). */
@@ -244,12 +256,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           markBoot('auth:guest');
           return;
         }
-        if ((await AsyncStorage.getItem(DEMO_ACCOUNT_KEY)) === '1') {
-          setUser(DEMO_USER);
-          setStatus('signedIn');
-          markBoot('auth:demo');
-          return;
-        }
         const at = await SecureStore.getItemAsync(AT_KEY).catch(() => null);
         const restored = at ? userFromToken(at) : null;
         if (restored) {
@@ -284,7 +290,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const next = userFromToken(out.access_token);
       if (!next) return false;
       await AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
-      await AsyncStorage.removeItem(DEMO_ACCOUNT_KEY).catch(() => {});
       void ensureProfile(next);
       setUser(next);
       setStatus('signedIn');
@@ -308,11 +313,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           target: 'rn',
           env: Platform.OS === 'web' ? 'preview' : 'native',
         });
-        const result = await WebBrowser.openAuthSessionAsync(initiate.auth_url, `${RORK_SCHEME}://auth/callback`);
-        if (result.type !== 'success' || !result.url) throw new AuthError('cancelled', 'Sign-in was cancelled.');
-        const cb = callbackFrom(result.url);
-        if (!cb) throw new AuthError('unknown', 'The sign-in response was incomplete — try again.');
-        const ok = await exchange(cb.code, verifier);
+
+        let code: string | undefined;
+        if (Platform.OS === 'web') {
+          // Web preview: a popup completes OAuth on Rork's callback page, which postMessages the
+          // code back to this window. Without this listener the session never resolves and the
+          // button spins forever — the exact bug this branch fixes.
+          code = await new Promise<string>((resolve, reject) => {
+            const popup = window.open(initiate.auth_url, '_blank', 'width=500,height=650');
+            let settled = false;
+            const finish = (fn: () => void) => {
+              if (settled) return;
+              settled = true;
+              window.removeEventListener('message', onMessage);
+              clearInterval(poll);
+              fn();
+            };
+            const onMessage = (event: MessageEvent) => {
+              if (event.data?.type !== 'rork_auth_callback') return;
+              const got = typeof event.data.code === 'string' ? (event.data.code as string) : null;
+              finish(() => (got ? resolve(got) : reject(new AuthError('unknown', 'The sign-in response was incomplete — try again.'))));
+            };
+            const poll = setInterval(() => {
+              if (popup?.closed) finish(() => reject(new AuthError('cancelled', 'Sign-in was cancelled.')));
+            }, 500);
+            window.addEventListener('message', onMessage);
+          });
+        } else {
+          const result = await WebBrowser.openAuthSessionAsync(initiate.auth_url, `${RORK_SCHEME}://auth/callback`);
+          if (result.type !== 'success' || !result.url) throw new AuthError('cancelled', 'Sign-in was cancelled.');
+          code = callbackFrom(result.url)?.code;
+        }
+        if (!code) throw new AuthError('unknown', 'The sign-in response was incomplete — try again.');
+        const ok = await exchange(code, verifier);
         if (!ok) throw new AuthError('unknown', 'Could not read the sign-in result — try again.');
         track('auth.signin', { provider });
       } catch (e) {
@@ -347,17 +380,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signInWithGoogle = useCallback(() => signInWithProvider('google'), [signInWithProvider]);
   const signInWithApple = useCallback(() => signInWithProvider('apple'), [signInWithProvider]);
 
-  const signInDemo = useCallback(async () => {
-    await AsyncStorage.setItem(DEMO_ACCOUNT_KEY, '1').catch(() => {});
-    await AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
-    setUser(DEMO_USER);
-    setStatus('signedIn');
-    track('auth.signin', { provider: 'demo' });
-  }, []);
-
   const continueAsGuest = useCallback(() => {
     AsyncStorage.setItem(GUEST_KEY, '1').catch(() => {});
-    AsyncStorage.removeItem(DEMO_ACCOUNT_KEY).catch(() => {});
     setUser(null);
     setStatus('guest');
     track('auth.guest');
@@ -369,7 +393,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await SecureStore.deleteItemAsync(RT_KEY).catch(() => {});
     await SecureStore.deleteItemAsync(USER_KEY).catch(() => {});
     await AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
-    await AsyncStorage.removeItem(DEMO_ACCOUNT_KEY).catch(() => {});
     setUser(null);
     setStatus('signedOut');
   }, []);
@@ -389,18 +412,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       status,
       user,
       isSigningIn,
-      demo: false,
       oauthReady: rorkAuthAvailable,
       error,
       clearError,
       signInWithGoogle,
       signInWithApple,
-      signInDemo,
       continueAsGuest,
       signOut,
       deleteAccount,
     }),
-    [status, user, isSigningIn, error, clearError, signInWithGoogle, signInWithApple, signInDemo, continueAsGuest, signOut, deleteAccount],
+    [status, user, isSigningIn, error, clearError, signInWithGoogle, signInWithApple, continueAsGuest, signOut, deleteAccount],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
