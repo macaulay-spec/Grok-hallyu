@@ -21,6 +21,3 @@ coverage/
 android/
 ios/
 
-# Supabase CLI local state (created by `supabase link` in CI)
-supabase/.temp/
-supabase/.branches/

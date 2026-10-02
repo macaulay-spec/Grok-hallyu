@@ -1,9 +1,13 @@
 # Hallyu — Continuation on This Project
 
-*The plan for turning Hallyu from a working app into a business. Written after the cloud rebuild:
-the app now runs on its own backend (Cloudflare Worker + Durable Object database), identity is
-platform-verified Google/Apple OAuth, guests are read-only, and moderation/trust/analytics
-primitives are already live in the cloud.*
+*The plan for turning Hallyu from a working app into a business. Updated after the move to the
+Rork-managed backend: the app runs on managed Supabase Postgres (Rork cloud database) with Row Level
+Security, identity is platform-verified Google/Apple OAuth through Rork Auth, guests are read-only,
+and moderation/trust/analytics primitives are already live in the database.*
+
+> Historical note: the Cloudflare Worker + Durable Object backend described further down this
+> document was **removed**. It is kept only as background — the live backend is the Rork-managed
+> Supabase project, and nothing here should be read as a deployment instruction for it.
 
 ---
 
@@ -11,12 +15,12 @@ primitives are already live in the cloud.*
 
 | Layer | Status |
 | --- | --- |
-| Cloud database | ✅ Own Worker + Durable Object (SQLite): profiles, posts, comments, reactions, follows, saves, watchlist, collections, notifications, blocks, mutes, reports, events |
+| Cloud database | ✅ Rork-managed Supabase Postgres (RLS + triggers): profiles, posts, comments, reactions, follows, saves, watchlist, collections, notifications, blocks, mutes, reports, events |
 | Identity | ✅ Rork Auth (Google/Apple, PKCE + SecureStore). Server-side JWT verification; spoofing impossible |
 | Moderation primitives | ✅ Reports, blocks, mutes, spoiler levels, bans, feed hygiene server-side |
 | Trust | ✅ `verified` badge + `role` on every profile; role-gated `/admin/*` endpoints |
 | Analytics | ✅ `POST /events` pipeline; mirrored into Supabase Postgres for global reporting |
-| Postgres | ✅ Managed Supabase (Rork Cloud): `analytics_events`, `moderation_reports`, `member_snapshots` + SQL aggregate function |
+| Postgres | ✅ The same Rork-managed Supabase project: `events`, `reports`, `profiles` + SQL aggregate functions |
 | Monetization | ⬜ Nothing yet — by design, until retention is proven |
 
 ## 2. Product principles (why people stay)
@@ -65,7 +69,7 @@ can reuse the same role-gated `/admin/*` endpoints later:
 
 ## 6. Analytics
 
-- Pipeline is live end-to-end: `track()` → cloud sink batching → `POST /events` → Durable Object →
+- Pipeline is live end-to-end: `track()` → cloud sink batching → `events` table (Postgres) →
   HMAC-signed mirror → Supabase Postgres → admin console (14-day trends, top events).
 - Instrument next: onboarding funnel steps, feed engagement, watchlist adds, session starts (retention proxy).
 - Privacy rule: **no PII in events** — pseudonymous user id + aggregate dashboards only.

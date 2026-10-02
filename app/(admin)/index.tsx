@@ -68,7 +68,7 @@ export default function AdminConsole() {
         contentContainerStyle={styles.body}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.textSecondary} />}
       >
-        {/* KPIs from the Durable Object (live counts) */}
+        {/* KPIs straight from the cloud database (Row Level Security decides who may read) */}
         <View style={styles.grid}>
           <Kpi label="Members" value={overview?.users} />
           <Kpi label="Signups today" value={overview?.signupsToday} />

@@ -91,27 +91,38 @@ Deep blacks + luminous magenta. Cinematic, Apple-level restraint.
 ## 4. Technical Architecture
 
 - **App**: Expo (React Native + TypeScript) + Expo Router
-- **Backend**: Supabase free tier (Auth, Postgres, Storage, Realtime)
-- **State**: Zustand (ready) + Auth Context
-- **Media**: expo-image-picker + Supabase Storage
-- **Distribution**: EAS Build → APK
+- **Backend**: the Rork-managed Supabase Postgres project `mwgmzncsitgibbkhsktt` — schemas, functions,
+  triggers, RLS and Storage live there and are the source of truth. Nothing in this repository
+  provisions, migrates or replaces that database.
+- **Identity**: Rork Auth (`https://api.rork.com`, project `ss819xdajyzsa3znsyi9t`). The Rork JWT is
+  handed to Supabase through the access-token bridge in `lib/supabase.ts`; Postgres authorises every
+  row with `user_id()` = the JWT `sub`.
+- **State**: Zustand + Auth Context, offline-first outbox (`lib/data/sync.ts`)
+- **Media**: expo-image-picker → Supabase Storage (`media` bucket) via `lib/storage.ts`
+- **Distribution**: GitHub Actions APK (`.github/workflows/build-apk.yml`) or EAS Build
 
 ### Core data model
-profiles, catalog_* (TMDB mirror), posts, post_media, comments, reactions, saves, follows, blocks, mutes, watchlist_items, collections, notifications, push_tokens, reports, moderation_*
+profiles, posts, comments, reactions, saves, follows, watchlist, drama_notify, collections,
+collection_items, notifications, prefs, blocks, mutes, reports, events, push_tokens, admin_audit.
 
-See `supabase/migrations/*.sql` (source of truth) and `docs/backend/` for the architecture.
+These already exist inside the Rork-managed backend; the client's expectations are checked against
+the live schema by `.github/workflows/backend.yml` (`scripts/ci/backend-health.mjs`). There are no
+local migrations for this backend — the repository does not own its schema.
 
 ---
 
 ## 5. How to run
 
-1. Create a free Supabase project
-2. Add `SUPABASE_ACCESS_TOKEN` + `SUPABASE_DB_PASSWORD` as GitHub Actions secrets — `.github/workflows/backend.yml` applies the migrations, deploys the Edge Functions and configures the project (no local CLI needed)
-3. (Optional) add `SMTP_*` secrets so sign-up / password-reset emails go out through your own sender
-4. Copy `.env.example` → `.env` and fill in your keys
-5. `npm install`
-6. `npx expo start`
-7. Scan QR with Expo Go (or build APK with EAS)
+1. `bun install` (or `npm install`)
+2. `npx expo start` — the committed client configuration in `constants/keys.ts` already points at the
+   live Rork backend, so nothing else is required to run the app.
+3. Optional: override `EXPO_PUBLIC_*` values in `.env` for local experiments. Overrides are validated
+   at build time, and a privileged (service-role/secret) key is always refused.
+4. Build an installable APK: run the **Build APK** workflow (GitHub Actions → Actions → Build APK →
+   Run workflow) — it validates the credentials, compiles, and verifies the embedded configuration.
+
+There is no Supabase-CLI step, no migration to apply and no project to provision: the Rork backend
+already holds the schema, functions, triggers and RLS policies.
 
 ---
 

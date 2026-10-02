@@ -184,7 +184,8 @@ export default function Composer() {
     }
   };
   const pickVideo = async () => {
-    if (!videoUploadsAvailable()) return toast.show({ message: 'Video posting isn’t available on this build yet.', tone: 'danger' });
+    if (!(await videoUploadsAvailable()))
+      return toast.show({ message: 'Video uploads aren’t available right now — the backend has no media bucket.', tone: 'danger' });
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) return toast.show({ message: 'Allow photo access in Settings to attach a video.', tone: 'danger' });
     const max = type === 'short' ? LIMITS.shortVideo : LIMITS.postVideo;

@@ -8,9 +8,11 @@
  * consistent by database triggers, so optimistic local state and the server converge.
  * Guests (no token) pull real public rows too — there is no mock content anywhere in the app.
  */
-import { currentAccessToken } from '../auth';
+import { reportError } from '../analytics';
+import { freshAccessToken, hasCloudSession } from '../auth';
 import { Collection, Comment, emptyReactions, Notification, Post, ReactionCounts, ReactionKind, User, WatchlistItem, WatchStatus } from '../model';
 import { dispatchLocal, getState, MePayload, Mutation } from '../store';
+import { uploadMedia } from '../storage';
 import { Backend, BackendError, PullOptions, PullScope } from './backend';
 import { supabase } from '../supabase';
 
@@ -253,9 +255,9 @@ async function mergeFeed(rows: PostRow[], feedKey?: string, cursor?: string, app
     const authors = rows.map((r) => r.author).filter((a): a is ProfileRow => !!a).map(userFromRow);
     if (authors.length) dispatchLocal({ type: 'mergeUsers', users: authors });
 
-    const token = currentAccessToken();
     const ids = posts.map((p) => p.id);
-    if (token && ids.length) {
+    // The client renews and attaches the pass itself; here only a session is needed.
+    if (hasCloudSession() && ids.length) {
       const [reactions, saves] = await Promise.all([
         supabase.from('reactions').select('target_id, kind').in('target_id', ids),
         supabase.from('saves').select('post_id').in('post_id', ids),
@@ -300,12 +302,45 @@ function getStateFeedCursor(feedKey: string | undefined): string | undefined {
 // ---------------------------------------------------------------------------------------------
 // Mutations
 // ---------------------------------------------------------------------------------------------
-function stripLocalMedia(post: Post): Post {
-  return {
-    ...post,
-    images: post.images?.filter((img): img is string => typeof img === 'string' && /^https?:/.test(img)),
-    video: post.video && /^https?:/.test(post.video.url ?? '') ? post.video : undefined,
-  };
+/**
+ * Local media (`file://` from the picker/recorder) is uploaded to cloud Storage and replaced with
+ * the public URL; anything already remote passes through. Video is not optional: a short without its
+ * video is not a short, so a failed video upload rejects the whole mutation (the outbox retries it
+ * and the author sees the real reason) instead of quietly publishing a video-less row.
+ */
+/**
+ * Local media (`file://` from the picker/recorder) is uploaded to cloud Storage and replaced with
+ * the public URL; anything already remote passes through untouched. Bundled asset ids (numbers) are
+ * dropped — they only exist in that one build and cannot be shared.
+ *
+ * Video is not optional: a short without its video is not a short, so a failed video upload rejects
+ * the whole mutation (the outbox retries it and the author sees the real reason) instead of quietly
+ * publishing a video-less row, which is what used to happen.
+ */
+async function uploadLocalImage(uri: string | number | undefined, ownerId: string): Promise<string | undefined> {
+  if (typeof uri !== 'string' || !uri) return undefined;
+  if (/^https?:\/\//i.test(uri)) return uri;
+  return (await uploadMedia(uri, { kind: 'image', ownerId })).url;
+}
+
+async function uploadLocalVideo(uri: string, ownerId: string): Promise<string> {
+  if (/^https?:\/\//i.test(uri)) return uri;
+  return (await uploadMedia(uri, { kind: 'video', ownerId })).url;
+}
+
+async function withUploadedMedia(post: Post, ownerId: string): Promise<Post> {
+  const images = post.images?.length
+    ? ((await Promise.all(post.images.map((img) => uploadLocalImage(img, ownerId)))).filter(Boolean) as string[])
+    : undefined;
+
+  let video = post.video;
+  if (video?.url) {
+    const url = await uploadLocalVideo(video.url, ownerId);
+    const poster = typeof video.poster === 'string' ? (await uploadLocalImage(video.poster, ownerId)) ?? video.poster : video.poster;
+    video = { ...video, url, poster };
+  }
+
+  return { ...post, images, video };
 }
 
 function isServerAction(type: Mutation['action']['type']): boolean {
@@ -339,12 +374,26 @@ export const supabaseBackend: Backend = {
 
   async push(mutation: Mutation): Promise<void> {
     const me = getState().profile.id;
-    if (!currentAccessToken() || !me || me === 'guest' || !isServerAction(mutation.action.type)) return;
+    if (!me || me === 'guest' || !isServerAction(mutation.action.type)) return; // guests are local-only
+    // A member's write must never be dropped as if it had been delivered. The pass is renewed on
+    // demand (Rork passes last one hour); only a real session failure stops the write, and when it
+    // does the outbox has to hear about it so the optimistic change is rolled back with a reason.
+    let token: string | null;
+    try {
+      token = await freshAccessToken();
+    } catch (e) {
+      const offline = (e as { code?: string })?.code === 'network';
+      throw new BackendError(offline ? 'No connection' : 'Your session expired — sign in again', offline);
+    }
+    if (!token) {
+      if (hasCloudSession()) throw new BackendError('Your session expired — sign in again', false);
+      return; // signed out with nothing cached: there is no account to write to
+    }
     const a = mutation.action;
     try {
       switch (a.type) {
         case 'addPost': {
-          const p = stripLocalMedia(a.post);
+          const p = await withUploadedMedia(a.post, a.post.authorId || me);
           const { error } = await supabase.from('posts').insert({
             id: p.id,
             author_id: p.authorId,
@@ -366,7 +415,11 @@ export const supabaseBackend: Backend = {
         }
         case 'editPost': {
           const patch = a.patch as unknown as Json;
-          const clean = stripLocalMedia({ ...(a.patch as unknown as Post), id: a.id, authorId: '', type: 'post', body: '', createdAt: '', spoiler: 'none', context: {}, hashtags: [], mentions: [], reactions: emptyReactions(), commentCount: 0, saveCount: 0, shareCount: 0 });
+          const uploaded = await withUploadedMedia(
+            { ...(a.patch as unknown as Post), id: a.id, authorId: me, type: 'post', body: '', createdAt: '', spoiler: 'none', context: {}, hashtags: [], mentions: [], reactions: emptyReactions(), commentCount: 0, saveCount: 0, shareCount: 0 },
+            me,
+          );
+          const clean = uploaded;
           const row: Json = { edited_at: new Date().toISOString() };
           for (const key of ['body', 'title', 'kind', 'type', 'spoiler', 'context', 'hashtags', 'mentions', 'rating', 'verdict']) {
             if (patch[key] !== undefined) row[key] = clean[key as keyof Post] ?? null;
@@ -460,8 +513,19 @@ export const supabaseBackend: Backend = {
           const row: Json = {};
           for (const [from, to] of Object.entries(PROFILE_PATCH_KEYS)) if (patch[from] !== undefined) row[to] = patch[from];
           if (!Object.keys(row).length) return;
-          const { error } = await supabase.from('profiles').update(row).eq('id', me);
-          return fail(error, 'Could not save the profile');
+          // `update` on a row that does not exist succeeds with zero affected rows, which would be a
+          // save that never happened. Ask for the id back and create the row when it is missing.
+          const { data, error } = await supabase.from('profiles').update(row).eq('id', me).select('id');
+          fail(error, 'Could not save the profile');
+          if (!data?.length) {
+            const local = getState().profile;
+            const { error: upsertError } = await supabase.from('profiles').upsert(
+              { id: me, handle: local.handle ?? null, display_name: local.displayName ?? null, avatar_url: local.avatarUrl ?? null, ...row },
+              { onConflict: 'id' },
+            );
+            fail(upsertError, 'Could not save the profile');
+          }
+          return;
         }
         case 'prefs': {
           const patch = pickServerPrefs(a.patch as unknown as Json);
@@ -554,8 +618,11 @@ export const supabaseBackend: Backend = {
       purgedDemo = true;
       dispatchLocal({ type: 'purgeDemo' });
     }
-    if (!currentAccessToken() && scope !== 'home' && !scope.startsWith('feed:') && scope !== 'trending' && scope !== 'shorts' && !scope.startsWith('drama:') && !scope.startsWith('post:') && !scope.startsWith('user:') && !scope.startsWith('search:') && scope !== 'collections' && !scope.startsWith('collection:')) return;
-    const signedIn = !!currentAccessToken();
+    // Public scopes are readable with the anon key; everything personal needs a live pass. A
+    // renewal failure counts as "not signed in" only for scopes that would have run anyway.
+    const signedIn = await freshAccessToken().then((t) => !!t).catch(() => false);
+    const anonymousOk = scope === 'home' || scope.startsWith('feed:') || scope === 'trending' || scope === 'shorts' || scope.startsWith('drama:') || scope.startsWith('post:') || scope.startsWith('user:') || scope.startsWith('search:') || scope === 'collections' || scope.startsWith('collection:');
+    if (!signedIn && !anonymousOk) return;
 
     try {
       if (scope === 'me') {
@@ -677,45 +744,55 @@ async function followedUserIds(): Promise<string[]> {
 }
 
 /** The whole account snapshot in one round: profile, graph, watchlist, prefs, saves, mutes. */
+/**
+ * Load one slice of the account snapshot. A single unreachable slice (a table the backend has not
+ * provisioned, a policy that denies it) must not blank the whole account: the failure is logged and
+ * the rest of the snapshot still lands. The profile and the follow graph are mandatory — without
+ * them the app cannot know who is signed in.
+ */
+async function meSlice<T>(
+  table: string,
+  run: () => PromiseLike<{ data: T | null; error: { message?: string; code?: string } | null }>,
+  required = false,
+): Promise<T | null> {
+  try {
+    const { data, error } = await run();
+    if (error) throw toBackendError(error, `Could not load ${table}`);
+    return data;
+  } catch (e) {
+    if (required) throw e;
+    reportError(`backend.pullMe.${table}`, e);
+    return null;
+  }
+}
+
 async function pullMe(): Promise<void> {
   const me = getState().profile.id;
-  const [profileRes, followsRes, watchRes, notifyRes, reactionsRes, savesRes, collectionsRes, blocksRes, mutesRes, prefsRes] = await Promise.all([
-    supabase.from('profiles').select('*').eq('id', me).maybeSingle(),
-    supabase.from('follows').select('kind, target_id').eq('follower_id', me),
-    supabase.from('watchlist').select('*').eq('user_id', me),
-    supabase.from('drama_notify').select('drama_id').eq('user_id', me),
-    supabase.from('reactions').select('target_id, kind').eq('user_id', me),
-    supabase.from('saves').select('post_id').eq('user_id', me),
-    supabase.from('collections').select(COLLECTION_SELECT).eq('owner_id', me).order('updated_at', { ascending: false }),
-    supabase.from('blocks').select('blocked_id').eq('user_id', me),
-    supabase.from('mutes').select('kind, target_id').eq('user_id', me),
-    supabase.from('prefs').select('data').eq('user_id', me).maybeSingle(),
+  const [profile, followsRows, watchRows, notifyRows, reactionRows, saveRows, collectionRows, blockRows, muteRows, prefsRow] = await Promise.all([
+    meSlice<ProfileRow>('profiles', () => supabase.from('profiles').select('*').eq('id', me).maybeSingle(), true),
+    meSlice<{ kind: string; target_id: string }[]>('follows', () => supabase.from('follows').select('kind, target_id').eq('follower_id', me), true),
+    meSlice<WatchRow[]>('watchlist', () => supabase.from('watchlist').select('*').eq('user_id', me)),
+    meSlice<{ drama_id: string }[]>('drama_notify', () => supabase.from('drama_notify').select('drama_id').eq('user_id', me)),
+    meSlice<{ target_id: string; kind: string }[]>('reactions', () => supabase.from('reactions').select('target_id, kind').eq('user_id', me)),
+    meSlice<{ post_id: string }[]>('saves', () => supabase.from('saves').select('post_id').eq('user_id', me)),
+    meSlice<CollectionRow[]>('collections', () => supabase.from('collections').select(COLLECTION_SELECT).eq('owner_id', me).order('updated_at', { ascending: false })),
+    meSlice<{ blocked_id: string }[]>('blocks', () => supabase.from('blocks').select('blocked_id').eq('user_id', me)),
+    meSlice<{ kind: string; target_id: string }[]>('mutes', () => supabase.from('mutes').select('kind, target_id').eq('user_id', me)),
+    meSlice<{ data: Json }>('prefs', () => supabase.from('prefs').select('data').eq('user_id', me).maybeSingle()),
   ]);
-  fail(profileRes.error, 'Could not load the account');
-  fail(followsRes.error, 'Could not load follows');
-  fail(watchRes.error, 'Could not load the watchlist');
-  fail(notifyRes.error, 'Could not load alerts');
-  fail(reactionsRes.error, 'Could not load reactions');
-  fail(savesRes.error, 'Could not load saves');
-  fail(collectionsRes.error, 'Could not load collections');
-  fail(blocksRes.error, 'Could not load blocks');
-  fail(mutesRes.error, 'Could not load mutes');
-  fail(prefsRes.error, 'Could not load settings');
 
-  const profile = profileRes.data as ProfileRow | null;
-  const followsRows = (followsRes.data ?? []) as { kind: string; target_id: string }[];
-  const prefsData = ((prefsRes.data as { data: Json } | null)?.data ?? {}) as Json;
+  const prefsData = ((prefsRow?.data ?? {}) as Json);
   const onboarding = (prefsData.onboarding ?? undefined) as MePayload['onboarding'];
 
   const reactions: Record<string, ReactionKind> = {};
-  for (const r of (reactionsRes.data ?? []) as { target_id: string; kind: string }[]) reactions[r.target_id] = r.kind as ReactionKind;
+  for (const r of reactionRows ?? []) reactions[r.target_id] = r.kind as ReactionKind;
 
   const watchlist: Record<string, ReturnType<typeof watchFromRow>> = {};
-  for (const r of (watchRes.data ?? []) as WatchRow[]) watchlist[r.drama_id] = watchFromRow(r);
+  for (const r of watchRows ?? []) watchlist[r.drama_id] = watchFromRow(r);
 
   const mutedUsers: string[] = [];
   const mutedDramas: string[] = [];
-  for (const m of (mutesRes.data ?? []) as { kind: string; target_id: string }[]) {
+  for (const m of muteRows ?? []) {
     if (m.kind === 'user') mutedUsers.push(m.target_id);
     else mutedDramas.push(m.target_id);
   }
@@ -727,17 +804,17 @@ async function pullMe(): Promise<void> {
       : {}),
     ...(onboarding ? { onboarding } : {}),
     follows: {
-      users: followsRows.filter((f) => f.kind === 'users').map((f) => f.target_id),
-      dramas: followsRows.filter((f) => f.kind === 'dramas').map((f) => f.target_id),
-      actors: followsRows.filter((f) => f.kind === 'actors').map((f) => f.target_id),
-      collections: followsRows.filter((f) => f.kind === 'collections').map((f) => f.target_id),
+      users: (followsRows ?? []).filter((f) => f.kind === 'users').map((f) => f.target_id),
+      dramas: (followsRows ?? []).filter((f) => f.kind === 'dramas').map((f) => f.target_id),
+      actors: (followsRows ?? []).filter((f) => f.kind === 'actors').map((f) => f.target_id),
+      collections: (followsRows ?? []).filter((f) => f.kind === 'collections').map((f) => f.target_id),
     },
-    dramaNotify: ((notifyRes.data ?? []) as { drama_id: string }[]).map((r) => r.drama_id),
+    dramaNotify: (notifyRows ?? []).map((r) => r.drama_id),
     watchlist: watchlist as MePayload['watchlist'],
     reactions,
-    saves: ((savesRes.data ?? []) as { post_id: string }[]).map((r) => r.post_id),
-    collections: ((collectionsRes.data ?? []) as CollectionRow[]).map(collectionFromRow),
-    blockedUsers: ((blocksRes.data ?? []) as { blocked_id: string }[]).map((r) => r.blocked_id),
+    saves: (saveRows ?? []).map((r) => r.post_id),
+    collections: (collectionRows ?? []).map(collectionFromRow),
+    blockedUsers: (blockRows ?? []).map((r) => r.blocked_id),
     mutedUsers,
     mutedDramas,
   };

@@ -3,7 +3,7 @@
  * table of the managed Postgres database for the admin console. Signed-in users only; guests and
  * offline flushes are dropped by design — analytics must never disturb the UI or retry forever.
  */
-import { currentAccessToken } from './auth';
+import { freshAccessToken } from './auth';
 import { setAnalyticsSink, type AnalyticsEvent } from './analytics';
 import { supabase } from './supabase';
 
@@ -15,7 +15,7 @@ export function attachCloudAnalytics(): void {
   let timer: ReturnType<typeof setTimeout> | null = null;
 
   const flush = async (): Promise<void> => {
-    const token = currentAccessToken();
+    const token = await freshAccessToken();
     if (!token || !queue.length) return;
     const batch = queue.splice(0, FLUSH_SIZE);
     const { error } = await supabase.from('events').insert(
