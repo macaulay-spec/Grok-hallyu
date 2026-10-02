@@ -22,6 +22,7 @@ import { TopBar } from '../../components/ui/TopBar';
 import { WorldTile } from '../../components/fandom/WorldTile';
 import { colors, radius, space } from '../../constants/theme';
 import { catalog, invalidateCatalogLists, friendlyCatalogCopy } from '../../lib/catalog';
+import { supabase } from '../../lib/supabase';
 import { FANDOMS } from '../../lib/fandoms';
 import { adoptActors, adoptDramas } from '../../lib/catalogSync';
 import { Loadable, useApp, useCatalogHealth, useLayout, useLoad, useNetwork } from '../../lib/hooks';
@@ -57,6 +58,32 @@ export default function Explore() {
   const netflix = useDramas((s) => catalog.onProvider(NETFLIX, s));
   const faces = useLoad<Actor[]>(async (s) => adoptActors(await catalog.trendingPeople(s)), [], catalog.available);
 
+  // Community pulse — live counts from the Hallyu backend (the last 24 hours + total members).
+  const pulse = useLoad(async () => {
+    const since = new Date(Date.now() - 86_400_000).toISOString();
+    const [p, c, m] = await Promise.all([
+      supabase.from('posts').select('id', { count: 'exact', head: true }).gte('created_at', since),
+      supabase.from('comments').select('id', { count: 'exact', head: true }).gte('created_at', since),
+      supabase.from('profiles').select('id', { count: 'exact', head: true }),
+    ]);
+    return { posts: p.count ?? 0, comments: c.count ?? 0, members: m.count ?? 0 };
+  }, []);
+
+  // Personalized rail: the member's favorite genres, straight from their profile on the backend.
+  const favGenres = useMemo(() => state.profile.favoriteGenres?.slice(0, 2) ?? [], [state.profile.favoriteGenres]);
+  const forYou = useLoad<Drama[]>(async (signal) => {
+    const lists = await Promise.all(favGenres.map((g) => catalog.byGenre(g, 8, signal)));
+    const seen = new Set<string>();
+    const out: Drama[] = [];
+    for (const d of lists.flat()) {
+      if (!seen.has(d.id)) {
+        seen.add(d.id);
+        out.push(d);
+      }
+    }
+    return out;
+  }, [favGenres.join('|')], catalog.available && favGenres.length > 0);
+
   // Pull-to-refresh re-runs every live section.
   useEffect(() => {
     if (!refresh.refreshing) return;
@@ -67,6 +94,8 @@ export default function Explore() {
     upcoming.reload();
     netflix.reload();
     faces.reload();
+    pulse.reload();
+    forYou.reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refresh.refreshing]);
 
@@ -74,6 +103,7 @@ export default function Explore() {
   const collections = useMemo(() => publicCollections(state).slice(0, 8), [state]);
   const shortList = useMemo(() => shorts(state), [state]);
   const counts = useMemo(() => worldCounts(state), [state]);
+  const quickTags = useMemo(() => trendingHashtags(state, 6).map((x) => x.tag), [state]);
 
   const lead = trending.data?.[0];
   const heroW = Math.min(width - space.margin * 2, 640);
@@ -96,6 +126,19 @@ export default function Explore() {
             contentContainerStyle={{ paddingHorizontal: space.margin, paddingTop: space.x3, gap: space.x2 }}
             renderItem={({ item: f }) => <Chip label={f.short} onPress={() => router.push(`/world/${f.id}`)} />}
           />
+          {/* Trending searches — one tap from the hashtags the community is using right now. */}
+          {quickTags.length > 0 ? (
+            <FlatList
+              horizontal
+              data={quickTags}
+              keyExtractor={(t) => t}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: space.margin, paddingTop: space.x2, gap: space.x2 }}
+              renderItem={({ item: t }) => (
+                <Chip label={`#${t}`} tone="accent" onPress={() => router.push({ pathname: '/search', params: { q: `#${t}` } })} />
+              )}
+            />
+          ) : null}
         </View>
 
         {/* The four worlds: Hallyu's identity, and the fastest way into any of them. */}
@@ -127,6 +170,18 @@ export default function Explore() {
               text={`${friendlyCatalogCopy(health, online).title}. ${friendlyCatalogCopy(health, online).body}`}
             />
           </Pressable>
+        ) : null}
+
+        {/* Community pulse — proof the backend is alive: the last 24 hours, live from Postgres. */}
+        {pulse.data && (pulse.data.posts > 0 || pulse.data.members > 1) ? (
+          <View style={styles.section}>
+            <SectionHeader eyebrow="Live" title="Community pulse" subtitle="The last 24 hours in Hallyu" live />
+            <View style={styles.pulseRow}>
+              <PulsePill icon="flame-outline" label="New posts" value={pulse.data.posts} onPress={() => router.push('/trending')} />
+              <PulsePill icon="chatbubbles-outline" label="Comments" value={pulse.data.comments} onPress={() => router.push('/trending')} />
+              <PulsePill icon="people-outline" label="Members" value={pulse.data.members} onPress={() => router.push('/people')} />
+            </View>
+          </View>
         ) : null}
 
         {/* Hero — #1 trending K-drama this week */}
@@ -169,6 +224,17 @@ export default function Explore() {
         ) : null}
 
         <LiveRail eyebrow="Trending" title="Everyone’s talking about" subtitle="K-Dramas, C-Dramas, anime and Hollywood together" state={trending} slice={[1]} size="m" onAction={() => router.push('/trending')} />
+
+        {/* For you — the member's favorite genres, personalized from their backend profile. */}
+        {favGenres.length > 0 ? (
+          <LiveRail
+            eyebrow="For you"
+            title={`Because you love ${favGenres.join(' & ')}`}
+            subtitle="Fresh from your favorite genres"
+            state={forYou}
+            size="m"
+          />
+        ) : null}
 
         <LiveRail eyebrow="This week" title="New episodes airing" live state={airing} size="l" onAction={() => router.push('/schedule')} actionLabel="Schedule" />
 
@@ -276,6 +342,23 @@ export default function Explore() {
   );
 }
 
+/** A live 24-hour stat from the community pulse. */
+function PulsePill({ icon, label, value, onPress }: { icon: keyof typeof Ionicons.glyphMap; label: string; value: number; onPress: () => void }) {
+  return (
+    <Tap onPress={onPress} style={styles.pill} accessibilityRole="button" accessibilityLabel={`${label}: ${value}`}>
+      <Ionicons name={icon} size={18} color={colors.accent} />
+      <View style={{ flex: 1 }}>
+        <Text variant="titleSmall">{formatCount(value)}</Text>
+        <Text variant="caption" tone="secondary" numberOfLines={1}>
+          {label}
+        </Text>
+      </View>
+    </Tap>
+  );
+}
+
+const formatCount = (n: number): string => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k` : String(n));
+
 /** A rail bound to a live list: skeleton while loading, hidden when empty, quiet retry on failure. */
 function LiveRail({
   eyebrow,
@@ -370,6 +453,18 @@ const styles = StyleSheet.create({
   heroBody: { padding: space.x4, gap: 4 },
   signal: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.accent },
   section: { marginBottom: space.section },
+  pulseRow: { flexDirection: 'row', gap: space.gutter, paddingHorizontal: space.margin },
+  pill: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.x2,
+    backgroundColor: colors.surface1,
+    borderRadius: radius.md,
+    padding: space.x3,
+    borderWidth: 1,
+    borderColor: colors.borderSubtle,
+  },
   genre: { width: 148, height: 96, borderRadius: radius.md, padding: space.x3, justifyContent: 'flex-end', overflow: 'hidden' },
   genreScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(10,10,10,0.35)' },
   retry: {

@@ -24,6 +24,7 @@ import { AuthProvider, useAuth } from '../lib/auth';
 import { markBoot } from '../lib/boot';
 import { SyncProvider, getBackend } from '../lib/data/sync';
 import { demoMemberState } from '../lib/data/demoSeed';
+import { PushSync } from '../lib/push';
 import { installNotificationHandler, reminderUrl, remindersSupported, syncEpisodeReminders } from '../lib/reminders';
 import { setDownloadScope } from '../lib/media';
 import { freshMemberState, getState, GUEST_ID, guestState, StoreProvider, useHallyu, useSlice, useStore } from '../lib/store';
@@ -104,6 +105,9 @@ export default function RootLayout() {
               </ErrorBoundary>
               <ErrorBoundary scope="MilestoneWatcher" silent>
                 <MilestoneWatcher />
+              </ErrorBoundary>
+              <ErrorBoundary scope="PushSync" silent>
+                <PushSync />
               </ErrorBoundary>
               <Stack
                 screenOptions={{

@@ -203,7 +203,9 @@ export type Action =
   | { type: 'mergeCollections'; collections: Collection[] }
   | { type: 'setFeed'; key: string; ids: string[]; reasons?: Record<string, string>; cursor?: FeedPage['cursor']; append?: boolean; exhausted?: boolean }
   | { type: 'viewerSync'; reactions: Record<string, ReactionKind | null>; saved: Record<string, boolean> }
-  | { type: 'me'; payload: MePayload };
+  | { type: 'me'; payload: MePayload }
+  // one-shot cleanup: drops demo-fixture rows from a persisted state so live backend data is the only source
+  | { type: 'purgeDemo' };
 
 /** An account snapshot, already mapped to store shapes (see lib/data/demoBackend.ts). */
 export interface MePayload {
@@ -670,6 +672,36 @@ function reducer(s: AppState, a: Action): AppState {
     }
     case 'seenActivity':
       return { ...s, lastSeenActivity: new Date().toISOString() };
+    case 'purgeDemo': {
+      // Demo fixtures were seeded per-identity and persisted; drop them once so a live
+      // account only ever sees backend data. Demo ids are all prefixed, so this is safe.
+      const isDemoUser = (id?: string) => !!id && (id === 'demo-member' || id.startsWith('u-') || id.startsWith('demo-'));
+      const removedPosts = new Set<string>();
+      const posts = s.posts.filter((p) => {
+        const bad = p.id.startsWith('demo-') || isDemoUser(p.authorId);
+        if (bad) removedPosts.add(p.id);
+        return !bad;
+      });
+      const comments = s.comments.filter((c) => !c.id.startsWith('demo-') && !isDemoUser(c.authorId));
+      const users = Object.fromEntries(Object.entries(s.users).filter(([id]) => !isDemoUser(id)));
+      const collections = s.collections.filter((c) => !c.id.startsWith('demo-') && !isDemoUser(c.ownerId));
+      const notifications = s.notifications.filter((n) => !n.id.startsWith('demo-'));
+      const watchlist = Object.fromEntries(Object.entries(s.watchlist).filter(([id]) => !id.startsWith('demo-')));
+      const reactions = Object.fromEntries(Object.entries(s.reactions).filter(([id]) => !removedPosts.has(id) && !id.startsWith('demo-')));
+      const saves = s.saves.filter((id) => !removedPosts.has(id));
+      const follows = {
+        users: s.follows.users.filter((id) => !isDemoUser(id)),
+        dramas: s.follows.dramas.filter((id) => !id.startsWith('demo-')),
+        actors: s.follows.actors.filter((id) => !id.startsWith('demo-')),
+        collections: s.follows.collections.filter((id) => !id.startsWith('demo-')),
+      };
+      const dramaNotify = Object.fromEntries(Object.entries(s.dramaNotify).filter(([id]) => !id.startsWith('demo-')));
+      const feeds = Object.fromEntries(
+        Object.entries(s.feeds).map(([k, f]) => [k, { ...f, ids: f.ids.filter((id) => !removedPosts.has(id)) }]),
+      );
+      const importedDramas = s.importedDramas.filter((d) => !d.id.startsWith('demo-'));
+      return { ...s, posts, comments, users, collections, notifications, watchlist, reactions, saves, follows, dramaNotify, feeds, importedDramas };
+    }
     default:
       return s;
   }

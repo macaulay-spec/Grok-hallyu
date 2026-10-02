@@ -6,8 +6,8 @@
  * database authorizes each row server-side via `user_id()` (the JWT `sub`) — the client can
  * never forge an identity. Counters (reaction/save/comment totals) and notifications are kept
  * consistent by database triggers, so optimistic local state and the server converge.
- * Guests (no token) keep the demo behaviour: optimistic local state is the state of record and
- * pulls seed the store from demoBackend fixtures first, then merge live public rows on top.
+ * Guests (no token) and demo mode pull real public rows too — demo fixtures are only used
+ * in explicit demo mode (see pull).
  */
 import { currentAccessToken } from '../auth';
 import { Collection, Comment, emptyReactions, Notification, Post, ReactionCounts, ReactionKind, User, WatchlistItem, WatchStatus } from '../model';
@@ -23,6 +23,9 @@ const COLLECTION_SELECT = '*, items:collection_items(*)';
 
 /** Server-stored prefs; reduceMotion/trueBlack stay device-only (sync.plan filters them too). */
 const SERVER_PREF_KEYS = ['protection', 'autoplay', 'oneTapReactions', 'mutedWords', 'personalization', 'language', 'guidelinesAccepted', 'dataSaver', 'termsVersion', 'notifications'];
+
+/** One-shot per app launch: purge persisted demo fixtures before the first live pull. */
+let purgedDemo = false;
 
 interface Json {
   [k: string]: unknown;
@@ -547,8 +550,14 @@ export const supabaseBackend: Backend = {
   },
 
   async pull(scope: PullScope, opts?: PullOptions): Promise<void> {
-    // Local fixtures first (idempotent per identity) so the UI is never empty, then live rows.
-    await demoBackend.pull(scope, opts);
+    // Demo mode (explicit): the whole session runs on local fixtures.
+    if (getState().profile.id === 'demo-member') return demoBackend.pull(scope, opts);
+    // Live mode: backend data is the only source of truth. On the first pull of a session,
+    // drop any demo-fixture rows that older builds persisted, then pull real rows.
+    if (!purgedDemo) {
+      purgedDemo = true;
+      dispatchLocal({ type: 'purgeDemo' });
+    }
     if (!currentAccessToken() && scope !== 'home' && !scope.startsWith('feed:') && scope !== 'trending' && scope !== 'shorts' && !scope.startsWith('drama:') && !scope.startsWith('post:') && !scope.startsWith('user:') && !scope.startsWith('search:') && scope !== 'collections' && !scope.startsWith('collection:')) return;
     const signedIn = !!currentAccessToken();
 
