@@ -94,6 +94,29 @@ jobs:
           CANDIDATE_TMDB_API_KEY: ${{ secrets.EXPO_PUBLIC_TMDB_API_KEY }}
         run: node scripts/ci/resolve-client-config.mjs
 
+      # A compiling APK aimed at a dead backend is not a build you can ship. This is the same
+      # read-only diagnostic Hallyu Backend Health runs on main and on its weekly schedule; it is
+      # repeated here so every build is gated on the backend it actually targets, on the runner that
+      # can always run (scheduled workflows need a manual approval on branch pushes).
+      #   RORK_TEST_REFRESH_TOKEN (optional secret) turns on the authenticated bridge test:
+      #   Rork Auth → JWT → Supabase → RLS → own row.
+      # Names only — never a value. This is how obsolete credentials (old Supabase project, Lovable
+      # Cloud, Rork Worker) get identified for deletion; it can never fail the build.
+      - name: Inventory configured repository secrets (names only)
+        continue-on-error: true
+        env:
+          SECRETS_JSON: ${{ toJSON(secrets) }}
+        run: node scripts/ci/secret-inventory.mjs
+
+      - name: Verify the live backend and the client contract
+        continue-on-error: false
+        env:
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+          EXPO_PUBLIC_RORK_APP_KEY: ${{ secrets.EXPO_PUBLIC_RORK_APP_KEY }}
+          EXPO_PUBLIC_PROJECT_ID: ${{ secrets.EXPO_PUBLIC_PROJECT_ID }}
+          RORK_TEST_REFRESH_TOKEN: ${{ secrets.RORK_TEST_REFRESH_TOKEN }}
+        run: node scripts/ci/backend-health.mjs
+
       # ============================================================
       # DEPENDENCIES
       # ============================================================

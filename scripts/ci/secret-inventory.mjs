@@ -2,10 +2,10 @@
 /**
  * Which repository secrets exist — NAMES ONLY.
  *
- * `toJSON(secrets)` gives GitHub Actions the configured names with their values replaced by `***`;
- * this script prints the names, classifies them against the current Rork architecture, and lists the
- * leftovers from the retired pipelines (old Supabase project, Lovable Cloud, Rork Worker) so they can
- * be deleted from repository settings. Values are never read, printed, or written anywhere.
+ * `toJSON(secrets)` gives GitHub Actions the configured names; GitHub masks the values in the log.
+ * This script only ever reads the names, classifies them against the current Rork architecture, and
+ * lists the leftovers from the retired pipelines (old Supabase project, Lovable Cloud, Rork Worker)
+ * so they can be deleted from repository settings. Values are never read, printed, or written.
  *
  * Never fatal: an inventory is diagnostic, not a gate.
  */
