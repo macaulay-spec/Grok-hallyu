@@ -177,6 +177,8 @@ let tokenCache: { access?: string; refresh?: string } = {};
 /** Epoch ms at which `tokenCache.access` stops being accepted (from the JWT's `exp`). */
 let tokenExpiresAt = 0;
 let renewing: Promise<string | null> | null = null;
+/** Set once a signed-out device has been checked for a stored refresh token (memo for the above). */
+let noStoredRefresh = false;
 let sessionLost: (() => void) | null = null;
 
 /** A synchronous peek. Means "this device thinks it is signed in", never "the pass is valid". */
@@ -199,10 +201,21 @@ export function setSessionLostHandler(handler: (() => void) | null): void {
  * all (guest / signed out) — a *failed* renewal throws so the caller can tell network from refusal
  * instead of dropping the work silently.
  */
-export function freshAccessToken(): Promise<string | null> {
+export async function freshAccessToken(): Promise<string | null> {
   const cached = tokenCache.access;
-  if (passIsFresh(cached, tokenExpiresAt)) return Promise.resolve(cached!);
-  if (!hasCloudSession()) return Promise.resolve(null);
+  if (passIsFresh(cached, tokenExpiresAt)) return cached!;
+  if (!hasCloudSession()) {
+    // The request cache is populated at boot and on sign-in; before either has run it can still be
+    // empty while the keychain holds a refresh token (e.g. the access token expired between
+    // launches). Only then is a storage read worth it — and only once per app run.
+    if (noStoredRefresh) return null;
+    const stored = await SecureStore.getItemAsync(RT_KEY).catch(() => null);
+    if (!stored) {
+      noStoredRefresh = true;
+      return null;
+    }
+    tokenCache = { ...tokenCache, refresh: stored };
+  }
   if (!renewing) renewing = renewPass().finally(() => (renewing = null));
   return renewing;
 }
@@ -216,6 +229,7 @@ async function renewPass(): Promise<string | null> {
     if (tokenCache.access) {
       tokenCache = {};
       tokenExpiresAt = 0;
+      noStoredRefresh = false;
       await SecureStore.deleteItemAsync(AT_KEY).catch(() => {});
       sessionLost?.();
     }
@@ -242,6 +256,7 @@ async function renewPass(): Promise<string | null> {
 
 /** Store a fresh pass together with its expiry (SecureStore + the request cache). */
 async function persistToken(access: string, refresh?: string): Promise<void> {
+  noStoredRefresh = false;
   tokenCache = { access, refresh: refresh ?? tokenCache.refresh };
   tokenExpiresAt = expiryOf(access);
   await SecureStore.setItemAsync(AT_KEY, access).catch(() => {});
@@ -354,14 +369,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           markBoot('auth:guest');
           return;
         }
-        const at = await SecureStore.getItemAsync(AT_KEY).catch(() => null);
+        const [at, rt] = await Promise.all([
+          SecureStore.getItemAsync(AT_KEY).catch(() => null),
+          SecureStore.getItemAsync(RT_KEY).catch(() => null),
+        ]);
+        // Cache both tokens before deciding: renewal later in the session must not have to re-read
+        // the keychain, freshness checks need `exp`, and an expired pass must still be renewable
+        // from the refresh token that came with it.
+        tokenCache = { access: at ?? undefined, refresh: rt ?? undefined };
+        tokenExpiresAt = expiryOf(at);
         const restored = at ? userFromToken(at) : null;
         if (restored && at) {
-          // Cache the pass *with* its expiry and the refresh token: renewal later in the session
-          // must not have to re-read the keychain, and freshness checks need `exp`.
-          const rt = await SecureStore.getItemAsync(RT_KEY).catch(() => null);
-          tokenCache = { access: at, refresh: rt ?? undefined };
-          tokenExpiresAt = expiryOf(at);
           setUser(restored);
           setStatus('signedIn');
           void ensureProfile(restored);
@@ -483,6 +501,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signInWithApple = useCallback(() => signInWithProvider('apple'), [signInWithProvider]);
 
   const continueAsGuest = useCallback(() => {
+    // A guest session must not inherit the previous member's pass: leaving it cached would let the
+    // guest UI send that account's token on every request (and read that account's rows).
+    tokenCache = {};
+    tokenExpiresAt = 0;
+    noStoredRefresh = false;
+    void SecureStore.deleteItemAsync(AT_KEY).catch(() => {});
+    void SecureStore.deleteItemAsync(RT_KEY).catch(() => {});
     AsyncStorage.setItem(GUEST_KEY, '1').catch(() => {});
     setUser(null);
     setStatus('guest');
@@ -491,6 +516,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = useCallback(async () => {
     tokenCache = {};
+    tokenExpiresAt = 0;
     await SecureStore.deleteItemAsync(AT_KEY).catch(() => {});
     await SecureStore.deleteItemAsync(RT_KEY).catch(() => {});
     await SecureStore.deleteItemAsync(USER_KEY).catch(() => {});
