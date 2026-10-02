@@ -17,12 +17,11 @@ import { Post } from '../model';
 import * as sel from '../selectors';
 import { Action, AppState, dispatch, dispatchLocal, getState, Mutation, setDispatchMiddleware, useSlice } from '../store';
 import { Backend, BackendError, PullScope } from './backend';
-import { demoBackend } from './demoBackend';
-import { rorkBackend, rorkBackendAvailable } from './rorkBackend';
+import { supabaseBackend } from './supabaseBackend';
 import { track, reportError } from '../analytics';
 
-/** Hallyu cloud (Rork Worker + Durable Object) when configured; demoBackend otherwise. */
-let backend: Backend = rorkBackendAvailable ? rorkBackend : demoBackend;
+/** Hallyu cloud (managed Supabase Postgres + RLS) when configured; demoBackend otherwise. */
+let backend: Backend = supabaseBackend;
 /** Swap the backend implementation (a server-backed adapter registers itself here; tests inject fakes). */
 export function setBackend(b: Backend): void {
   backend = b;

@@ -3,8 +3,8 @@
  * (lib/data/sync.ts) replays those actions against whatever implements `Backend`, and screens
  * call `pull(scope)` to refresh cached content.
  *
- * Default: `rorkBackend` (lib/data/rorkBackend.ts) — the Hallyu cloud (Rork Worker + Durable
- * Object database, `functions/`). Without a configured backend, `demoBackend`
+ * Default: `supabaseBackend` (lib/data/supabaseBackend.ts) — the Hallyu cloud (managed Supabase
+ * Postgres, Rork cloud database, RLS + triggers). Without a configured backend, `demoBackend`
  * (lib/data/demoBackend.ts) runs everything on-device.
  */
 import type { Mutation } from '../store';

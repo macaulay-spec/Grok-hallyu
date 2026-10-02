@@ -2,11 +2,12 @@
  * Client configuration & public API keys.
  *
  * 1. TMDB read-only credentials (used by `lib/catalog.ts` for live 4-world catalog discovery).
- * 2. Hallyu cloud (Rork Cloudflare Worker + Durable Object database, `functions/`):
- *    - `RORK_FUNCTIONS_URL` — the app's own backend. Public fallback keeps every build
- *      (Rork CI, GitHub APK) pointed at the same cloud without secrets.
- *    - `RORK_AUTH_URL` / `RORK_APP_KEY` — Rork Auth (Google/Apple OAuth). Public values,
- *      injected at build time; sign-in degrades gracefully when absent.
+ * 2. Hallyu cloud (managed Supabase Postgres — Rork cloud database):
+ *    - `SUPABASE_URL` / `SUPABASE_ANON_KEY` — the anon key is a public client credential; all
+ *      authorization happens server-side through Row Level Security. Values ship as build-time
+ *      fallbacks so every build (Rork CI, GitHub APK) points at the same cloud without secrets.
+ * 3. Rork Auth (Google/Apple OAuth). Public values, injected at build time; sign-in degrades
+ *    gracefully when absent.
  */
 const env = (v: string | undefined): string | undefined => {
   const t = v?.trim();
@@ -22,19 +23,21 @@ export const TMDB_ACCESS_TOKEN =
 export const TMDB_API_KEY = env(process.env.EXPO_PUBLIC_TMDB_API_KEY) ?? 'ff01f28fc5c47791e28038349445bf58';
 
 // Must stay as literal `process.env.EXPO_PUBLIC_*` member expressions so Metro inlines them.
-const ENV_FUNCTIONS_URL = env(process.env.EXPO_PUBLIC_RORK_FUNCTIONS_URL);
+const ENV_SUPABASE_URL = env(process.env.EXPO_PUBLIC_SUPABASE_URL);
+const ENV_SUPABASE_ANON_KEY = env(process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY);
 const ENV_PROJECT_ID = env(process.env.EXPO_PUBLIC_PROJECT_ID);
 const ENV_AUTH_URL = env(process.env.EXPO_PUBLIC_RORK_AUTH_URL);
 const ENV_APP_KEY = env(process.env.EXPO_PUBLIC_RORK_APP_KEY);
 
-/** Hallyu cloud backend (Worker + Durable Object). */
-export const RORK_FUNCTIONS_URL = (ENV_FUNCTIONS_URL ?? 'https://app-ui-redesign-yws4ash-backend.rork.app').replace(/\/+$/, '');
+/** Hallyu cloud backend (managed Supabase Postgres + RLS). */
+export const SUPABASE_URL = ENV_SUPABASE_URL ?? 'https://mwgmzncsitgibbkhsktt.supabase.co';
+export const SUPABASE_ANON_KEY = ENV_SUPABASE_ANON_KEY ?? 'sb_publishable_k-MC7g7Wn-jXFtmki2DDGg_LuMOS8la';
 
 /** True when the cloud backend is configured for this build. */
-export const rorkBackendAvailable = !!RORK_FUNCTIONS_URL;
+export const supabaseAvailable = !!(SUPABASE_URL && SUPABASE_ANON_KEY);
 
 /** Rork Auth (Google / Apple OAuth). Both values required; absent → sign-in buttons degrade. */
-export const RORK_PROJECT_ID = ENV_PROJECT_ID ?? 'sjrfbjtc53nefg7r7516j';
+export const RORK_PROJECT_ID = ENV_PROJECT_ID ?? 'ss819xdajyzsa3znsyi9t';
 export const RORK_AUTH_URL = ENV_AUTH_URL;
 export const RORK_APP_KEY = ENV_APP_KEY;
 export const rorkAuthAvailable = !!(RORK_AUTH_URL && RORK_APP_KEY);

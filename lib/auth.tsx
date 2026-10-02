@@ -1,29 +1,30 @@
 /**
- * Hallyu authentication — three doors into one cloud identity:
+ * Hallyu authentication — Rork Auth (Google/Apple, PKCE + deep-link callback) is the single door
+ * into the cloud identity; local demo/guest modes cover zero-credential use.
  *
- *   • Email: email + password against the app's own cloud (`/auth/*` in functions/). Passwords are
- *     PBKDF2-hashed server-side; sessions are HMAC-signed tokens; password reset works via a
- *     recovery key shown once at signup (no email infrastructure needed).
- *   • OAuth: Rork Auth (Google/Apple, PKCE + deep-link callback). Tokens live in SecureStore. The
- *     platform verifies the JWT server-side and stamps X-Rork-User-Id — clients cannot forge it.
- *   • Demo/guest: local modes so the full app works with zero credentials.
+ * The JWT lives in SecureStore. lib/supabase attaches it to every cloud request, and server-side
+ * Row Level Security (`user_id()` = the JWT `sub`) authorizes each row — the client cannot forge
+ * an identity. The Postgres `profiles` row is the social identity (handle, avatar, counts) and is
+ * synced at sign-in; account deletion runs the `delete_account()` database RPC (a hard wipe).
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Crypto from 'expo-crypto';
 import * as Linking from 'expo-linking';
 import * as SecureStore from 'expo-secure-store';
 import * as WebBrowser from 'expo-web-browser';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform } from 'react-native';
+import { RORK_APP_KEY, RORK_AUTH_URL, RORK_SCHEME, rorkAuthAvailable } from '../constants/keys';
 import { reportError, track } from './analytics';
 import { markBoot } from './boot';
-import { RORK_APP_KEY, RORK_AUTH_URL, RORK_SCHEME, RORK_FUNCTIONS_URL, rorkAuthAvailable, rorkBackendAvailable } from '../constants/keys';
+import { setAccessTokenProvider, supabase } from './supabase';
 
 WebBrowser.maybeCompleteAuthSession();
 
 export type AuthStatus = 'loading' | 'signedOut' | 'guest' | 'signedIn';
 
 /** How this account was established. 'demo' is the shared, pre-populated device account. */
-export type AuthProviderName = 'email' | 'google' | 'apple' | 'demo';
+export type AuthProviderName = 'google' | 'apple' | 'demo';
 
 export interface AuthUser {
   id: string;
@@ -36,7 +37,7 @@ export interface AuthUser {
 }
 
 export class AuthError extends Error {
-  code: 'network' | 'credentials' | 'exists' | 'unverified' | 'weak_password' | 'rate_limit' | 'unavailable' | 'cancelled' | 'unknown';
+  code: 'network' | 'credentials' | 'exists' | 'weak_password' | 'rate_limit' | 'unavailable' | 'cancelled' | 'unknown';
   constructor(code: AuthError['code'], message: string) {
     super(message);
     this.code = code;
@@ -48,18 +49,15 @@ interface AuthValue {
   user: AuthUser | null;
   /** true while an OAuth browser session is in flight */
   isSigningIn: boolean;
-  /** true while the build runs without the cloud backend */
+  /** true while this build runs without the cloud backend */
   demo: boolean;
-  /** true when this build has no Rork Auth configuration (sign-in buttons explain themselves) */
+  /** true when this build has Rork Auth configuration (sign-in buttons explain themselves) */
   oauthReady: boolean;
   error: string | null;
   clearError: () => void;
   signInWithGoogle: () => Promise<void>;
   signInWithApple: () => Promise<void>;
   /** Returns the one-time recovery key — the screen MUST show it for the user to save. */
-  signUp: (email: string, password: string, displayName: string) => Promise<string>;
-  signIn: (email: string, password: string) => Promise<void>;
-  recoverPassword: (email: string, recoveryKey: string, newPassword: string) => Promise<void>;
   signInDemo: () => Promise<void>;
   continueAsGuest: () => void;
   signOut: () => Promise<void>;
@@ -87,13 +85,58 @@ function displayNameFor(email?: string, name?: string): string {
   return source.charAt(0).toUpperCase() + source.slice(1);
 }
 
+// ---------------------------------------------------------------------------------------------
+// base64url — Hermes-safe (no atob/btoa/crypto.subtle on device)
+// ---------------------------------------------------------------------------------------------
+const B64URL = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+const B64_REV: Record<string, number> = Object.fromEntries([...B64URL].map((c, i) => [c, i]));
+
+function bytesToB64Url(bytes: Uint8Array): string {
+  let out = '';
+  for (let i = 0; i < bytes.length; i += 3) {
+    const b = bytes[i] ?? 0;
+    const c = bytes[i + 1];
+    const d = bytes[i + 2];
+    out += B64URL[b >> 2];
+    out += B64URL[((b & 3) << 4) | ((c ?? 0) >> 4)];
+    if (c === undefined) break;
+    out += B64URL[((c & 15) << 2) | ((d ?? 0) >> 6)];
+    if (d === undefined) break;
+    out += B64URL[d & 63];
+  }
+  return out;
+}
+
+function b64UrlToBytes(s: string): Uint8Array {
+  const clean = s.replace(/-/g, '-').replace(/_/g, '_'); // already url-safe
+  const bytes: number[] = [];
+  let buffer = 0;
+  let bits = 0;
+  for (const ch of clean) {
+    const v = B64_REV[ch];
+    if (v === undefined) continue;
+    buffer = (buffer << 6) | v;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      bytes.push((buffer >> bits) & 0xff);
+    }
+  }
+  return new Uint8Array(bytes);
+}
+
 /** Decode (not verify — the server verifies) the JWT payload for user info + expiry. */
 function userFromToken(token: string): AuthUser | null {
   try {
     const parts = token.split('.');
     if (parts.length !== 3) return null;
-    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-    const payload = JSON.parse(atob(base64)) as { sub?: string; email?: string; name?: string; picture?: string; exp?: number };
+    const payload = JSON.parse(new TextDecoder().decode(b64UrlToBytes(parts[1]))) as {
+      sub?: string;
+      email?: string;
+      name?: string;
+      picture?: string;
+      exp?: number;
+    };
     if (!payload.sub || (payload.exp && payload.exp * 1000 < Date.now())) return null;
     return {
       id: payload.sub,
@@ -102,7 +145,7 @@ function userFromToken(token: string): AuthUser | null {
       handle: handleFrom(payload.email, payload.name),
       avatarUrl: typeof payload.picture === 'string' ? payload.picture : undefined,
       emailVerified: true,
-      provider: 'google',
+      provider: payload.email && payload.email.includes('privaterelay.appleid.com') ? 'apple' : 'google',
     };
   } catch {
     return null;
@@ -111,23 +154,25 @@ function userFromToken(token: string): AuthUser | null {
 
 // PKCE (RFC 7636) — the auth code is useless to an interceptor without the verifier.
 function generateCodeVerifier(): string {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return bytesToB64Url(new Uint8Array(Crypto.getRandomBytes(32)));
 }
 
 async function generateCodeChallenge(verifier: string): Promise<string> {
-  const data = new TextEncoder().encode(verifier);
-  const hash = await crypto.subtle.digest('SHA-256', data);
-  return btoa(String.fromCharCode(...new Uint8Array(hash))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const hex = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, verifier, { encoding: Crypto.CryptoEncoding.HEX });
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  return bytesToB64Url(bytes);
 }
 
-/** The live access token for backend calls (lib/data/rorkBackend.ts). */
+/** The live access token for backend calls (lib/supabase.ts, lib/data/supabaseBackend.ts). */
 let tokenCache: { access?: string; refresh?: string } = {};
 
 export function currentAccessToken(): string | null {
   return tokenCache.access ?? null;
 }
+
+// Feed the cloud client the live token (lib/supabase attaches it to every request).
+setAccessTokenProvider(currentAccessToken);
 
 async function authPost<T>(path: string, body: Json): Promise<T> {
   const res = await fetch(`${RORK_AUTH_URL}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -136,22 +181,16 @@ async function authPost<T>(path: string, body: Json): Promise<T> {
   return payload;
 }
 
-/** POST to the app's own cloud auth; maps status codes onto AuthError codes. */
-async function cloudPost<T extends Json>(path: string, body: Json): Promise<T> {
-  if (!rorkBackendAvailable) throw new AuthError('unavailable', 'The cloud backend isn’t configured in this build.');
-  let res: Response;
-  try {
-    res = await fetch(`${RORK_FUNCTIONS_URL}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  } catch {
-    throw new AuthError('network', 'Could not reach the cloud — check your connection.');
+/** Upsert the Postgres profile row — the social identity (handle uniqueness retried with a suffix). */
+async function ensureProfile(user: AuthUser): Promise<void> {
+  const base = { id: user.id, display_name: user.displayName, avatar_url: user.avatarUrl ?? null, email: user.email ?? null };
+  const attempt = async (handle: string) =>
+    supabase.from('profiles').upsert({ ...base, handle }, { onConflict: 'id' }).select('id').single();
+  let result = await attempt(user.handle);
+  if (result.error?.code === '23505') {
+    result = await attempt(`${user.handle}-${Math.random().toString(36).slice(2, 6)}`);
   }
-  const payload = (await res.json().catch(() => ({}))) as T & { error?: string };
-  if (!res.ok) {
-    const message = payload.error ?? `That didn’t work (${res.status})`;
-    const code: AuthError['code'] = res.status === 409 ? 'exists' : res.status === 429 ? 'rate_limit' : res.status === 400 ? 'weak_password' : 'credentials';
-    throw new AuthError(code, message);
-  }
-  return payload;
+  if (result.error) reportError('auth.ensureProfile', result.error);
 }
 
 function callbackFrom(url: string | null): { code: string } | null {
@@ -217,44 +256,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           tokenCache = { access: at ?? undefined };
           setUser(restored);
           setStatus('signedIn');
+          void ensureProfile(restored);
           markBoot('auth:restored');
-          return;
-        }
-        // Email session: the token is opaque (server HMAC), so validate it against the cloud and
-        // refresh the profile snapshot while we're at it. Offline: trust the stored snapshot.
-        const storedUser = at ? await SecureStore.getItemAsync(USER_KEY).catch(() => null) : null;
-        if (at && storedUser) {
-          const fallback = JSON.parse(storedUser) as AuthUser;
-          if (rorkBackendAvailable) {
-            const res = await fetch(`${RORK_FUNCTIONS_URL}/auth/session`, { headers: { Authorization: `Bearer ${at}` } }).catch(() => null);
-            if (res?.ok) {
-              const { user: fresh } = (await res.json()) as { user?: { id: string; email?: string; displayName: string; handle: string } };
-              const next: AuthUser = fresh
-                ? { id: fresh.id, email: fresh.email ?? fallback.email, displayName: fresh.displayName, handle: fresh.handle, emailVerified: true, provider: 'email' }
-                : fallback;
-              tokenCache = { access: at };
-              await SecureStore.setItemAsync(USER_KEY, JSON.stringify(next)).catch(() => {});
-              setUser(next);
-              setStatus('signedIn');
-              markBoot('auth:email');
-              return;
-            }
-            // Expired/revoked session: clear it and land on the sign-in screen.
-            tokenCache = {};
-            await SecureStore.deleteItemAsync(AT_KEY).catch(() => {});
-            await SecureStore.deleteItemAsync(USER_KEY).catch(() => {});
-            setStatus('signedOut');
-            markBoot('auth:email-expired');
-            return;
-          }
-          tokenCache = { access: at };
-          setUser(fallback);
-          setStatus('signedIn');
-          markBoot('auth:email-offline');
           return;
         }
         const viaRefresh = await refresh();
         if (viaRefresh) {
+          void ensureProfile(viaRefresh);
           setStatus('signedIn');
           markBoot('auth:refreshed');
           return;
@@ -276,6 +284,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const next = userFromToken(out.access_token);
       if (!next) return false;
       await AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
+      await AsyncStorage.removeItem(DEMO_ACCOUNT_KEY).catch(() => {});
+      void ensureProfile(next);
       setUser(next);
       setStatus('signedIn');
       return true;
@@ -337,61 +347,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signInWithGoogle = useCallback(() => signInWithProvider('google'), [signInWithProvider]);
   const signInWithApple = useCallback(() => signInWithProvider('apple'), [signInWithProvider]);
 
-  const adoptSession = useCallback(async (token: string, next: AuthUser) => {
-    tokenCache = { access: token };
-    await SecureStore.setItemAsync(AT_KEY, token).catch(() => {});
-    await SecureStore.setItemAsync(USER_KEY, JSON.stringify(next)).catch(() => {});
-    await AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
-    await AsyncStorage.removeItem(DEMO_ACCOUNT_KEY).catch(() => {});
-    setUser(next);
-    setStatus('signedIn');
-  }, []);
-
-  const signUp = useCallback(
-    async (email: string, password: string, displayName: string): Promise<string> => {
-      const address = email.trim().toLowerCase();
-      if (!address.includes('@')) throw new AuthError('credentials', 'That email address does not look right.');
-      if (password.length < 8) throw new AuthError('weak_password', 'Use at least 8 characters for your password.');
-      setError(null);
-      const out = await cloudPost<{ token: string; user: { id: string; email?: string; displayName: string; handle: string }; recovery_code: string }>('/auth/signup', {
-        email: address,
-        password,
-        displayName: displayName.trim(),
-      });
-      await adoptSession(out.token, { id: out.user.id, email: out.user.email ?? address, displayName: out.user.displayName, handle: out.user.handle, emailVerified: true, provider: 'email' });
-      track('auth.signup', { provider: 'email' });
-      return out.recovery_code;
-    },
-    [adoptSession],
-  );
-
-  const signIn = useCallback(
-    async (email: string, password: string): Promise<void> => {
-      const address = email.trim().toLowerCase();
-      if (!address.includes('@')) throw new AuthError('credentials', 'Enter the email address you signed up with.');
-      setError(null);
-      const out = await cloudPost<{ token: string; user: { id: string; email?: string; displayName: string; handle: string } }>('/auth/signin', { email: address, password });
-      await adoptSession(out.token, { id: out.user.id, email: out.user.email ?? address, displayName: out.user.displayName, handle: out.user.handle, emailVerified: true, provider: 'email' });
-      track('auth.signin', { provider: 'email' });
-    },
-    [adoptSession],
-  );
-
-  const recoverPassword = useCallback(
-    async (email: string, recoveryKey: string, newPassword: string): Promise<void> => {
-      const address = email.trim().toLowerCase();
-      setError(null);
-      const out = await cloudPost<{ token: string; user: { id: string; email?: string; displayName: string; handle: string } }>('/auth/recover', {
-        email: address,
-        code: recoveryKey.trim(),
-        newPassword,
-      });
-      await adoptSession(out.token, { id: out.user.id, email: out.user.email ?? address, displayName: out.user.displayName, handle: out.user.handle, emailVerified: true, provider: 'email' });
-      track('auth.signin', { provider: 'email-recovery' });
-    },
-    [adoptSession],
-  );
-
   const signInDemo = useCallback(async () => {
     await AsyncStorage.setItem(DEMO_ACCOUNT_KEY, '1').catch(() => {});
     await AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
@@ -409,10 +364,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
-    // Revoke the server session for email accounts (OAuth tokens simply expire). Fire-and-forget.
-    if (user?.provider === 'email' && tokenCache.access) {
-      void fetch(`${RORK_FUNCTIONS_URL}/auth/logout`, { method: 'POST', headers: { Authorization: `Bearer ${tokenCache.access}` } }).catch(() => {});
-    }
     tokenCache = {};
     await SecureStore.deleteItemAsync(AT_KEY).catch(() => {});
     await SecureStore.deleteItemAsync(RT_KEY).catch(() => {});
@@ -421,14 +372,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await AsyncStorage.removeItem(DEMO_ACCOUNT_KEY).catch(() => {});
     setUser(null);
     setStatus('signedOut');
-  }, [user]);
+  }, []);
 
   const deleteAccount = useCallback(async () => {
-    const token = currentAccessToken();
-    if (token && rorkBackendAvailable) {
-      // The server purges every row the user owns (posts, comments, reactions, follows, saves,
-      // watchlist, collections, notifications, events, account, profile) — a hard, GDPR-style wipe.
-      await fetch(`${RORK_FUNCTIONS_URL}/account`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
+    if (currentAccessToken()) {
+      // The database RPC purges every row the account owns (posts, comments, reactions, saves,
+      // follows, watchlist, collections, notifications, events, profile) — a hard, GDPR-style wipe.
+      const { error } = await supabase.rpc('delete_account');
+      if (error) reportError('auth.deleteAccount', error);
     }
     await signOut();
   }, [signOut]);
@@ -438,21 +389,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       status,
       user,
       isSigningIn,
-      demo: !rorkBackendAvailable,
+      demo: false,
       oauthReady: rorkAuthAvailable,
       error,
       clearError,
       signInWithGoogle,
       signInWithApple,
-      signUp,
-      signIn,
-      recoverPassword,
       signInDemo,
       continueAsGuest,
       signOut,
       deleteAccount,
     }),
-    [status, user, isSigningIn, error, clearError, signInWithGoogle, signInWithApple, signUp, signIn, recoverPassword, signInDemo, continueAsGuest, signOut, deleteAccount],
+    [status, user, isSigningIn, error, clearError, signInWithGoogle, signInWithApple, signInDemo, continueAsGuest, signOut, deleteAccount],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

@@ -31,13 +31,15 @@ jobs:
       ANDROID_NDK_VERSION: "26.1.10909125"
 
       # ============================================================
-      # LIVE BACKEND: HALLYU'S OWN RORK CLOUD
-      # (Cloudflare Worker + Durable Object database + Supabase Postgres)
+      # LIVE BACKEND: HALLYU'S OWN CLOUD (Rork-managed Supabase Postgres)
+      # The anon key is a public client credential; all authorization is server-side (RLS).
       # Injected at Expo build time so they are bundled into the APK.
       # ============================================================
-      EXPO_PUBLIC_RORK_FUNCTIONS_URL: "https://app-ui-redesign-yws4ash-backend.rork.app"
+      EXPO_PUBLIC_SUPABASE_URL: "https://mwgmzncsitgibbkhsktt.supabase.co"
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_k-MC7g7Wn-jXFtmki2DDGg_LuMOS8la' }}
       EXPO_PUBLIC_RORK_AUTH_URL: "https://api.rork.com"
       EXPO_PUBLIC_RORK_APP_KEY: ${{ secrets.EXPO_PUBLIC_RORK_APP_KEY }}
+      EXPO_PUBLIC_PROJECT_ID: ${{ secrets.EXPO_PUBLIC_PROJECT_ID || 'ss819xdajyzsa3znsyi9t' }}
 
       # ============================================================
       # TMDB
@@ -299,6 +301,6 @@ jobs:
             --title "Hallyu APK #${{ github.run_number }}" \
             --notes "Installable Android APK (${APK_SIZE}).
 
-          Connected to Hallyu's own Rork cloud backend — email, Google & Apple sign-in.
+          Connected to Hallyu's cloud backend (Rork-managed Supabase Postgres) — Google & Apple sign-in.
 
           Install: download APK → allow unknown apps → open file."

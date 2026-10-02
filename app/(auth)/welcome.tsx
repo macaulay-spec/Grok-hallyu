@@ -3,7 +3,6 @@ import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Button } from '../../components/ui/Button';
 import { AppleButton } from '../../components/ui/AppleButton';
 import { GoogleButton } from '../../components/ui/GoogleButton';
 import { Text } from '../../components/ui/Text';
@@ -99,8 +98,6 @@ export default function Welcome() {
         <View style={{ gap: space.x3, marginTop: space.x8 }}>
           <GoogleButton label="Continue with Google" size="lg" onPress={enter(auth.signInWithGoogle, setGoogleBusy)} loading={googleBusy} disabled={googleBusy} />
           <AppleButton label="Continue with Apple" size="lg" onPress={enter(auth.signInWithApple, setAppleBusy)} loading={appleBusy} disabled={appleBusy} />
-          <Button label="Sign up with email" icon="mail-outline" variant="secondary" size="lg" block onPress={() => router.push('/(auth)/sign-up')} />
-          <Button label="I already have an account" variant="ghost" size="md" block onPress={() => router.push('/(auth)/sign-in')} />
         </View>
 
         <View style={styles.guestRow}>

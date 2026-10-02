@@ -91,7 +91,7 @@ export default function AdminReports() {
           {reports.map((r) => (
             <View key={r.id} style={styles.card}>
               <View style={styles.head}>
-                <Text variant="label">{r.kind}</Text>
+                <Text variant="label">{r.target_type}</Text>
                 <Text variant="caption" tone="secondary">
                   {(r.created_at ?? '').slice(0, 10)}
                 </Text>
