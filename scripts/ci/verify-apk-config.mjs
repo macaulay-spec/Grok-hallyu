@@ -60,14 +60,18 @@ for (const [needle, what] of REQUIRED) {
 
 /**
  * Forbidden: a privileged key in a client bundle, or a backend that is no longer Hallyu's.
- * The patterns require a *key-shaped value* (`sb_secret_` + body): the bare words “service_role”
- * legitimately appear in supabase-js, in this project's own credential guard, and in this script —
- * matching them would make the check cry wolf. Real service-role JWTs are caught by decoding every
- * JWT in the bundle below.
+ *
+ * Two deliberate choices here, both learned from running this against a real release APK:
+ *  • the bare words “service_role” appear legitimately in supabase-js, in this project's own
+ *    credential guard and in this script — only a *key-shaped* value counts. Privileged JWTs are
+ *    caught properly by decoding every JWT in the bundle (below);
+ *  • the threshold is 20 characters because Hermes packs its string table without separators
+ *    (`…sb_secret_` + `_copyPropscaleXYour…` used to match an 8-character pattern). Real Supabase
+ *    secret keys are ~40+ characters, so they still match while adjacent source strings do not.
  */
 const FORBIDDEN = [
-  [/sb_secret_[A-Za-z0-9_-]{8,}/, 'a Supabase secret key (sb_secret_…)'],
-  [/sbp_[A-Za-z0-9_-]{8,}/, 'a Supabase personal access token (sbp_…)'],
+  [/sb_secret_[A-Za-z0-9_-]{20,}/, 'a Supabase secret key (sb_secret_…)'],
+  [/sbp_[A-Za-z0-9_-]{20,}/, 'a Supabase personal access token (sbp_…)'],
   ...OBSOLETE.hosts.map((h) => [h.re, h.label]),
 ];
 
