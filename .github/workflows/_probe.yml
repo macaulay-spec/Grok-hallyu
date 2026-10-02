@@ -1,0 +1,41 @@
+name: TEMP backend probe (removed before merge)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "arena/**"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Probe Supabase key handling (results as annotations)
+        env:
+          K: sb_publishable_k-MC7g7Wn-jXFtmki2DDGg_LuMOS8la
+          U: https://mwgmzncsitgibbkhsktt.supabase.co
+        run: |
+          set -uo pipefail
+          probe() {
+            local label="$1"; shift
+            local out status body
+            out=$(curl -sS -o /tmp/b -w "%{http_code}" --max-time 25 "$@" 2>/tmp/e)
+            status="$out"; body=$(head -c 160 /tmp/b | tr '\n' ' ')
+            [ -z "$body" ] && body="$(head -c 120 /tmp/e | tr '\n' ' ')"
+            echo "::warning title=$label::HTTP $status :: $body"
+          }
+          probe "A_apikey_only"          -H "apikey: $K" "$U/rest/v1/"
+          probe "B_apikey_and_bearer"    -H "apikey: $K" -H "Authorization: Bearer $K" "$U/rest/v1/"
+          probe "C_bearer_only"          -H "Authorization: Bearer $K" "$U/rest/v1/"
+          probe "D_profiles_by_apikey"   -H "apikey: $K" "$U/rest/v1/profiles?select=id&limit=1"
+          probe "E_profiles_both"        -H "apikey: $K" -H "Authorization: Bearer $K" "$U/rest/v1/profiles?select=id&limit=1"
+          probe "F_auth_health"          "$U/auth/v1/health"
+          probe "G_auth_settings"        -H "apikey: $K" "$U/auth/v1/settings"
+          probe "H_storage_public"       -H "apikey: $K" "$U/storage/v1/object/public/media/.hallyu-ci-probe"
+          probe "I_rest_root_no_key"     "$U/rest/v1/"
+          probe "J_rork_auth_root"       "https://api.rork.com/"
+          probe "K_tmdb"                 -H "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJmZjAxZjI4ZmM1YzQ3NzkxZTI4MDM4MzQ5NDQ1YmY1OCIsIm5iZiI6MTc4OTAyMDA1Ny43NzksInN1YiI6IjZhYTI0Nzk5OGQ1YWFjZTczMzY2ODJkMyIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.ETon7kqWQjj7jtJJOXyRgAWme9Sh9B7OUrdAI61uuH8" "https://api.themoviedb.org/3/configuration"
