@@ -14,127 +14,36 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Probe REST key handling
+      - name: RPC existence discriminator (no side effects)
         env:
           K: sb_publishable_k-MC7g7Wn-jXFtmki2DDGg_LuMOS8la
           U: https://mwgmzncsitgibbkhsktt.supabase.co
         run: |
           set -uo pipefail
-          probe() {
-            local out status body
-            out=$(curl -sS -o /tmp/b -w "%{http_code}" --max-time 25 "$@" 2>/dev/null)
-            status="$out"; body=$(head -c 90 /tmp/b | tr '\n' ' ' | tr -d '\r')
-            printf '%s :: %s | ' "$status" "$body"
+          # Wrong-typed arguments: PostgREST resolves the function, then fails to cast the value, so
+          # the body never runs. A missing function answers PGRST202 instead.
+          post() {
+            local label="$1" fn="$2" body="$3" s
+            s=$(curl -sS -o /tmp/b -w "%{http_code}" --max-time 25 -X POST \
+              -H "apikey: $K" -H "Content-Type: application/json" -d "$body" \
+              "$U/rest/v1/rpc/$fn" 2>/dev/null)
+            printf '%s=%s(%s) ' "$label" "$s" "$(head -c 110 /tmp/b | tr -d '\r' | tr '\n' ' ')"
           }
           R=""
-          R="$R[A_root_apikey:$(probe -H "apikey: $K" "$U/rest/v1/")]"
-          R="$R[B_profiles_apikey:$(probe -H "apikey: $K" "$U/rest/v1/profiles?select=id&limit=1")]"
-          R="$R[C_posts_video:$(probe -H "apikey: $K" "$U/rest/v1/posts?select=id,video,reaction_counts&limit=1")]"
-          R="$R[D_badcol:$(probe -H "apikey: $K" "$U/rest/v1/posts?select=id,definitely_missing_col&limit=1")]"
-          echo "::warning title=REST_key_handling::$R"
+          R="$R$(post react 'react' '{"p_target_id":12345,"p_kind":{"bad":true},"p_is_comment":"nope"}')"
+          R="$R$(post merge_prefs 'merge_prefs' '{"p_data":[1,2,3]}')"
+          R="$R$(post merge_onboarding 'merge_onboarding' '{"p_data":"not-json"}')"
+          R="$R$(post delete_account 'delete_account' '{}')"
+          R="$R$(post missing 'hallyu_missing_fn_xyz' '{"p_data":"x"}')"
+          echo "::warning title=rpc_discriminator::$R"
 
-      - name: Probe tables and columns the client uses
+      - name: Storage bucket visibility for a publishable key
         env:
           K: sb_publishable_k-MC7g7Wn-jXFtmki2DDGg_LuMOS8la
           U: https://mwgmzncsitgibbkhsktt.supabase.co
         run: |
           set -uo pipefail
-          one() {
-            local t="$1" sel="$2"
-            local s
-            s=$(curl -sS -o /tmp/b -w "%{http_code}" --max-time 25 -H "apikey: $K" "$U/rest/v1/$t?select=$sel&limit=1" 2>/dev/null)
-            if [ "$s" = "200" ] || [ "$s" = "206" ]; then printf '%s=OK ' "$t"; else printf '%s=%s(%s) ' "$t" "$s" "$(head -c 60 /tmp/b | tr -d '\r' | tr '\n' ' ')"; fi
-          }
-          R=""
-          R="$R$(one profiles 'id,handle,display_name,avatar_url,bio,fandoms,favorite_genres,favorite_drama_ids,is_private,verified,follower_count,following_count,created_at')"
-          R="$R$(one posts 'id,author_id,type,body,title,kind,rating,verdict,images,video,spoiler,context,hashtags,mentions,reaction_counts,comment_count,save_count,share_count,state,created_at,edited_at')"
-          echo "::warning title=tables_1::$R"
-          R=""
-          R="$R$(one comments 'id,post_id,author_id,parent_id,reply_to_user_id,body,spoiler,reaction_counts,state,created_at')"
-          R="$R$(one reactions 'user_id,target_id,kind')"
-          R="$R$(one saves 'user_id,post_id,created_at')"
-          R="$R$(one follows 'follower_id,kind,target_id')"
-          echo "::warning title=tables_2::$R"
-          R=""
-          R="$R$(one watchlist 'user_id,drama_id,status,season,current_episode,note,added_at,updated_at,completed_at')"
-          R="$R$(one drama_notify 'user_id,drama_id')"
-          R="$R$(one collections 'id,owner_id,title,description,visibility,follower_count,updated_at')"
-          R="$R$(one collection_items 'collection_id,drama_id,note,added_at')"
-          R="$R$(one prefs 'user_id,data')"
-          echo "::warning title=tables_3::$R"
-          R=""
-          R="$R$(one notifications 'id,group_name,kind,actor_ids,post_id,comment_id,drama_id,episode,collection_id,title,body,read,created_at')"
-          R="$R$(one blocks 'user_id,blocked_id')"
-          R="$R$(one mutes 'user_id,kind,target_id')"
-          R="$R$(one reports 'id,reporter_id,target_id,target_type,reason,detail,status,created_at')"
-          R="$R$(one events 'name,props,created_at')"
-          R="$R$(one push_tokens 'user_id,token,platform')"
-          R="$R$(one admin_audit 'action,target,detail,created_at')"
-          echo "::warning title=tables_4::$R"
-
-      - name: Probe relationship embeds
-        env:
-          K: sb_publishable_k-MC7g7Wn-jXFtmki2DDGg_LuMOS8la
-          U: https://mwgmzncsitgibbkhsktt.supabase.co
-        run: |
-          set -uo pipefail
-          one() {
-            local label="$1" path="$2" s
-            s=$(curl -sS -o /tmp/b -w "%{http_code}" --max-time 25 -H "apikey: $K" "$U/rest/v1/$path" 2>/dev/null)
-            printf '%s=%s(%s) ' "$label" "$s" "$(head -c 70 /tmp/b | tr -d '\r' | tr '\n' ' ')"
-          }
-          R=""
-          R="$R$(one posts_author 'posts?select=id,author:profiles!posts_author_id_fkey(id)&limit=1')"
-          R="$R$(one comments_author 'comments?select=id,author:profiles!comments_author_id_fkey(id)&limit=1')"
-          R="$R$(one collections_items 'collections?select=id,items:collection_items(drama_id)&limit=1')"
-          echo "::warning title=embeds::$R"
-
-      - name: Probe RPC existence and RLS posture
-        env:
-          K: sb_publishable_k-MC7g7Wn-jXFtmki2DDGg_LuMOS8la
-          U: https://mwgmzncsitgibbkhsktt.supabase.co
-        run: |
-          set -uo pipefail
-          m() {
-            local label="$1" method="$2" path="$3" s
-            s=$(curl -sS -o /tmp/b -w "%{http_code}" --max-time 25 -X "$method" -H "apikey: $K" "$U/rest/v1/$path" 2>/dev/null)
-            printf '%s=%s(%s) ' "$label" "$s" "$(head -c 80 /tmp/b | tr -d '\r' | tr '\n' ' ')"
-          }
-          R=""
-          for fn in react merge_prefs merge_onboarding delete_account; do
-            R="$R$(m get_$fn GET "rpc/$fn")"
-          done
-          R="$R$(m get_missing GET "rpc/hallyu_missing_fn_xyz")"
-          echo "::warning title=rpc_get::$R"
-          R=""
-          for fn in react merge_prefs merge_onboarding delete_account; do
-            R="$R$(m head_$fn HEAD "rpc/$fn")"
-          done
-          R="$R$(m head_missing HEAD "rpc/hallyu_missing_fn_xyz")"
-          echo "::warning title=rpc_head::$R"
-          R=""
-          for t in prefs notifications watchlist push_tokens blocks mutes saves reactions; do
-            R="$R$(m anon_$t GET "$t?select=*&limit=1")"
-          done
-          echo "::warning title=anon_reads::$R"
-
-      - name: Probe storage buckets
-        env:
-          K: sb_publishable_k-MC7g7Wn-jXFtmki2DDGg_LuMOS8la
-          U: https://mwgmzncsitgibbkhsktt.supabase.co
-        run: |
-          set -uo pipefail
-          b() {
-            local name="$1" s
-            s=$(curl -sS -o /tmp/b -w "%{http_code}" --max-time 20 -H "apikey: $K" "$U/storage/v1/object/public/$name/.hallyu-probe" 2>/dev/null)
-            printf '%s=%s(%s) ' "$name" "$s" "$(head -c 60 /tmp/b | tr -d '\r' | tr '\n' ' ')"
-          }
-          R=""
-          for name in media public uploads avatars posts videos hallyu images user-media; do
-            R="$R$(b $name)"
-          done
-          echo "::warning title=buckets::$R"
-          R=""
           s=$(curl -sS -o /tmp/b -w "%{http_code}" --max-time 20 -H "apikey: $K" "$U/storage/v1/bucket" 2>/dev/null)
-          R="$R[bucket_endpoint=$s($(head -c 100 /tmp/b | tr -d '\r' | tr '\n' ' '))]"
-          echo "::warning title=bucket_api::$R"
+          echo "::warning title=storage_list::$s :: $(head -c 120 /tmp/b | tr -d '\r' | tr '\n' ' ')"
+          s=$(curl -sS -o /tmp/b -w "%{http_code}" --max-time 20 -H "apikey: $K" "$U/storage/v1/object/media/.probe" 2>/dev/null)
+          echo "::warning title=storage_auth_object::$s :: $(head -c 140 /tmp/b | tr -d '\r' | tr '\n' ' ')"
