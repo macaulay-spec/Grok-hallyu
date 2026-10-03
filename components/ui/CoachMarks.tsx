@@ -3,7 +3,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { AccessibilityInfo, Animated, Easing, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, motion, radius, space } from '../../constants/theme';
-import { haptic, useApp, useReduceMotion } from '../../lib/hooks';
+import { haptic, useReduceMotion } from '../../lib/hooks';
+import { dispatch, useSlice } from '../../lib/store';
 import { Button } from './Button';
 import { Text } from './Text';
 
@@ -31,15 +32,24 @@ interface Props {
  * keep scrolling and the card simply waits. Reduced motion → plain fades.
  */
 export function CoachMarks({ id, steps, when = true, delay = 900, bottomOffset = 0 }: Props) {
-  const { state, dispatch } = useApp();
   const insets = useSafeAreaInsets();
   const reduce = useReduceMotion();
   const key = `coach:${id}`;
-  const eligible = state.hydrated && state.onboarding.done && !state.seen[key] && when && steps.length > 0;
+  // Track only the three facts this decides on. Subscribing to the whole store made every catalog
+  // write re-render the coach marks (and restart their entrance animation) for no reason.
+  const hydrated = useSlice((s) => s.hydrated);
+  const onboarded = useSlice((s) => s.onboarding.done);
+  const alreadySeen = useSlice((s) => s.seen[key]);
+  const eligible = hydrated && onboarded && !alreadySeen && when && steps.length > 0;
   const [mounted, setMounted] = useState(false);
   const [step, setStep] = useState(0);
   const anim = useRef(new Animated.Value(0)).current;
   const swap = useRef(new Animated.Value(1)).current;
+  // `steps` is a fresh array literal on every parent render, so depending on it restarted the
+  // entrance animation and re-announced the tip every time the screen re-rendered. Key on content.
+  const stepsRef = useRef(steps);
+  stepsRef.current = steps;
+  const firstStepKey = steps[0] ? `${steps[0].title} :: ${steps[0].body}` : '';
 
   useEffect(() => {
     if (!eligible || mounted) return;
@@ -50,8 +60,9 @@ export function CoachMarks({ id, steps, when = true, delay = 900, bottomOffset =
   useEffect(() => {
     if (!mounted) return;
     Animated.timing(anim, { toValue: 1, duration: reduce ? motion.short : motion.long, easing: Easing.bezier(0.05, 0.7, 0.1, 1), useNativeDriver: true }).start();
-    AccessibilityInfo.announceForAccessibility?.(`Tip: ${steps[0]!.title}. ${steps[0]!.body}`);
-  }, [mounted, anim, reduce, steps]);
+    const s = stepsRef.current[0];
+    if (s) AccessibilityInfo.announceForAccessibility?.(`Tip: ${s.title}. ${s.body}`);
+  }, [mounted, anim, reduce, firstStepKey]);
 
   const finish = () => {
     dispatch({ type: 'seen', id: key });

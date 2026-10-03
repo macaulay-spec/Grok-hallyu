@@ -1,5 +1,5 @@
 import React from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, ScrollViewProps, StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, ScrollViewProps, StyleProp, StyleSheet, View, ViewProps, ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, sizes, space } from '../../constants/theme';
 import { useLayout } from '../../lib/hooks';
@@ -13,12 +13,18 @@ interface ScreenProps {
   /** show offline banner under the header */
   offlineBanner?: boolean;
   header?: React.ReactNode;
+  /**
+   * Responder-capture hook on the screen root. Returning `false` from it observes the touch without
+   * claiming it, so screens can open an interaction gate (see `useInteractionGate`) without adding
+   * a wrapper view or swallowing a single press.
+   */
+  onStartShouldSetResponderCapture?: ViewProps['onStartShouldSetResponderCapture'];
 }
 
 /** Canvas container. Handles background + optional header slot + offline banner. */
-export function Screen({ children, style, header, offlineBanner = true }: ScreenProps) {
+export function Screen({ children, style, header, offlineBanner = true, onStartShouldSetResponderCapture }: ScreenProps) {
   return (
-    <View style={[styles.root, style]}>
+    <View style={[styles.root, style]} onStartShouldSetResponderCapture={onStartShouldSetResponderCapture}>
       {header}
       {offlineBanner ? <OfflineBanner /> : null}
       {children}

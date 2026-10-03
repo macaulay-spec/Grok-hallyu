@@ -87,6 +87,22 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      # RENDER-LOOP GUARD
+      # Home once entered an unbounded render loop, which left every JS-driven interaction
+      # (onPress, text input, navigation) dead while native scrolling still worked. Never ship an
+      # APK that can do that again.
+      - name: Verify Home cannot enter a render loop
+        run: npm run test:home-render
+
+      # COMMIT TRACEABILITY
+      # The installed APK must be attributable to exactly one commit.
+      - name: Record the source commit
+        run: |
+          echo "SOURCE_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "SOURCE_SHORT=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+          echo "SOURCE_REF=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+          echo "Building commit $SOURCE_SHORT on $SOURCE_REF"
+
       # ============================================================
       # EXPO PREBUILD
       # ============================================================
@@ -261,6 +277,9 @@ jobs:
 
           echo "APK_SIZE=$(du -h hallyu.apk | cut -f1)" >> "$GITHUB_ENV"
 
+          # The release note carries the commit so an installed APK can always be traced back.
+          echo "APK built from commit \`$SOURCE_COMMIT\` (\`$SOURCE_REF\`), $(du -h hallyu.apk | cut -f1)." >> "$GITHUB_STEP_SUMMARY"
+
       # ============================================================
       # UPLOAD APK
       # ============================================================
@@ -287,6 +306,11 @@ jobs:
           gh release create "$TAG" hallyu.apk \
             --title "Hallyu APK #${{ github.run_number }}" \
             --notes "Installable Android APK (${APK_SIZE}).
+
+          Built from commit ${SOURCE_COMMIT} (${SOURCE_REF}).
+
+          Commit: ${SOURCE_COMMIT} (${SOURCE_REF}).
+
 
           Frontend-only build — no backend connected; catalog data by TMDB.
 

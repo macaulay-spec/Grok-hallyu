@@ -91,13 +91,17 @@ Deep blacks + luminous magenta. Cinematic, Apple-level restraint.
 ## 4. Technical Architecture
 
 - **App**: Expo (React Native + TypeScript) + Expo Router
-- **Backend**: not attached yet — this repo is a frontend-only build; a backend is a separate phase
+- **Backend**: defined in `supabase/migrations` (Supabase/Postgres) but not attached — the app runs
+  device-local until credentials are supplied; see docs/BACKEND.md
 - **State**: Zustand (ready) + Auth Context
-- **Media**: expo-image-picker → device storage
+- **Media**: expo-image-picker → device storage (the `media` bucket exists in the backend, private)
 - **Distribution**: EAS Build → APK
 
 ### Core data model
-The intended model (profiles, posts, comments, reactions, saves, follows, watchlist, collections, notifications) will live with the backend when it is attached. This repo ships no schema, migrations or SQL.
+The schema is in `supabase/migrations` and the typed contract in `supabase/types/database.ts`:
+profiles, the social graph, posts, comments, reactions, saves, collections, watchlist, notifications,
+preferences, push tokens, moderation, analytics, and a small cached entertainment catalog keyed by
+provider + external id (never a TMDB mirror).
 
 ---
 
@@ -106,6 +110,8 @@ The intended model (profiles, posts, comments, reactions, saves, follows, watchl
 1. `npm install`
 2. `npx expo start` — the TMDB catalog credential ships in `constants/keys.ts`; rotate it there (or set a non-empty `EXPO_PUBLIC_TMDB_ACCESS_TOKEN`) if you use your own key
 3. Scan QR with Expo Go (or build APK with EAS)
+4. (When connecting the backend) `supabase db push` applies `supabase/migrations`, then
+   `node scripts/verify-backend.mjs` proves it works
 
 ---
 

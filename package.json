@@ -11,8 +11,13 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "ios": "expo run:ios",
-    "check": "npm run typecheck && npm run lint && npm run test:fandoms",
-    "test:fandoms": "node scripts/verify-fandoms.mjs"
+    "check": "npm run typecheck && npm run lint && npm run test:fandoms && npm run test:sql && npm run test:db-types && npm run test:secrets && npm run test:home-render",
+    "test:home-render": "node scripts/verify-home-render.mjs",
+    "test:fandoms": "node scripts/verify-fandoms.mjs",
+    "test:sql": "node scripts/verify-sql.mjs",
+    "test:db-types": "node scripts/verify-db-types.mjs",
+    "test:secrets": "node scripts/verify-no-secrets.mjs",
+    "test:backend": "node scripts/verify-backend.mjs"
   },
   "dependencies": {
     "@expo/cli": "^0.18.31",
@@ -51,9 +56,11 @@
     "zustand": "^4.5.7"
   },
   "devDependencies": {
+    "@supabase/supabase-js": "^2.117.2",
     "@types/react": "~18.2.79",
     "eslint": "^8.57.0",
     "eslint-config-expo": "~7.1.2",
+    "pgsql-parser": "^18.2.8",
     "typescript": "~5.3.3"
   }
 }

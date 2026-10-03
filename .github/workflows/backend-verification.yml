@@ -1,0 +1,143 @@
+name: Backend verification
+
+# Proves the Hallyu backend actually works: the offline checks always run, and the live verification
+# runs whenever the project secrets are configured. A failing live test fails this workflow.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 04:23 UTC on Mondays — after the retention purge window, before anyone looks at it.
+    - cron: '23 4 * * 1'
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-verification-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify the Hallyu backend
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+
+    env:
+      # Credentials exist only as environment variables inside this job. They are masked before any
+      # command runs, are never echoed, and are never written to the repository or the summary.
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      RORK_APP_KEY: ${{ secrets.RORK_APP_KEY }}
+      RORK_TEST_REFRESH_TOKEN: ${{ secrets.RORK_TEST_REFRESH_TOKEN }}
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Set up bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Mask secrets in the log
+        run: |
+          echo "::add-mask::$SUPABASE_URL"
+          echo "::add-mask::$SUPABASE_ANON_KEY"
+          echo "::add-mask::$SUPABASE_SERVICE_ROLE_KEY"
+          echo "::add-mask::$RORK_APP_KEY"
+          echo "::add-mask::$RORK_TEST_REFRESH_TOKEN"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # ── Offline validation: always meaningful, needs no project ────────────────────────────────
+      - name: Validate migrations (SQL parse + RLS + security invariants)
+        run: node scripts/verify-sql.mjs | tee sql-validation.log
+
+      - name: Check the type contract against the migrations
+        run: node scripts/verify-db-types.mjs | tee db-types-validation.log
+
+      - name: Scan the repository for committed credentials
+        run: node scripts/verify-no-secrets.mjs | tee secret-scan.log
+
+      - name: Typecheck, lint and unit checks
+        run: npm run check
+
+      # ── Live verification: real database and storage operations ─────────────────────────────────
+      - name: Report credential status
+        id: credentials
+        run: |
+          if [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_ANON_KEY" ] && [ -n "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "Supabase credentials are configured; the live verification will run."
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Backend not connected::SUPABASE_URL / SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY are not set, so the live backend verification was skipped. Add them as repository secrets to enable it."
+          fi
+
+      - name: Run the backend verification
+        id: verify
+        if: steps.credentials.outputs.configured == 'true'
+        run: |
+          set +e
+          node scripts/verify-backend.mjs | tee backend-verification.log
+          status=${PIPESTATUS[0]}
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Write the run summary
+        if: always()
+        run: |
+          {
+            echo "## Hallyu backend verification"
+            echo ""
+            if [ -f backend-verification.log ]; then
+              echo '```text'
+              cat backend-verification.log
+              echo '```'
+            else
+              echo "Live verification skipped — project credentials are not configured on this repository."
+            fi
+            echo ""
+            echo "### Offline validation"
+            echo '```text'
+            cat sql-validation.log db-types-validation.log secret-scan.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail when the live verification fails
+        if: steps.credentials.outputs.configured == 'true' && steps.verify.outputs.exit_code != '0'
+        run: |
+          echo "::error::The Hallyu backend verification FAILED (exit code ${{ steps.verify.outputs.exit_code }}). See the job summary for the individual checks."
+          exit 1
+
+      - name: Report the result
+        if: always()
+        run: |
+          if [ "${{ steps.verify.outputs.exit_code }}" = "0" ]; then
+            echo "OVERALL STATUS: PASS — the backend behaves as this repository describes it."
+          elif [ "${{ steps.credentials.outputs.configured }}" = "true" ]; then
+            echo "OVERALL STATUS: FAIL — see the failing checks above."
+          else
+            echo "OVERALL STATUS: NOT CONFIGURED — offline validation passed; live verification needs the project secrets."
+          fi
+
+# ────────────────────────────────────────────────────────────────────────────────────────────────
+# Required repository secrets (Settings → Secrets and variables → Actions → New repository secret):
+#
+#   SUPABASE_URL               https://<project-ref>.supabase.co
+#   SUPABASE_ANON_KEY          the project's publishable/anon key (client-safe: the app ships it)
+#   SUPABASE_SERVICE_ROLE_KEY  the service-role key — privileged, CI only, never shipped to a client
+#   RORK_APP_KEY               Rork app key (client-safe; used by the Rork token check)
+#   RORK_TEST_REFRESH_TOKEN    a refresh token for a real Rork test member (optional; enables the
+#                              Rork-authenticated path in the verification script)
+#
+# Never commit any of these. `.gitignore` blocks `.env*` apart from `.env.example`.
+# ────────────────────────────────────────────────────────────────────────────────────────────────

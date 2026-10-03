@@ -1,7 +1,7 @@
 import NetInfo from '@react-native-community/netinfo';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from 'react';
 import { CatalogHealth, getCatalogHealth, subscribeCatalogHealth } from './catalog';
 import { AccessibilityInfo, Platform, useWindowDimensions } from 'react-native';
 import { marginFor, motion, windowClass, WindowClass } from '../constants/theme';
@@ -45,35 +45,66 @@ function useTracked() {
   };
 }
 
-/** Store + selectors bound to the current state (tracked: see `useTracked`). */
+/**
+ * Store + selectors bound to the current state (tracked: see `useTracked`).
+ *
+ * The returned getters MUST be referentially stable for the lifetime of the component. Screens
+ * legitimately put them in `useMemo`/`useCallback` dependency arrays (`getDrama` is how Home maps a
+ * post to its world, how Watchlist resolves a card, how the create pickers label a title). A fresh
+ * closure per render invalidates every one of those memos on every render; when the memo's result
+ * feeds a `useEffect` that writes state, that becomes an unbounded render loop. So `track` is read
+ * through a ref (it changes every render by design — it closes over this render's snapshot) and
+ * every getter is a `useCallback` that never changes.
+ */
 export function useApp() {
   const track = useTracked();
-  return {
-    get state() {
-      return track((s) => s);
-    },
-    dispatch,
-    reset,
-    clearPersisted,
-    get me() {
-      return track((s) => s.profile);
-    },
-    getUser: (id: string) => track((s) => sel.getUser(s, id)),
-    getUserByHandle: (h: string) => track((s) => sel.getUserByHandle(s, h)),
-    getDrama: (id?: string) => track((s) => sel.getDrama(s, id)),
-    getActor: (id?: string) => track((s) => sel.getActor(s, id)),
-    getPost: (id?: string) => track((s) => sel.getPost(s, id)),
-    getCollection: (id?: string) => track((s) => sel.getCollection(s, id)),
-    isPostVeiled: (p: Parameters<typeof sel.isPostVeiled>[1]) => track((s) => sel.isPostVeiled(s, p)),
-    isCommentVeiled: (c: Parameters<typeof sel.isCommentVeiled>[1], p?: Parameters<typeof sel.isCommentVeiled>[2]) => track((s) => sel.isCommentVeiled(s, c, p)),
-    isFollowing: (kind: keyof AppState['follows'], id: string) => track((s) => s.follows[kind].includes(id)),
-    watch: (dramaId: string) => track((s) => s.watchlist[dramaId]),
-    myReaction: (id: string) => track((s) => s.reactions[id]),
-    isSaved: (id: string) => track((s) => s.saves.includes(id)),
-    get unread() {
-      return track(sel.unreadCount);
-    },
-  };
+  const trackRef = useRef(track);
+  trackRef.current = track;
+  // Stable indirection: reads the *current* render's tracker, but never changes identity.
+  const t = useCallback(<V,>(selector: (s: AppState) => V): V => trackRef.current(selector), []);
+
+  const getUser = useCallback((id: string) => t((s) => sel.getUser(s, id)), [t]);
+  const getUserByHandle = useCallback((h: string) => t((s) => sel.getUserByHandle(s, h)), [t]);
+  const getDrama = useCallback((id?: string) => t((s) => sel.getDrama(s, id)), [t]);
+  const getActor = useCallback((id?: string) => t((s) => sel.getActor(s, id)), [t]);
+  const getPost = useCallback((id?: string) => t((s) => sel.getPost(s, id)), [t]);
+  const getCollection = useCallback((id?: string) => t((s) => sel.getCollection(s, id)), [t]);
+  const isPostVeiled = useCallback((p: Parameters<typeof sel.isPostVeiled>[1]) => t((s) => sel.isPostVeiled(s, p)), [t]);
+  const isCommentVeiled = useCallback((c: Parameters<typeof sel.isCommentVeiled>[1], p?: Parameters<typeof sel.isCommentVeiled>[2]) => t((s) => sel.isCommentVeiled(s, c, p)), [t]);
+  const isFollowing = useCallback((kind: keyof AppState['follows'], id: string) => t((s) => s.follows[kind].includes(id)), [t]);
+  const watch = useCallback((dramaId: string) => t((s) => s.watchlist[dramaId]), [t]);
+  const myReaction = useCallback((id: string) => t((s) => s.reactions[id]), [t]);
+  const isSaved = useCallback((id: string) => t((s) => s.saves.includes(id)), [t]);
+
+  return useMemo(
+    () => ({
+      get state() {
+        return t((s) => s);
+      },
+      dispatch,
+      reset,
+      clearPersisted,
+      get me() {
+        return t((s) => s.profile);
+      },
+      getUser,
+      getUserByHandle,
+      getDrama,
+      getActor,
+      getPost,
+      getCollection,
+      isPostVeiled,
+      isCommentVeiled,
+      isFollowing,
+      watch,
+      myReaction,
+      isSaved,
+      get unread() {
+        return t(sel.unreadCount);
+      },
+    }),
+    [t, getUser, getUserByHandle, getDrama, getActor, getPost, getCollection, isPostVeiled, isCommentVeiled, isFollowing, watch, myReaction, isSaved],
+  );
 }
 
 /** Requires a member; guests get sent to the auth gate with a reason + return route. */
@@ -139,7 +170,15 @@ export interface Loadable<T> {
   reload: () => void;
 }
 
-/** Async loader with the 150ms skeleton rule and abort on unmount/deps change. */
+/**
+ * Async loader with the 150ms skeleton rule and abort on unmount/deps change.
+ *
+ * Two guarantees callers depend on:
+ *  - the returned object is referentially stable, so `useLoad(...)` results can sit in a
+ *    dependency array without re-rendering their consumer on every poll;
+ *  - `enabled: false` clears `data`/`error`, so a screen can never be left showing (or waiting on)
+ *    the result of a load it has switched off — the classic "stuck spinner" trap.
+ */
 export function useLoad<T>(fn: (signal: AbortSignal) => Promise<T>, deps: unknown[], enabled = true): Loadable<T> {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(enabled);
@@ -149,8 +188,12 @@ export function useLoad<T>(fn: (signal: AbortSignal) => Promise<T>, deps: unknow
   const ctrl = useRef<AbortController | null>(null);
   useEffect(() => {
     if (!enabled) {
+      ctrl.current?.abort();
+      ctrl.current = null;
       setLoading(false);
       setShowSkeleton(false);
+      setData(null);
+      setError(null);
       return;
     }
     ctrl.current?.abort();
@@ -180,7 +223,8 @@ export function useLoad<T>(fn: (signal: AbortSignal) => Promise<T>, deps: unknow
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, tick, enabled]);
-  return { data, loading, showSkeleton, error, reload: () => setTick((x) => x + 1) };
+  const reload = useCallback(() => setTick((x) => x + 1), []);
+  return useMemo(() => ({ data, loading, showSkeleton, error, reload }), [data, loading, showSkeleton, error, reload]);
 }
 
 export function useDebounced<T>(value: T, ms = 250): T {

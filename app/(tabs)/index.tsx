@@ -35,6 +35,7 @@ import { FANDOMS, formatFandomOf } from '../../lib/fandoms';
 import { getState } from '../../lib/store';
 import { catalog } from '../../lib/catalog';
 import { adoptDramas } from '../../lib/catalogSync';
+import { useInteractionGate } from '../../lib/interactive';
 
 type Row =
   | { key: string; kind: 'post'; post: Post; reason?: string }
@@ -45,6 +46,24 @@ type Row =
   | { key: string; kind: 'people' }
   | { key: string; kind: 'discussions' }
   | { key: string; kind: 'guest' };
+
+interface FeedItem {
+  post: Post;
+  reason?: string;
+}
+
+/**
+ * Are two ranked feeds the same feed? Identity is the wrong question: `forYou()` builds a fresh
+ * array on every pass, so an identity comparison would report "changed" forever. The feed only
+ * needs to be re-adopted when its *membership or ordering* actually changes — reactions, edits and
+ * deletions inside the shown rows are adopted silently through the posts themselves.
+ */
+function feedEqual(a: FeedItem[], b: FeedItem[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i]!.post.id !== b[i]!.post.id || a[i]!.reason !== b[i]!.reason) return false;
+  return true;
+}
 
 /** Spec 3.4 — universe hues: a whisper of colour per world, a 4% wash over the canvas. */
 const UNIVERSE_TINT: Partial<Record<FandomId, string>> = { cdrama: '#10B981', anime: '#8B5CF6', hollywood: '#F59E0B' };
@@ -83,6 +102,10 @@ function Home() {
   const reduceMotion = useReduceMotion(state.prefs.reduceMotion);
   const padding = useListPadding();
   const guest = auth.status !== 'signedIn';
+  // Home must be usable the instant it appears: the live catalog work below waits for the first
+  // touch (or an idle ceiling), and everything on screen is already complete without it.
+  const { ready: deferred, capture } = useInteractionGate();
+
 
   const tonight = useMemo(() => {
     // Lead with what matters now: live rooms, then the soonest upcoming, then last night's, newest first.
@@ -119,28 +142,35 @@ function Home() {
     const shown = new Set(feed.map((r) => r.post.id));
     return liveFeed.filter((r) => !shown.has(r.post.id)).length;
   }, [liveFeed, feed]);
+  /**
+   * Adopt the live feed through a functional update that is a no-op when nothing actually changed.
+   * `liveFeed` is a freshly built array every time its inputs change, so `setFeed(liveFeed)` would
+   * always be a new reference and always schedule another render — an effect that re-sets the state
+   * it depends on, forever. Comparing membership/order makes this effect convergent by construction.
+   */
+  const adoptFeed = useCallback((next: FeedItem[]) => setFeed((prev) => (feedEqual(prev, next) ? prev : next)), []);
   useEffect(() => {
     // Same membership (edits, reactions, deletions) → adopt live data silently. New posts while at top → adopt too.
     if (newCount === 0 || atTop.current) {
-      setFeed(liveFeed);
+      adoptFeed(liveFeed);
       shownHead.current = liveFeed[0]?.post.id;
     }
-  }, [liveFeed, newCount]);
+  }, [liveFeed, newCount, adoptFeed]);
   useEffect(() => {
     atTop.current = true;
-    setFeed(liveFeed);
+    adoptFeed(liveFeed);
     setUniverse('all');
     setPage(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
   useEffect(() => {
     atTop.current = true;
-    setFeed(liveFeed);
+    adoptFeed(liveFeed);
     setPage(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [universe]);
   const showNew = () => {
-    setFeed(liveFeed);
+    adoptFeed(liveFeed);
     setPage(1);
     listRef.current?.scrollToOffset({ offset: 0, animated: !reduceMotion });
     haptic.select();
@@ -166,7 +196,10 @@ function Home() {
   const shortList = useMemo(() => shorts(state), [state]);
   const recs = useMemo(() => recommendedDramas(state, 10), [state]);
   // Live "because you watched" from the catalog, anchored on the title you touched most recently.
+  // Deferred until the screen has taken a touch (or gone idle): the rail below already renders a
+  // complete on-device recommendation set, so the network answer is an upgrade, never a gate.
   const anchor = useMemo(() => anchorDrama(state), [state]);
+  const catalogReady = useMemo(() => !!anchor && !guest && catalog.available && deferred, [anchor, guest, deferred]);
   const liveRecs = useLoad(
     async (signal) => {
       if (!anchor?.provider) return [];
@@ -174,7 +207,7 @@ function Home() {
       return adoptDramas(await catalog.recommendations(anchor.provider.id, anchor.mediaType ?? 'tv', signal)).filter((d) => !tracked.has(d.id));
     },
     [anchor?.id],
-    !!anchor && !guest && catalog.available,
+    catalogReady,
   );
   const recRail = useMemo(() => {
     if (liveRecs.data?.length && anchor)
@@ -199,7 +232,7 @@ function Home() {
   const crossLive = useLoad(
     async (signal) => (anchor ? catalog.crossFandom({ fandom: formatFandomOf(anchor), genres: anchor.genres }, signal) : []),
     [anchor?.id],
-    !!anchor && !guest && catalog.available,
+    catalogReady,
   );
   const cross = useMemo(() => {
     const tracked = new Set(Object.keys(state.watchlist));
@@ -236,9 +269,9 @@ function Home() {
   const onRefresh = useCallback(async () => {
     await pull();
     const fresh = getState();
-    setFeed(tab === 'forYou' ? forYou(fresh) : following(fresh));
+    adoptFeed(tab === 'forYou' ? forYou(fresh) : following(fresh));
     setPage(1);
-  }, [pull, tab]);
+  }, [pull, tab, adoptFeed]);
 
   const onScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -379,6 +412,7 @@ function Home() {
 
   return (
     <Screen
+      onStartShouldSetResponderCapture={capture}
       header={
         <View>
           <TopBar
