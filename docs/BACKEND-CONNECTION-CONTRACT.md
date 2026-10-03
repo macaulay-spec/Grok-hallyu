@@ -35,14 +35,16 @@ written against this document without changing the backend.
 | Area | Tables | Client access |
 | --- | --- | --- |
 | Identity | `profiles`, `user_preferences`, `title_alerts` | own row read/write; other profiles read-only |
-| Catalog | `worlds`, `providers`, `titles`, `title_people`, `title_episodes`, `people` | read-only (ingest is a server job) |
+| Catalog | `worlds`, `providers`, `titles`, `title_people`, `title_episodes`, `people`, `catalog_rank_snapshots` | read-only (ingest is a server job) |
 | Social graph | `follows`, `title_follows`, `person_follows`, `collection_follows`, `blocks`, `mutes` | write via RPCs; read public |
-| Content | `posts`, `post_media`, `comments`, `reactions`, `saves` | insert as yourself; edit/delete your own |
+| Content | `posts`, `post_media`, `comments`, `reactions`, `saves`, `post_shares` | insert as yourself; edit/delete your own |
 | Organization | `collections`, `collection_items`, `watchlist_items` | owner-only writes |
-| Rooms | `communities`, `community_members` | read all, join/leave self |
-| Inbox | `notifications` | read/update own rows; **no client insert** |
+| Rooms | `communities`, `community_members` | read all; join/leave and staff actions via RPCs |
+| Inbox | `notifications`, `notification_deliveries` | read own rows; **no client insert** |
 | Device | `push_tokens` | own rows only |
-| Moderation | `reports` | file your own; moderators see all |
+| Media | `media_uploads` | own rows; lifecycle via RPCs |
+| Moderation | `reports`, `moderation_actions` | file your own; moderators read all, nobody writes directly |
+| Operations | `job_runs`, `catalog_sync_runs`, `catalog_provider_state` | no client access at all |
 | Analytics | `analytics_events` | no direct access; write via `record_event` |
 
 ## 4. RPCs the client will call
@@ -66,8 +68,46 @@ written against this document without changing the backend.
 | `handle_is_available` | handle | `boolean` | sign-up handle check |
 | `delete_account` | – | `{ deleted, media_objects_removed, deleted_at }` | `settings/delete-account.tsx` |
 
-Direct table writes stay available for `posts`, `comments`, `collections`, `collection_items`,
-`title_alerts` and `community_members`, because RLS already restricts them to the owner.
+### Discovery (replaces the client-side TMDB ranking)
+
+| RPC | Arguments | Returns | Replaces (in `lib/`) |
+| --- | --- | --- | --- |
+| `get_home_discovery` | worlds, limit | `{ worlds, sections[], stats, catalog_health }` | Home rails |
+| `get_world_discoveries` | limit | one ranked rail per world | world tabs |
+| `get_title_discovery` | title id | title + episodes + cast + similar + posts | the Drama Hub |
+| `trending_titles` / `airing_titles` / `upcoming_titles` / `recently_released_titles` | world, limit, offset | ranked title rows | `trending.tsx`, `schedule.tsx` |
+| `recommended_titles` | limit, offset | ranked rows with a reason | For You |
+
+No raw catalog counters are exposed for the Home screen. The `stats` block contains member-specific
+numbers only (watching, want to watch, completed, alerts, episodes ahead, unread).
+
+### Engagement, community and moderation
+
+| RPC | Arguments | Returns |
+| --- | --- | --- |
+| `record_share` | post id, channel | `{ share_count, counted }` — idempotent per day |
+| `join_community` / `review_membership_request` | community, user, approve | membership state |
+| `set_community_role` / `remove_community_member` / `ban_community_member` | community, user, role/reason | new role or status |
+| `update_community_settings` / `community_roster` / `transfer_community_ownership` | community, fields | room state |
+| `suspend_user` / `unsuspend_user` | user, reason, days | suspension state |
+| `moderate_content` / `resolve_report` / `escalate_report` | target, action, report | new state, audit id |
+| `moderation_queue` / `moderation_history` | status/target, limit | moderators only |
+
+### Feed, search, media and push
+
+| RPC | Arguments | Returns |
+| --- | --- | --- |
+| `feed_page` | scope, world, title, community, limit, cursor | `{ items, has_more, next_cursor }` |
+| `comment_page` | post id, limit, cursor | `{ items, has_more, next_cursor }` |
+| `search_all` / `search_suggestions` | query, world, per type | grouped results with real counts |
+| `begin_media_upload` / `complete_media_upload` / `fail_media_upload` | path, post, metadata | upload/media row id |
+| `register_push_token` / `disable_push_token` / `disable_all_push_tokens` | token, platform | token id or count |
+| `notification_summary` | – | unread count and per-group counts |
+
+Feed pagination is a cursor, not an offset: pass `next_cursor` back for the next page. Direct table
+writes stay available for `posts`, `comments`, `collections`, `collection_items`, `title_alerts` and
+`community_members`, because RLS already restricts them to the owner. Engagement counters are not
+writable by any client — migration 31 adds guards that reject a direct counter write.
 
 ## 5. Storage rules
 
@@ -91,3 +131,11 @@ node scripts/verify-backend.mjs
 
 Exit `0` = PASS, `1` = FAIL, `2` = credentials not configured. The same command runs in
 `.github/workflows/backend-verification.yml`, which fails the build on a non-zero exit.
+
+The offline gates run without any project and cover the same surface statically:
+
+```sh
+node scripts/verify-sql.mjs             # parse, RLS, search_path, dynamic SQL, credentials
+node scripts/verify-db-types.mjs        # the TypeScript contract matches the migrations
+node scripts/verify-backend-surface.mjs # every required capability exists and is not a placeholder
+```

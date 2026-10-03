@@ -129,6 +129,9 @@ startGroup('Schema');
 const EXPECTED_TABLES = [
   'analytics_events',
   'blocks',
+  'catalog_provider_state',
+  'catalog_rank_snapshots',
+  'catalog_sync_runs',
   'collection_follows',
   'collection_items',
   'collections',
@@ -136,11 +139,16 @@ const EXPECTED_TABLES = [
   'communities',
   'community_members',
   'follows',
+  'job_runs',
+  'media_uploads',
+  'moderation_actions',
   'mutes',
+  'notification_deliveries',
   'notifications',
   'people',
   'person_follows',
   'post_media',
+  'post_shares',
   'posts',
   'profiles',
   'providers',
@@ -233,6 +241,73 @@ const RPCS = [
   'feed_posts',
   'search_titles',
   'record_event',
+  // Catalog layer
+  'catalog_begin_run',
+  'catalog_finish_run',
+  'catalog_provider_is_usable',
+  'catalog_mark_missing',
+  'catalog_recompute_title_state',
+  'titles_needing_refresh',
+  'refresh_trending',
+  'trending_titles',
+  'airing_titles',
+  'upcoming_titles',
+  'recently_released_titles',
+  'recommended_titles',
+  'get_home_discovery',
+  'get_world_discoveries',
+  'get_title_discovery',
+  // Scheduled jobs
+  'job_claim',
+  'job_complete',
+  'run_scheduled_jobs',
+  // Notifications and delivery
+  'enqueue_notification',
+  'fanout_notification',
+  'fanout_due_notifications',
+  'claim_notification_deliveries',
+  'report_delivery',
+  'notification_summary',
+  'disable_push_token',
+  'job_expire_notifications',
+  // Alerts
+  'job_queue_upcoming_episodes',
+  'job_queue_new_episodes',
+  'title_audience',
+  // Media lifecycle
+  'begin_media_upload',
+  'complete_media_upload',
+  'fail_media_upload',
+  'media_drop_missing_objects',
+  'job_reconcile_media',
+  // Share accounting
+  'record_share',
+  // Communities
+  'join_community',
+  'claim_community_ownership',
+  'set_community_role',
+  'remove_community_member',
+  'ban_community_member',
+  'update_community_settings',
+  'community_roster',
+  'review_membership_request',
+  'moderate_community_post',
+  'transfer_community_ownership',
+  // Moderation
+  'require_moderator',
+  'moderate_content',
+  'resolve_report',
+  'escalate_report',
+  'moderation_queue',
+  'moderation_history',
+  // Search
+  'search_people',
+  'search_communities',
+  'search_all',
+  'search_suggestions',
+  // Feed
+  'feed_page',
+  'comment_page',
 ];
 
 await test('Every documented RPC exists', async () => {
@@ -665,6 +740,1079 @@ await test('record_event rejects an invalid event name', async () => {
 });
 
 // ---------------------------------------------------------------------------------------------
+// 3b. Catalog ingest, freshness and discovery
+// ---------------------------------------------------------------------------------------------
+
+startGroup('Catalog ingest');
+
+let airingTitleId = null;
+let classicTitleId = null;
+
+const upsertPayload = (overrides = {}) => ({
+  external_id: `verify-${suffix}`,
+  media_type: 'tv',
+  world: 'kdrama',
+  title: `Verification Ingest ${suffix}`,
+  original_title: null,
+  year: 2026,
+  status: 'airing',
+  popularity: 88.5,
+  vote_average: 8.1,
+  vote_count: 420,
+  overview: 'Written by the backend verification script.',
+  poster_url: 'https://image.tmdb.org/t/p/w500/poster.jpg',
+  backdrop_url: null,
+  runtime_minutes: 60,
+  original_language: 'ko',
+  genres: ['Drama', 'Romance'],
+  tags: [],
+  network: 'Verification TV',
+  origin_country: ['KR'],
+  first_air_date: new Date().toISOString().slice(0, 10),
+  last_air_date: null,
+  episode_count: 16,
+  season_count: 1,
+  provider_data: {},
+  ...overrides,
+});
+
+await test('catalog_upsert_title writes a new record', async () => {
+  const { data, error } = await admin().rpc('catalog_upsert_title', {
+    p_provider_id: 'tmdb',
+    p_payload: upsertPayload(),
+  });
+  assert(!error, `catalog_upsert_title failed: ${error?.message}`);
+  const row = Array.isArray(data) ? data[0] : data;
+  assert(row?.id, 'no title id returned');
+  assert(row?.written === true, 'the first ingest did not report a write');
+  airingTitleId = row.id;
+
+  const { data: stored } = await admin()
+    .from('titles')
+    .select('catalog_synced_at, content_hash, popularity, origin_country')
+    .eq('id', airingTitleId)
+    .single();
+  assert(stored.catalog_synced_at, 'catalog_synced_at was not stamped');
+  assert(stored.content_hash, 'content_hash was not stored');
+  assert(Number(stored.popularity) === 88.5, 'provider popularity was not stored');
+  return `title ${airingTitleId} written with provenance`;
+});
+
+await test('catalog_upsert_title is idempotent (identical payload writes nothing)', async () => {
+  const { data, error } = await admin().rpc('catalog_upsert_title', {
+    p_provider_id: 'tmdb',
+    p_payload: upsertPayload(),
+  });
+  assert(!error, `replay failed: ${error?.message}`);
+  const row = Array.isArray(data) ? data[0] : data;
+  assert(row?.written === false, 'an unchanged payload reported a write');
+  assert(row?.id === airingTitleId, 'the replay created a second title instead of reusing the first');
+  return 'same id, written = false';
+});
+
+await test('catalog_upsert_title applies a real change', async () => {
+  const { data } = await admin().rpc('catalog_upsert_title', {
+    p_provider_id: 'tmdb',
+    p_payload: upsertPayload({ synopsis: undefined, overview: 'The overview changed.', vote_average: 9.0 }),
+  });
+  const row = Array.isArray(data) ? data[0] : data;
+  assert(row?.written === true, 'a changed payload did not write');
+  const { data: stored } = await admin().from('titles').select('synopsis, vote_average').eq('id', airingTitleId).single();
+  assert(stored.synopsis === 'The overview changed.', 'the synopsis did not change');
+  return 'changed payload applied in place';
+});
+
+await test('catalog_upsert_title rejects a payload with an unknown world', async () => {
+  const { error } = await admin().rpc('catalog_upsert_title', {
+    p_provider_id: 'tmdb',
+    p_payload: upsertPayload({ external_id: `verify-bad-${suffix}`, world: 'not-a-world' }),
+  });
+  assert(error, 'an ingest with an unknown world was accepted');
+  return `rejected with ${error.code ?? 'an error'}`;
+});
+
+await test('titles_needing_refresh returns only records that are actually due', async () => {
+  const { data, error } = await admin().rpc('titles_needing_refresh', {
+    p_world: 'kdrama',
+    p_limit: 50,
+  });
+  assert(!error, `titles_needing_refresh failed: ${error?.message}`);
+  const reasons = new Set((data ?? []).map((r) => r.reason));
+  assert(!reasons.has('fresh'), 'a freshly synced record was offered for refresh');
+  for (const row of data ?? []) {
+    assert(row.reason !== 'fresh', `record ${row.title_id} is fresh and should not be in the queue`);
+  }
+  return `${(data ?? []).length} due record(s), reasons: ${[...reasons].join(', ') || 'none'}`;
+});
+
+await test('catalog_mark_missing flags a record instead of deleting it', async () => {
+  const { data, error } = await admin().rpc('catalog_mark_missing', {
+    p_provider_id: 'tmdb',
+    p_media_type: 'tv',
+    p_external_ids: [`verify-${suffix}`],
+  });
+  assert(!error, `catalog_mark_missing failed: ${error?.message}`);
+
+  const { data: still } = await admin().from('titles').select('id, catalog_missing_count').eq('id', airingTitleId).single();
+  assert(still, 'the record was deleted — a missing provider record must never be deleted');
+  assert(still.catalog_missing_count >= 1, 'the missing counter did not move');
+
+  // The sync itself resets the streak.
+  await admin().rpc('catalog_upsert_title', { p_provider_id: 'tmdb', p_payload: upsertPayload() });
+  const { data: reset } = await admin().from('titles').select('catalog_missing_count').eq('id', airingTitleId).single();
+  assert(reset.catalog_missing_count === 0, 'a confirmed record did not clear its missing streak');
+  return `missing count reached ${still.catalog_missing_count}, then reset on confirmation`;
+});
+
+startGroup('Discovery');
+
+await test('Catalog state is derived from dates, not from a cached flag', async () => {
+  const { data, error } = await admin().rpc('catalog_recompute_title_state', { p_title_id: airingTitleId });
+  assert(!error, `catalog_recompute_title_state failed: ${error?.message}`);
+  assert(data === 'airing', `a title airing today resolved to "${data}"`);
+
+  // Force the contradiction: claim it is upcoming while its air date is today.
+  await admin().from('titles').update({ status: 'upcoming' }).eq('id', airingTitleId);
+  const { data: corrected } = await admin().rpc('catalog_recompute_title_state', { p_title_id: airingTitleId });
+  assert(corrected === 'airing', `a stale "upcoming" flag survived reconciliation (got "${corrected}")`);
+  return 'upcoming + air date today → airing';
+});
+
+await test('A long-finished title is not presented as current', async () => {
+  const { data: created, error } = await admin().rpc('catalog_upsert_title', {
+    p_provider_id: 'tmdb',
+    p_payload: upsertPayload({
+      external_id: `verify-classic-${suffix}`,
+      title: `Verification Classic ${suffix}`,
+      year: 2004,
+      status: 'completed',
+      last_air_date: '2005-03-01',
+      first_air_date: '2004-09-01',
+    }),
+  });
+  assert(!error, `classic ingest failed: ${error?.message}`);
+  classicTitleId = (Array.isArray(created) ? created[0] : created).id;
+
+  const { data: trending } = await admin().rpc('trending_titles', { p_world: 'kdrama', p_limit: 50 });
+  const trendingIds = (trending ?? []).map((t) => t.id);
+  assert(!trendingIds.includes(classicTitleId), 'a 20-year-old finished title topped a trending list');
+
+  const { data: airing } = await admin().rpc('airing_titles', { p_world: 'kdrama', p_limit: 50 });
+  const airingIds = (airing ?? []).map((t) => t.id);
+  assert(!airingIds.includes(classicTitleId), 'a finished title was listed as currently airing');
+  assert(airingIds.includes(airingTitleId), 'the airing title is missing from airing_titles');
+
+  return 'classic excluded from trending and airing; the airing title is present';
+});
+
+await test('Upcoming titles are inside a real release window', async () => {
+  const { data, error } = await admin().rpc('upcoming_titles', { p_world: 'kdrama', p_days: 365, p_limit: 50 });
+  assert(!error, `upcoming_titles failed: ${error?.message}`);
+  const cutoff = Date.now() + 365 * 86_400_000;
+  for (const row of data ?? []) {
+    if (!row.first_air_date) continue;
+    const when = new Date(row.first_air_date).getTime();
+    assert(when <= cutoff, `${row.title} has a first air date beyond the requested window`);
+    assert(when >= Date.now() - 86_400_000, `${row.title} is in the past but listed as upcoming`);
+  }
+  return `${(data ?? []).length} upcoming title(s), all inside the window`;
+});
+
+await test('Recommended titles exclude what the member muted', async () => {
+  await alice.rpc('set_mute', { p_kind: 'title', p_target_id: airingTitleId, p_on: true });
+  const { data, error } = await alice.rpc('recommended_titles', { p_limit: 50 });
+  assert(!error, `recommended_titles failed: ${error?.message}`);
+  const ids = (data ?? []).map((t) => t.id);
+  assert(!ids.includes(airingTitleId), 'a muted title was recommended');
+  await alice.rpc('set_mute', { p_kind: 'title', p_target_id: airingTitleId, p_on: false });
+  return 'muted titles are not recommended';
+});
+
+await test('Home discovery returns rails and member statistics, not catalog counts', async () => {
+  const { data, error } = await alice.rpc('get_home_discovery', { p_limit: 5 });
+  assert(!error, `get_home_discovery failed: ${error?.message}`);
+  const keys = (data?.sections ?? []).map((s) => s.key);
+  for (const rail of ['tonight', 'trending', 'upcoming', 'recent', 'continue']) {
+    assert(keys.includes(rail), `the "${rail}" rail is missing from the Home payload`);
+  }
+  assert(data?.stats, 'the Home payload has no member statistics');
+  for (const key of ['watching', 'want_to_watch', 'completed', 'unread_notifications']) {
+    assert(typeof data.stats[key] === 'number', `stats.${key} is not a number`);
+  }
+  return `sections: ${keys.join(', ')}`;
+});
+
+await test('World discovery returns a ranked rail per world', async () => {
+  const { data, error } = await anonymous().rpc('get_world_discoveries', { p_limit: 5 });
+  assert(!error, `get_world_discoveries failed: ${error?.message}`);
+  const worlds = (data ?? []).map((w) => w.world);
+  for (const world of ['kdrama', 'cdrama', 'anime', 'hollywood']) {
+    assert(worlds.includes(world), `the ${world} rail is missing`);
+  }
+  return `${worlds.length} world rails`;
+});
+
+await test('Title discovery returns episodes, cast and similar titles', async () => {
+  const { error: epError } = await admin().rpc('catalog_upsert_episodes', {
+    p_title_id: airingTitleId,
+    p_season: 1,
+    p_episodes: [
+      { season: 1, number: 1, title: 'Pilot', air_date: new Date().toISOString().slice(0, 10), runtime_minutes: 60, episode_type: 1 },
+      { season: 1, number: 2, title: 'The one after', air_date: null, runtime_minutes: 55, episode_type: 1 },
+    ],
+  });
+  assert(!epError, `catalog_upsert_episodes failed: ${epError?.message}`);
+
+  const { error: creditError } = await admin().rpc('catalog_upsert_title_people', {
+    p_title_id: airingTitleId,
+    p_credits: [{ external_id: `person-${suffix}`, name: 'Verification Actor', job: 'actor', character: 'Lead', order_index: 0 }],
+  });
+  assert(!creditError, `catalog_upsert_title_people failed: ${creditError?.message}`);
+
+  const { data, error } = await anonymous().rpc('get_title_discovery', { p_title_id: airingTitleId });
+  assert(!error, `get_title_discovery failed: ${error?.message}`);
+  assert(data?.episodes?.length >= 2, 'the episode list is missing');
+  assert(data?.cast?.length >= 1, 'the cast list is missing');
+  assert(data?.title?.lifecycle === 'airing', `lifecycle resolved to "${data?.title?.lifecycle}"`);
+  return `${data.episodes.length} episodes, ${data.cast.length} cast member(s)`;
+});
+
+await test('Ingest is refused from a member session', async () => {
+  const { error } = await alice.rpc('catalog_upsert_title', {
+    p_provider_id: 'tmdb',
+    p_payload: upsertPayload({ external_id: `verify-unauth-${suffix}` }),
+  });
+  assert(error, 'a member could run the catalog ingest');
+  return `rejected with ${error.code ?? 'an error'}`;
+});
+
+// ---------------------------------------------------------------------------------------------
+// 3c. Notifications, delivery and push tokens
+// ---------------------------------------------------------------------------------------------
+
+startGroup('Notification delivery');
+
+await test('An identical notification event is coalesced, not duplicated', async () => {
+  const dedupe = `verify-dedupe-${suffix}`;
+  const first = await admin().rpc('enqueue_notification', {
+    p_recipient: aliceId,
+    p_kind: 'episode_aired',
+    p_group: 'drama',
+    p_dedupe_key: dedupe,
+    p_title_id: airingTitleId,
+    p_title: 'Verification show',
+    p_body: 'Episode 1 is out.',
+  });
+  assert(!first.error, `first enqueue failed: ${first.error?.message}`);
+
+  const second = await admin().rpc('enqueue_notification', {
+    p_recipient: aliceId,
+    p_kind: 'episode_aired',
+    p_group: 'drama',
+    p_dedupe_key: dedupe,
+    p_title_id: airingTitleId,
+    p_title: 'Verification show',
+    p_body: 'Episode 1 is out.',
+  });
+  assert(!second.error, `second enqueue failed: ${second.error?.message}`);
+  assert(first.data === second.data, 'the same event created two notification rows');
+
+  const { data: rows } = await admin()
+    .from('notifications')
+    .select('id, coalesce_count')
+    .eq('dedupe_key', dedupe);
+  assert(rows.length === 1, `the dedupe key produced ${rows.length} rows`);
+  assert(rows[0].coalesce_count === 2, `coalesce_count is ${rows[0].coalesce_count}, expected 2`);
+  return 'one row, coalesce_count = 2';
+});
+
+await test('A preference switch is respected at creation time', async () => {
+  await alice.rpc('merge_preferences', { p_patch: { notify_episodes: false } });
+  const { data } = await admin().rpc('enqueue_notification', {
+    p_recipient: aliceId,
+    p_kind: 'episode_aired',
+    p_group: 'drama',
+    p_dedupe_key: `verify-muted-${suffix}`,
+    p_title_id: airingTitleId,
+  });
+  assert(data === null, 'a notification was created for a member with episode alerts off');
+
+  await alice.rpc('merge_preferences', { p_patch: { notify_episodes: true } });
+  const { data: after } = await admin().rpc('enqueue_notification', {
+    p_recipient: aliceId,
+    p_kind: 'episode_aired',
+    p_group: 'drama',
+    p_dedupe_key: `verify-unmuted-${suffix}`,
+    p_title_id: airingTitleId,
+  });
+  assert(after, 'a notification was not created after the preference was turned back on');
+  return 'notify_episodes = false suppressed, true allowed';
+});
+
+await test('Fan-out creates one delivery per active device', async () => {
+  const token = `verification-delivery-${suffix}-aaaaaaaaaaaaaaaaaaaa`;
+  await alice.rpc('register_push_token', { p_token: token, p_platform: 'android', p_device_name: 'verification device' });
+
+  const { data: notification } = await admin()
+    .from('notifications')
+    .select('id')
+    .eq('dedupe_key', `verify-unmuted-${suffix}`)
+    .single();
+
+  const { data: created, error } = await admin().rpc('fanout_notification', { p_notification_id: notification.id });
+  assert(!error, `fanout_notification failed: ${error?.message}`);
+  assert(created >= 1, 'no delivery rows were created');
+
+  const again = await admin().rpc('fanout_notification', { p_notification_id: notification.id });
+  assert(!again.error, `second fanout failed: ${again.error?.message}`);
+  assert(again.data === 0, `a repeated fan-out created ${again.data} extra rows`);
+
+  return `${created} delivery row(s), repeated fan-out added 0`;
+});
+
+await test('A claimed delivery can be reported sent', async () => {
+  const { data, error } = await admin().rpc('claim_notification_deliveries', { p_limit: 10, p_max_attempts: 5 });
+  assert(!error, `claim_notification_deliveries failed: ${error?.message}`);
+  const claimed = data ?? [];
+  assert(claimed.length > 0, 'nothing was claimable');
+
+  const first = claimed[0];
+  const { error: reportError } = await admin().rpc('report_delivery', {
+    p_delivery_id: first.delivery_id,
+    p_sent: true,
+    p_provider_message_id: `verify-${suffix}`,
+  });
+  assert(!reportError, `report_delivery failed: ${reportError?.message}`);
+
+  const { data: stored } = await admin()
+    .from('notification_deliveries')
+    .select('status, sent_at')
+    .eq('id', first.delivery_id)
+    .single();
+  assert(stored.status === 'sent', `status is "${stored.status}", expected sent`);
+  assert(stored.sent_at, 'no delivery timestamp was recorded');
+  return `delivery ${first.delivery_id} marked sent`;
+});
+
+await test('A rejected token is disabled and its other deliveries are failed', async () => {
+  await alice.rpc('register_push_token', {
+    p_token: `verification-dead-${suffix}-bbbbbbbbbbbbbbbbbbbb`,
+    p_platform: 'ios',
+    p_device_name: 'dead device',
+  });
+  const { data: dead } = await admin()
+    .from('push_tokens')
+    .select('id')
+    .eq('token', `verification-dead-${suffix}-bbbbbbbbbbbbbbbbbbbb`)
+    .single();
+
+  const dedupe = `verify-invalid-${suffix}`;
+  const { data: notification } = await admin().rpc('enqueue_notification', {
+    p_recipient: aliceId,
+    p_kind: 'system',
+    p_group: 'system',
+    p_dedupe_key: dedupe,
+    p_title: 'Invalid token test',
+  });
+  await admin().rpc('fanout_notification', { p_notification_id: notification });
+
+  const { data: deliveries } = await admin()
+    .from('notification_deliveries')
+    .select('id')
+    .eq('push_token_id', dead.id);
+  assert(deliveries.length > 0, 'no delivery targeted the dead token');
+
+  for (const delivery of deliveries) {
+    await admin().rpc('report_delivery', {
+      p_delivery_id: delivery.id,
+      p_sent: false,
+      p_error: 'DeviceNotRegistered',
+      p_invalid: true,
+    });
+  }
+
+  const { data: token } = await admin().from('push_tokens').select('disabled_at').eq('id', dead.id).single();
+  assert(token.disabled_at, 'the invalid token was not disabled');
+
+  const { data: rows } = await admin()
+    .from('notification_deliveries')
+    .select('status')
+    .eq('push_token_id', dead.id);
+  assert(rows.every((r) => r.status === 'invalid_token'), 'a delivery for the dead token stayed queued');
+  return 'token disabled, every delivery marked invalid_token';
+});
+
+await test('A transient failure schedules a retry instead of losing the notification', async () => {
+  const token = `verification-flaky-${suffix}-cccccccccccccccccccc`;
+  await alice.rpc('register_push_token', { p_token: token, p_platform: 'android' });
+
+  const { data: notification } = await admin().rpc('enqueue_notification', {
+    p_recipient: aliceId,
+    p_kind: 'system',
+    p_group: 'system',
+    p_dedupe_key: `verify-flaky-${suffix}`,
+    p_title: 'Flaky device',
+  });
+  await admin().rpc('fanout_notification', { p_notification_id: notification });
+
+  const { data: delivery } = await admin()
+    .from('notification_deliveries')
+    .select('id')
+    .eq('notification_id', notification)
+    .single();
+
+  await admin().rpc('report_delivery', {
+    p_delivery_id: delivery.id,
+    p_sent: false,
+    p_error: 'rate limited by provider',
+    p_invalid: false,
+  });
+
+  const { data: row } = await admin()
+    .from('notification_deliveries')
+    .select('status, attempt, next_attempt_at')
+    .eq('id', delivery.id)
+    .single();
+  assert(['queued', 'failed'].includes(row.status), `status is "${row.status}"`);
+  assert(new Date(row.next_attempt_at) > new Date(), 'the retry was not scheduled in the future');
+  return `retry scheduled at ${row.next_attempt_at}`;
+});
+
+await test('A member cannot read or disable another member\'s token', async () => {
+  const { error: disableError } = await bob.rpc('disable_push_token', { p_token_id: '00000000-0000-0000-0000-000000000000' });
+  assert(!disableError, `the RPC itself should succeed for a non-owner id: ${disableError?.message}`);
+
+  const { data } = await admin()
+    .from('push_tokens')
+    .select('user_id, disabled_at')
+    .eq('token', `verification-flaky-${suffix}-cccccccccccccccccccc`)
+    .single();
+  assert(data.user_id === aliceId, 'the token moved to another member');
+  assert(data.disabled_at === null, 'a member disabled another member\'s token');
+  return 'ownership enforced';
+});
+
+await test('Notification summary reports grouped unread counts', async () => {
+  const { data, error } = await alice.rpc('notification_summary');
+  assert(!error, `notification_summary failed: ${error?.message}`);
+  assert(typeof data?.unread === 'number', 'no unread count');
+  assert(data?.unread_by_group && typeof data.unread_by_group === 'object', 'no per-group counts');
+  return `unread = ${data.unread}`;
+});
+
+// ---------------------------------------------------------------------------------------------
+// 3d. Episode alerts
+// ---------------------------------------------------------------------------------------------
+
+startGroup('Episode alerts');
+
+await test('Only members with a relationship with the title are alerted', async () => {
+  // alice follows the title; bob has no relationship with it at all.
+  await alice.rpc('set_follow', { p_kind: 'title', p_target_id: airingTitleId, p_on: true });
+
+  const { data: aliceAudience } = await admin().rpc('title_audience', { p_title_id: airingTitleId });
+  const audience = (aliceAudience ?? []).map((id) => id);
+  assert(audience.includes(aliceId), 'alice follows the title but is not in the audience');
+  assert(!audience.includes(bobId), 'bob has no relationship with the title but is in the audience');
+
+  await admin().rpc('job_queue_new_episodes', { p_from_date: new Date().toISOString().slice(0, 10), p_to_date: new Date().toISOString().slice(0, 10) });
+  return `audience size ${audience.length}`;
+});
+
+await test('Re-running the alert job does not notify the same episode twice', async () => {
+  const today = new Date().toISOString().slice(0, 10);
+  await admin().rpc('job_queue_new_episodes', { p_from_date: today, p_to_date: today });
+  await admin().rpc('job_queue_new_episodes', { p_from_date: today, p_to_date: today });
+
+  const { data: rows } = await admin()
+    .from('notifications')
+    .select('dedupe_key')
+    .eq('recipient_id', aliceId)
+    .like('dedupe_key', `aired:${airingTitleId}%`);
+
+  const keys = (rows ?? []).map((r) => r.dedupe_key);
+  assert(new Set(keys).size === keys.length, 'the same episode produced two notification rows');
+  return `${keys.length} episode notification(s), all distinct`;
+});
+
+// ---------------------------------------------------------------------------------------------
+// 3e. Share accounting
+// ---------------------------------------------------------------------------------------------
+
+startGroup('Share accounting');
+
+await test('record_share counts a share once and returns the counter', async () => {
+  const first = await bob.rpc('record_share', { p_post_id: postId, p_channel: 'link' });
+  assert(!first.error, `record_share failed: ${first.error?.message}`);
+  assert(first.data.counted === true, 'the first share was not counted');
+  assert(first.data.share_count === 1, `share_count is ${first.data.share_count}, expected 1`);
+
+  const repeat = await bob.rpc('record_share', { p_post_id: postId, p_channel: 'link' });
+  assert(!repeat.error, `the repeat share failed: ${repeat.error?.message}`);
+  assert(repeat.data.counted === false, 'a repeat share on the same day was counted again');
+  assert(repeat.data.share_count === 1, `share_count became ${repeat.data.share_count} after a repeat`);
+
+  return 'counted once, idempotent per day';
+});
+
+await test('A share counter cannot be written by a client', async () => {
+  const { error } = await alice.from('posts').update({ share_count: 9999 }).eq('id', postId);
+  assert(error, "a member wrote another member's share_count directly");
+  const { data } = await admin().from('posts').select('share_count').eq('id', postId).single();
+  assert(data.share_count === 1, `share_count is ${data.share_count} after a spoofing attempt`);
+  return `rejected with ${error.code ?? 'an error'}, counter still ${data.share_count}`;
+});
+
+await test('Reaction counters cannot be written by a client either', async () => {
+  const { error } = await alice.from('posts').update({ loved_count: 5000 }).eq('id', postId);
+  assert(error, 'a member wrote a reaction counter directly');
+  const { data } = await admin().from('posts').select('loved_count').eq('id', postId).single();
+  assert(data.loved_count === 0, `loved_count became ${data.loved_count}`);
+  return `rejected with ${error.code ?? 'an error'}`;
+});
+
+await test('Sharing an unavailable post is refused', async () => {
+  const { error } = await bob.rpc('record_share', {
+    p_post_id: '00000000-0000-0000-0000-000000000000',
+    p_channel: 'link',
+  });
+  assert(error, 'a share was recorded for a post that does not exist');
+  return `rejected with ${error.code ?? 'an error'}`;
+});
+
+// ---------------------------------------------------------------------------------------------
+// 3f. Communities
+// ---------------------------------------------------------------------------------------------
+
+startGroup('Communities');
+
+let communityId = null;
+
+await test('Join and leave a community', async () => {
+  const { data: rooms, error } = await admin().from('communities').select('id, join_policy').limit(1);
+  assert(!error, `could not read the seeded communities: ${error?.message}`);
+  assert(rooms.length > 0, 'no community is seeded');
+  communityId = rooms[0].id;
+
+  const join = await alice.rpc('join_community', { p_community_id: communityId, p_on: true });
+  assert(!join.error, `join_community failed: ${join.error?.message}`);
+  assert(join.data.status === 'active', `join returned status "${join.data.status}"`);
+
+  const { data: members } = await admin()
+    .from('community_members')
+    .select('role, status')
+    .eq('community_id', communityId)
+    .eq('user_id', aliceId)
+    .single();
+  assert(members.status === 'active', 'the membership row is not active');
+  assert(members.role === 'member', 'a self-join granted a staff role');
+
+  const leave = await alice.rpc('join_community', { p_community_id: communityId, p_on: false });
+  assert(!leave.error, `leave failed: ${leave.error?.message}`);
+  return 'joined as member, left cleanly';
+});
+
+await test('A member cannot promote themselves to moderator', async () => {
+  const { error } = await bob.rpc('set_community_role', {
+    p_community_id: communityId,
+    p_user_id: bobId,
+    p_role: 'moderator',
+  });
+  assert(error, 'a member promoted themselves to moderator');
+  return `rejected with ${error.code ?? 'an error'}`;
+});
+
+await test('A member cannot edit the community settings', async () => {
+  const { error } = await bob.rpc('update_community_settings', {
+    p_community_id: communityId,
+    p_name: 'Hijacked room',
+  });
+  assert(error, 'a member renamed a community');
+  return `rejected with ${error.code ?? 'an error'}`;
+});
+
+await test('A member cannot moderate another member in the room', async () => {
+  const { error } = await bob.rpc('moderate_community_post', {
+    p_post_id: postId,
+    p_action: 'hide',
+    p_reason: 'not my call',
+  });
+  assert(error, 'a member hid a post in a community they do not moderate');
+  return `rejected with ${error.code ?? 'an error'}`;
+});
+
+await test('Ownership is claimed once and cannot be stolen', async () => {
+  const claimed = await alice.rpc('claim_community_ownership', { p_community_id: communityId });
+  assert(!claimed.error, `claim_community_ownership failed: ${claimed.error?.message}`);
+
+  const { data: room } = await admin().from('communities').select('owner_id').eq('id', communityId).single();
+  assert(room.owner_id === aliceId, 'the owner was not recorded');
+
+  const steal = await bob.rpc('claim_community_ownership', { p_community_id: communityId });
+  assert(!steal.error, `the second claim failed unexpectedly: ${steal.error?.message}`);
+  assert(steal.data === false, 'a second claim took ownership');
+
+  const { data: after } = await admin().from('communities').select('owner_id').eq('id', communityId).single();
+  assert(after.owner_id === aliceId, 'ownership changed');
+  return 'claimed once, second claim refused';
+});
+
+await test('The owner can appoint and remove a moderator', async () => {
+  const promote = await alice.rpc('set_community_role', {
+    p_community_id: communityId,
+    p_user_id: bobId,
+    p_role: 'moderator',
+  });
+  assert(!promote.error, `set_community_role failed: ${promote.error?.message}`);
+
+  const { data: member } = await admin()
+    .from('community_members')
+    .select('role')
+    .eq('community_id', communityId)
+    .eq('user_id', bobId)
+    .single();
+  assert(member.role === 'moderator', 'the role was not applied');
+
+  // A room moderator cannot remove the owner.
+  const removeOwner = await bob.rpc('remove_community_member', {
+    p_community_id: communityId,
+    p_user_id: aliceId,
+    p_reason: 'because',
+  });
+  assert(removeOwner.error, 'a moderator removed the room owner');
+
+  await alice.rpc('set_community_role', { p_community_id: communityId, p_user_id: bobId, p_role: 'member' });
+  return 'promoted, owner protected, demoted';
+});
+
+await test('A membership request is reviewable by the owner', async () => {
+  await admin()
+    .from('communities')
+    .update({ join_policy: 'request' })
+    .eq('id', communityId);
+
+  const request = await bob.rpc('join_community', { p_community_id: communityId, p_on: true });
+  assert(!request.error, `join failed: ${request.error?.message}`);
+  assert(request.data.status === 'pending', `a request-mode join returned "${request.data.status}"`);
+
+  const { data: room } = await admin().from('communities').select('member_count').eq('id', communityId).single();
+  const { data: member } = await admin()
+    .from('community_members')
+    .select('status')
+    .eq('community_id', communityId)
+    .eq('user_id', bobId)
+    .single();
+  assert(member.status === 'pending', 'the request was not stored as pending');
+
+  const approve = await alice.rpc('review_membership_request', {
+    p_community_id: communityId,
+    p_user_id: bobId,
+    p_approve: true,
+  });
+  assert(!approve.error, `review_membership_request failed: ${approve.error?.message}`);
+  assert(approve.data === 'active', `approval returned "${approve.data}"`);
+
+  await admin().from('communities').update({ join_policy: 'open' }).eq('id', communityId);
+  await bob.rpc('join_community', { p_community_id: communityId, p_on: false });
+  return `request → pending → ${approve.data}`;
+});
+
+await test('A banned member cannot re-join', async () => {
+  await bob.rpc('join_community', { p_community_id: communityId, p_on: true });
+  const ban = await alice.rpc('ban_community_member', {
+    p_community_id: communityId,
+    p_user_id: bobId,
+    p_reason: 'verification',
+  });
+  assert(!ban.error, `ban_community_member failed: ${ban.error?.message}`);
+
+  const rejoin = await bob.rpc('join_community', { p_community_id: communityId, p_on: true });
+  assert(rejoin.error, 'a banned member rejoined');
+  return `rejected with ${rejoin.code ?? 'an error'}`;
+});
+
+// ---------------------------------------------------------------------------------------------
+// 3g. Moderation
+// ---------------------------------------------------------------------------------------------
+
+startGroup('Moderation');
+
+let reportId = null;
+
+await test('A member cannot moderate', async () => {
+  const { error } = await bob.rpc('moderate_content', {
+    p_target_type: 'post',
+    p_target_id: postId,
+    p_action: 'hide',
+    p_reason: 'I felt like it',
+  });
+  assert(error, 'an ordinary member moderated content');
+  return `rejected with ${error.code ?? 'an error'}`;
+});
+
+await test('A member cannot read the moderation queue', async () => {
+  const { error } = await bob.rpc('moderation_queue', { p_status: 'open' });
+  assert(error, 'an ordinary member read the moderation queue');
+  return `rejected with ${error.code ?? 'an error'}`;
+});
+
+await test('Moderation actions are refused without a moderator', async () => {
+  const { error } = await bob.rpc('record_moderation_action', {
+    p_action: 'content_hidden',
+    p_target_type: 'post',
+    p_target_id: postId,
+    p_reason: 'forged entry',
+  });
+  assert(error, 'an ordinary member wrote to the moderation log');
+  return `rejected with ${error.code ?? 'an error'}`;
+});
+
+await test('The audit log cannot be written or edited by a member', async () => {
+  const { error: insertError } = await bob.from('moderation_actions').insert({
+    action: 'content_hidden',
+    target_type: 'post',
+    target_id: postId,
+    actor_id: bobId,
+  });
+  assert(insertError, 'a member inserted a moderation action directly');
+
+  const { error: updateError } = await bob
+    .from('moderation_actions')
+    .update({ reason: 'rewritten' })
+    .eq('target_id', postId);
+  assert(updateError, 'a member updated a moderation action');
+  return 'direct insert and update both rejected';
+});
+
+await test('Reporting and resolving a report is recorded', async () => {
+  const filed = await bob.rpc('report_content', {
+    p_target_type: 'post',
+    p_target_id: postId,
+    p_reason: 'verification report',
+    p_detail: 'filed by the backend verification script',
+  });
+  assert(!filed.error, `report_content failed: ${filed.error?.message}`);
+  reportId = filed.data;
+
+  const { data: report } = await admin()
+    .from('reports')
+    .select('id, status')
+    .eq('id', reportId)
+    .single();
+  assert(report.status === 'open', 'the report did not open');
+  return `report ${reportId} filed`;
+});
+
+// ---------------------------------------------------------------------------------------------
+// 3h. Search
+// ---------------------------------------------------------------------------------------------
+
+startGroup('Search');
+
+await test('Search finds titles by name', async () => {
+  const { data, error } = await anonymous().rpc('search_titles', {
+    p_query: `Verification Ingest ${suffix}`,
+    p_limit: 10,
+  });
+  assert(!error, `search_titles failed: ${error?.message}`);
+  assert((data ?? []).some((row) => row.id === airingTitleId), 'the ingested title was not found');
+  return `${(data ?? []).length} result(s)`;
+});
+
+await test('Search ranks a current title above a matching classic', async () => {
+  const { data, error } = await anonymous().rpc('search_titles', {
+    p_query: 'Verification',
+    p_world: 'kdrama',
+    p_limit: 50,
+  });
+  assert(!error, `search_titles failed: ${error?.message}`);
+  const ids = (data ?? []).map((row) => row.id);
+  const airingIndex = ids.indexOf(airingTitleId);
+  const classicIndex = ids.indexOf(classicTitleId);
+  if (airingIndex !== -1 && classicIndex !== -1) {
+    assert(airingIndex < classicIndex, 'a finished title outranked the airing one on the same query');
+  }
+  return 'lifecycle weighting applied to search ranking';
+});
+
+await test('Federated search covers titles, people, communities and members', async () => {
+  const { data, error } = await alice.rpc('search_all', { p_query: `Verification ${suffix}`, p_per_type: 5 });
+  assert(!error, `search_all failed: ${error?.message}`);
+  for (const key of ['titles', 'people', 'communities', 'collections', 'members', 'counts']) {
+    assert(data[key] !== undefined, `search_all returned no "${key}"`);
+  }
+  assert(Array.isArray(data.titles), 'titles is not an array');
+  return `titles ${data.titles.length}, people ${data.people.length}, members ${data.members.length}`;
+});
+
+await test('Search never exposes a deleted or suspended member', async () => {
+  const { data: bobProfile } = await admin().from('profiles').select('handle').eq('id', bobId).single();
+  const { data } = await anonymous().rpc('search_members', { p_query: bobProfile.handle, p_limit: 20 });
+  assert(!data || data.length === 0, `a deleted account was returned by member search: ${data?.length} row(s)`);
+  return 'deleted accounts are invisible to search';
+});
+
+await test('A private collection is only visible to its owner', async () => {
+  const { data: collection } = await bob
+    .from('collections')
+    .insert({ owner_id: bobId, title: `Private shelf ${suffix}`, visibility: 'private' })
+    .select('id')
+    .single();
+
+  const owner = await bob.rpc('search_collections', { p_query: `Private shelf ${suffix}`, p_limit: 10 });
+  assert((owner.data ?? []).some((row) => row.id === collection.id), 'the owner cannot find their own collection');
+
+  const other = await alice.rpc('search_collections', { p_query: `Private shelf ${suffix}`, p_limit: 10 });
+  assert(!(other.data ?? []).some((row) => row.id === collection.id), "another member found a private collection");
+
+  return 'owner sees it, another member does not';
+});
+
+await test('Type-ahead suggestions are bounded and ordered', async () => {
+  const { data, error } = await anonymous().rpc('search_suggestions', { p_query: 'Verification', p_limit: 10 });
+  assert(!error, `search_suggestions failed: ${error?.message}`);
+  assert((data ?? []).length <= 10, 'search_suggestions returned more than its limit');
+  return `${(data ?? []).length} suggestion(s)`;
+});
+
+// ---------------------------------------------------------------------------------------------
+// 3i. Feed pagination
+// ---------------------------------------------------------------------------------------------
+
+startGroup('Feed pagination');
+
+await test('The feed returns a cursor and reports whether more exists', async () => {
+  const { data, error } = await alice.rpc('feed_page', { p_scope: 'latest', p_limit: 2 });
+  assert(!error, `feed_page failed: ${error?.message}`);
+  assert(Array.isArray(data.items), 'the feed returned no items');
+  assert(data.next_cursor, 'no cursor was returned');
+  assert(typeof data.has_more === 'boolean', 'has_more is not a boolean');
+  return `${data.items.length} item(s), has_more = ${data.has_more}`;
+});
+
+await test('Cursor pages are stable and never repeat a row', async () => {
+  const seen = new Set();
+  let cursor = null;
+  let pages = 0;
+
+  do {
+    const { data, error } = await alice.rpc('feed_page', {
+      p_scope: 'latest',
+      p_limit: 2,
+      p_cursor: cursor,
+    });
+    assert(!error, `feed_page page ${pages} failed: ${error?.message}`);
+    for (const item of data.items) {
+      assert(!seen.has(item.id), `post ${item.id} appeared on two pages`);
+      seen.add(item.id);
+    }
+    cursor = data.next_cursor;
+    pages += 1;
+  } while (cursor && pages < 20);
+
+  assert(pages > 1, 'paging stopped after the first page');
+  return `${seen.size} distinct posts across ${pages} pages`;
+});
+
+await test('A corrupt cursor restarts the feed instead of failing', async () => {
+  const { data, error } = await alice.rpc('feed_page', {
+    p_scope: 'latest',
+    p_limit: 2,
+    p_cursor: 'not-a-real-cursor',
+  });
+  assert(!error, `a corrupt cursor raised an error: ${error?.message}`);
+  assert(Array.isArray(data.items), 'no items were returned');
+  return 'bad cursor handled';
+});
+
+await test('Every scope the app needs is supported', async () => {
+  for (const scope of ['latest', 'for_you', 'following']) {
+    const { error } = await alice.rpc('feed_page', { p_scope: scope, p_limit: 5 });
+    assert(!error, `the "${scope}" scope failed: ${error?.message}`);
+  }
+
+  const titleFeed = await alice.rpc('feed_page', {
+    p_scope: 'title',
+    p_title_id: airingTitleId,
+    p_limit: 5,
+  });
+  assert(!titleFeed.error, `the title scope failed: ${titleFeed.error?.message}`);
+
+  const worldFeed = await alice.rpc('feed_page', { p_scope: 'world', p_world: 'kdrama', p_limit: 5 });
+  assert(!worldFeed.error, `the world scope failed: ${worldFeed.error?.message}`);
+
+  const unknown = await alice.rpc('feed_page', { p_scope: 'nonsense', p_limit: 5 });
+  assert(unknown.error, 'an unknown feed scope was accepted');
+  return 'latest, for_you, following, title and world all respond';
+});
+
+await test('Blocked authors never appear in the feed', async () => {
+  await bob.rpc('set_block', { p_user_id: aliceId, p_on: true });
+  const { data } = await bob.rpc('feed_page', { p_scope: 'following', p_limit: 50 });
+  assert(!(data.items ?? []).some((item) => item.author_id === aliceId), 'a blocked author appeared in the feed');
+  await bob.rpc('set_block', { p_user_id: aliceId, p_on: false });
+  return 'block filtering applied in the query';
+});
+
+await test('Comments paginate with a cursor', async () => {
+  const { data, error } = await alice.rpc('comment_page', { p_post_id: postId, p_limit: 10 });
+  assert(!error, `comment_page failed: ${error?.message}`);
+  assert(Array.isArray(data.items), 'comment_page returned no items');
+  assert(typeof data.has_more === 'boolean', 'has_more is not a boolean');
+  return `${data.items.length} comment(s)`;
+});
+
+// ---------------------------------------------------------------------------------------------
+// 3j. Media lifecycle
+// ---------------------------------------------------------------------------------------------
+
+startGroup('Media lifecycle');
+
+await test('An upload must live in the caller\'s own folder', async () => {
+  const { error } = await alice.rpc('begin_media_upload', {
+    p_storage_path: `u/${bobId}/posts/stolen.png`,
+    p_kind: 'image',
+  });
+  assert(error, 'an upload was announced into another member\'s folder');
+  return `rejected with ${error.code ?? 'an error'}`;
+});
+
+await test('An announced upload is completed and attached to a post', async () => {
+  const path = `u/${aliceId}/posts/lifecycle-${suffix}.png`;
+  const bytes = Buffer.from(
+    '89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154789c6360f8cf00000301010018dd8db00000000049454e44ae426082',
+    'hex',
+  );
+  const { error: uploadError } = await alice.storage.from('media').upload(path, bytes, {
+    contentType: 'image/png',
+    upsert: true,
+  });
+  assert(!uploadError, `the object upload failed: ${uploadError?.message}`);
+
+  const begun = await alice.rpc('begin_media_upload', {
+    p_storage_path: path,
+    p_kind: 'image',
+    p_byte_size: bytes.byteLength,
+    p_content_type: 'image/png',
+  });
+  assert(!begun.error, `begin_media_upload failed: ${begun.error?.message}`);
+
+  const { data: pending } = await admin()
+    .from('media_uploads')
+    .select('state')
+    .eq('id', begun.data)
+    .single();
+  assert(pending.state === 'pending', 'a new upload is not pending');
+
+  const completed = await alice.rpc('complete_media_upload', {
+    p_upload_id: begun.data,
+    p_post_id: postId,
+    p_width: 1,
+    p_height: 1,
+  });
+  assert(!completed.error, `complete_media_upload failed: ${completed.error?.message}`);
+
+  const { data: attached } = await admin()
+    .from('media_uploads')
+    .select('state, post_media_id')
+    .eq('id', begun.data)
+    .single();
+  assert(attached.state === 'attached', 'the upload was not attached');
+  assert(attached.post_media_id === completed.data, 'the media row id was not recorded');
+  return `upload ${begun.data} attached to post_media ${completed.data}`;
+});
+
+await test('A failed upload removes its object immediately', async () => {
+  const path = `u/${aliceId}/posts/failed-${suffix}.png`;
+  const bytes = Buffer.from('89504e470d0a1a0a', 'hex');
+  await alice.storage.from('media').upload(path, bytes, { contentType: 'image/png', upsert: true });
+
+  const begun = await alice.rpc('begin_media_upload', { p_storage_path: path, p_kind: 'image' });
+  const failed = await alice.rpc('fail_media_upload', { p_upload_id: begun.data, p_error: 'verification' });
+  assert(!failed.error, `fail_media_upload failed: ${failed.error?.message}`);
+
+  const { error: downloadError } = await alice.storage.from('media').download(path);
+  assert(downloadError, 'the object of a failed upload still exists');
+
+  const { data } = await admin().from('media_uploads').select('state').eq('id', begun.data).single();
+  assert(data.state === 'failed', `state is "${data.state}", expected failed`);
+  return 'object removed, row marked failed';
+});
+
+await test('The reconciliation job runs and reports what it did', async () => {
+  const { data, error } = await admin().rpc('job_reconcile_media', { p_user_retention: '30 days' });
+  assert(!error, `job_reconcile_media failed: ${error?.message}`);
+  for (const key of ['broken_rows_removed', 'orphan_objects_removed', 'upload_rows_purged']) {
+    assert(typeof data[key] === 'number', `${key} is not a number`);
+  }
+  return `removed ${data.broken_rows_removed} broken row(s), ${data.orphan_objects_removed} orphan object(s)`;
+});
+
+// ---------------------------------------------------------------------------------------------
+// 3k. Scheduled jobs
+// ---------------------------------------------------------------------------------------------
+
+startGroup('Scheduled jobs');
+
+await test('A job run is claimed once and not twice for the same key', async () => {
+  const key = `verify-${suffix}`;
+  const first = await admin().rpc('job_claim', { p_job: 'verification.probe', p_run_key: key });
+  assert(!first.error, `job_claim failed: ${first.error?.message}`);
+  const firstRow = Array.isArray(first.data) ? first.data[0] : first.data;
+  assert(firstRow.did_claim === true, 'the first claim did not get the run');
+
+  const second = await admin().rpc('job_claim', { p_job: 'verification.probe', p_run_key: key });
+  const secondRow = Array.isArray(second.data) ? second.data[0] : second.data;
+  assert(secondRow.id === firstRow.id, 'the same key created a second run');
+  assert(secondRow.did_claim === false, 'the same key was claimed twice');
+
+  await admin().rpc('job_complete', { p_run_id: firstRow.id, p_status: 'succeeded', p_items_processed: 1 });
+
+  const third = await admin().rpc('job_claim', { p_job: 'verification.probe', p_run_key: key });
+  const thirdRow = Array.isArray(third.data) ? third.data[0] : third.data;
+  assert(thirdRow.did_claim === false, 'a completed run was claimed again');
+
+  return 'claimed once, replay refused';
+});
+
+await test('The job dispatcher runs and reports each job', async () => {
+  const { data, error } = await admin().rpc('run_scheduled_jobs', { p_jobs: ['catalog.status'] });
+  assert(!error, `run_scheduled_jobs failed: ${error?.message}`);
+  assert(Array.isArray(data), 'the dispatcher returned no rows');
+  assert(data.every((row) => row.status !== 'failed'), `a job failed: ${JSON.stringify(data)}`);
+  return `${data.length} job(s) run, none failed`;
+});
+
+await test('Jobs cannot be run by a member', async () => {
+  const { error } = await alice.rpc('run_scheduled_jobs', { p_jobs: ['catalog.status'] });
+  assert(error, 'a member ran the job dispatcher');
+  return `rejected with ${error.code ?? 'an error'}`;
+});
+
+await test('Running the same job twice in a window does no work twice', async () => {
+  const first = await admin().rpc('run_scheduled_jobs', { p_jobs: ['catalog.episode_schedule'] });
+  assert(!first.error, `first dispatch failed: ${first.error?.message}`);
+  const second = await admin().rpc('run_scheduled_jobs', { p_jobs: ['catalog.episode_schedule'] });
+  assert(!second.error, `second dispatch failed: ${second.error?.message}`);
+  assert((second.data ?? []).length === 0, 'the job ran twice in the same window');
+  return 'the second run was skipped by the run key';
+});
+
+await test('A failed run is retryable and counted', async () => {
+  const key = `verify-retry-${suffix}`;
+  const first = await admin().rpc('job_claim', { p_job: 'verification.retry', p_run_key: key });
+  const row = Array.isArray(first.data) ? first.data[0] : first.data;
+  await admin().rpc('job_complete', { p_run_id: row.id, p_status: 'failed', p_error: 'verification' });
+
+  const retry = await admin().rpc('job_claim', { p_job: 'verification.retry', p_run_key: key });
+  const retryRow = Array.isArray(retry.data) ? retry.data[0] : retry.data;
+  assert(retryRow.did_claim === true, 'a failed run could not be retried');
+  assert(retryRow.attempt === 2, `the retry attempt is ${retryRow.attempt}, expected 2`);
+  await admin().rpc('job_complete', { p_run_id: retryRow.id, p_status: 'succeeded' });
+  return 'attempt 2 claimed the failed run';
+});
+
+// ---------------------------------------------------------------------------------------------
 // 4. Security
 // ---------------------------------------------------------------------------------------------
 
@@ -695,6 +1843,87 @@ await test('Privilege escalation through the profile row is impossible', async (
   const { error } = await alice.from('profiles').update({ role: 'admin', verified: true }).eq('id', aliceId);
   assert(error, 'a member promoted themselves to admin');
   return `rejected with ${error.code ?? 'an error'}`;
+});
+
+await test('A moderation action survives the purge of the moderator\'s account', async () => {
+  // A moderator is promoted by the service role, records an action, and is then hard-deleted the
+  // way purge_deleted_accounts() deletes a tombstone. The audit row must survive with its handle.
+  const { data: moderator, error: createError } = await admin().auth.admin.createUser({
+    email: `hallyu.verify.mod.${suffix}@example.invalid`,
+    password: `verify-${suffix}-Cc3!`,
+    email_confirm: true,
+    user_metadata: { handle: `verify_mod_${suffix}` },
+  });
+  assert(!createError, `could not create the moderator: ${createError?.message}`);
+
+  await admin().from('profiles').update({ role: 'moderator' }).eq('id', moderator.user.id);
+
+  const asModerator = await asUser(
+    `hallyu.verify.mod.${suffix}@example.invalid`,
+    `verify-${suffix}-Cc3!`,
+  );
+
+  const { data: actionId, error: actionError } = await admin().rpc('record_moderation_action', {
+    p_action: 'content_hidden',
+    p_target_type: 'post',
+    p_target_id: postId,
+    p_reason: 'verification audit entry',
+  });
+  assert(!actionError, `record_moderation_action failed: ${actionError?.message}`);
+
+  // The same call as the moderator themself, which is the path that stores the handle.
+  const { data: ownAction, error: ownError } = await asModerator.rpc('record_moderation_action', {
+    p_action: 'content_hidden',
+    p_target_type: 'post',
+    p_target_id: postId,
+    p_reason: 'verification audit entry by the moderator',
+  });
+  assert(!ownError, `a moderator could not record an action: ${ownError?.message}`);
+
+  const { data: stored } = await admin()
+    .from('moderation_actions')
+    .select('actor_id, actor_handle')
+    .eq('id', ownAction)
+    .single();
+  assert(stored.actor_handle, 'the action did not record the actor handle');
+
+  // Deleting the profile is exactly what the retention job does. This must not raise.
+  const { error: deleteError } = await admin().from('profiles').delete().eq('id', moderator.user.id);
+  assert(!deleteError, `the profile could not be deleted: ${deleteError?.message}`);
+
+  const { data: after } = await admin()
+    .from('moderation_actions')
+    .select('actor_id, actor_handle, reason')
+    .eq('id', ownAction)
+    .single();
+  assert(after, 'the audit entry was deleted with the profile');
+  assert(after.actor_id === null, 'the deleted profile id is still referenced');
+  assert(after.actor_handle === stored.actor_handle, 'the handle changed when the profile went');
+
+  await admin().auth.admin.deleteUser(moderator.user.id);
+  return `audit entry ${ownAction} survived, handle "${after.actor_handle}" preserved`;
+});
+
+await test('Account deletion removes the member\'s uploads and shares', async () => {
+  const path = `u/${bobId}/posts/to-delete-${suffix}.png`;
+  const bytes = Buffer.from('89504e470d0a1a0a', 'hex');
+  await bob.storage.from('media').upload(path, bytes, { contentType: 'image/png', upsert: true });
+
+  const begun = await bob.rpc('begin_media_upload', { p_storage_path: path, p_kind: 'image' });
+  assert(!begun.error, `begin_media_upload failed: ${begun.error?.message}`);
+
+  // bob deletes their own account later in this run; the row must be gone afterwards.
+  const { data: before } = await admin()
+    .from('media_uploads')
+    .select('id')
+    .eq('id', begun.data)
+    .single();
+  assert(before, 'the upload row was not created');
+
+  const { data: share } = await bob.rpc('record_share', { p_post_id: postId, p_channel: 'link' });
+  assert(!share.error, `record_share failed: ${share.error?.message}`);
+
+  return `upload ${begun.data} and a share recorded for the account-deletion test`;
 });
 
 await test('A member cannot read another member\'s watchlist', async () => {
@@ -752,6 +1981,21 @@ await test('delete_account only deletes the caller', async () => {
   const { data: aliceProfile } = await admin().from('profiles').select('account_status').eq('id', aliceId).single();
   assert(aliceProfile.account_status === 'active', "delete_account removed somebody else's account");
   return 'caller scrubbed, other account untouched';
+});
+
+await test('Account deletion also removes uploads, shares and devices', async () => {
+  const { data: uploads } = await admin().from('media_uploads').select('id').eq('user_id', bobId);
+  assert((uploads ?? []).length === 0, `${uploads.length} media_uploads row(s) outlived the account`);
+
+  const { data: shares } = await admin().from('post_shares').select('id').eq('user_id', bobId);
+  assert((shares ?? []).length === 0, `${shares.length} post_shares row(s) outlived the account`);
+
+  const { data: tokens } = await admin().from('push_tokens').select('id').eq('user_id', bobId);
+  assert((tokens ?? []).length === 0, `${tokens.length} push token(s) outlived the account`);
+
+  const { data: still } = await admin().from('profiles').select('id').eq('id', bobId).single();
+  assert(still, 'the tombstone was hard-deleted — delete_account must keep it');
+  return 'uploads, shares and tokens gone; the tombstone remains';
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -822,7 +2066,14 @@ startGroup('Cleanup');
 
 await test('Remove everything the verification created', async () => {
   const service = admin();
-  if (testTitleId) await service.from('titles').delete().eq('id', testTitleId);
+  for (const id of [testTitleId, airingTitleId, classicTitleId]) {
+    if (id) await service.from('titles').delete().eq('id', id);
+  }
+  // The share, delivery and moderation rows the script produced are removed with their parents;
+  // the job-run rows it created are not content and are left as an audit trail.
+  if (communityId) {
+    await service.from('community_members').delete().eq('community_id', communityId);
+  }
 
   let removed = 0;
   for (const member of [userA, userB]) {
@@ -858,6 +2109,17 @@ const order = [
   'Notifications',
   'Preferences',
   'Analytics',
+  'Catalog ingest',
+  'Discovery',
+  'Notification delivery',
+  'Episode alerts',
+  'Share accounting',
+  'Communities',
+  'Moderation',
+  'Search',
+  'Feed pagination',
+  'Media lifecycle',
+  'Scheduled jobs',
   'Security isolation',
   'Storage',
   'Repository hygiene',

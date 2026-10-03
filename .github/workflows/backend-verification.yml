@@ -64,6 +64,9 @@ jobs:
       - name: Check the type contract against the migrations
         run: node scripts/verify-db-types.mjs | tee db-types-validation.log
 
+      - name: Check the backend capability surface
+        run: node scripts/verify-backend-surface.mjs | tee backend-surface-validation.log
+
       - name: Scan the repository for committed credentials
         run: node scripts/verify-no-secrets.mjs | tee secret-scan.log
 
@@ -108,7 +111,7 @@ jobs:
             echo ""
             echo "### Offline validation"
             echo '```text'
-            cat sql-validation.log db-types-validation.log secret-scan.log
+            cat sql-validation.log db-types-validation.log backend-surface-validation.log secret-scan.log
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 

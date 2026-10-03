@@ -91,6 +91,39 @@ verify_jwt = true
 [functions.moderation-digest]
 verify_jwt = true
 
+# ────────────────────────────────────────────────────────────────────────────────────────────────
+# Scheduled and maintenance functions.
+#
+# Every one of these requires the service role (checked again inside the function, on top of
+# verify_jwt) and is driven by pg_cron — see the commented-out cron.schedule() blocks at the bottom
+# of supabase/migrations/20260101122700_27_scheduled_jobs.sql.
+#
+# Required secrets (set with `supabase secrets set`, never committed):
+#   SUPABASE_SERVICE_ROLE_KEY   always present as a function secret
+#   TMDB_ACCESS_TOKEN           read-only TMDB v4 token (or TMDB_API_KEY for the v3 key)
+#   EXPO_ACCESS_TOKEN           optional: Expo push access token for higher rate limits
+#
+# Everything runs correctly without a credential: catalog-sync reports 503 "not configured" and
+# push-dispatch falls back to the anonymous Expo endpoint, so a fresh project is never broken by a
+# missing secret.
+# ────────────────────────────────────────────────────────────────────────────────────────────────
+
+# Fetches TMDB and writes through the idempotent ingest RPCs. No business logic lives here.
+[functions.catalog-sync]
+verify_jwt = true
+
+# Calls run_scheduled_jobs(); the SQL dispatcher owns the schedule, the run keys and the retries.
+[functions.catalog-jobs]
+verify_jwt = true
+
+# Claims queued notifications and sends them, recording per-delivery outcomes.
+[functions.push-dispatch]
+verify_jwt = true
+
+# Reconciles database media rows against objects in the `media` bucket.
+[functions.media-cleanup]
+verify_jwt = true
+
 # Applied by `supabase db reset` after the migrations run. Reference data only: worlds and the
 # catalog providers. No member content is ever seeded.
 [db.seed]

@@ -11,11 +11,12 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "ios": "expo run:ios",
-    "check": "npm run typecheck && npm run lint && npm run test:fandoms && npm run test:sql && npm run test:db-types && npm run test:secrets && npm run test:home-render",
+    "check": "npm run typecheck && npm run lint && npm run test:fandoms && npm run test:sql && npm run test:db-types && npm run test:backend-surface && npm run test:secrets && npm run test:home-render",
     "test:home-render": "node scripts/verify-home-render.mjs",
     "test:fandoms": "node scripts/verify-fandoms.mjs",
     "test:sql": "node scripts/verify-sql.mjs",
     "test:db-types": "node scripts/verify-db-types.mjs",
+    "test:backend-surface": "node scripts/verify-backend-surface.mjs",
     "test:secrets": "node scripts/verify-no-secrets.mjs",
     "test:backend": "node scripts/verify-backend.mjs"
   },

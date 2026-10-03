@@ -74,7 +74,39 @@ const policyTables = new Set();
 const functions = [];
 let tablesCreated = 0;
 
+/**
+ * Returns one function's own text: from its `create [or replace] function` to the end of its body
+ * delimiter. A function written with the single-quote body form has no `$$`, so that form is
+ * supported too.
+ */
+function sliceFunctionBody(sql, name) {
+  if (!name) return '';
+  const start = sql.search(new RegExp(`create\\s+(or\\s+replace\\s+)?function\\s+(public\\.)?${name}\\s*\\(`, 'i'));
+  if (start === -1) return '';
+
+  const dollarStart = sql.indexOf('$$', start);
+  if (dollarStart !== -1) {
+    const dollarEnd = sql.indexOf('$$;', dollarStart + 2);
+    return sql.slice(start, dollarEnd === -1 ? Math.min(sql.length, dollarStart + 4000) : dollarEnd + 2);
+  }
+
+  const quoteStart = sql.indexOf("'", sql.indexOf('language', start));
+  if (quoteStart === -1) return '';
+
+  let index = quoteStart + 1;
+  while (index < sql.length) {
+    if (sql[index] === "'" && sql[index + 1] === "'") {
+      index += 2;
+      continue;
+    }
+    if (sql[index] === "'") break;
+    index += 1;
+  }
+  return sql.slice(start, index + 1);
+}
+
 for (const [file, tree] of asts) {
+  const sql = await readFile(path.join(MIGRATIONS_DIR, file), 'utf8');
   const statements = Array.isArray(tree) ? tree : tree?.stmts ?? [];
   const rawStmts = Array.isArray(tree) ? tree : tree?.stmts ?? [];
 
@@ -111,12 +143,18 @@ for (const [file, tree] of asts) {
 
     // CREATE FUNCTION
     if (node.CreateFunctionStmt) {
-      const params = node.CreateFunctionStmt.parameters ?? [];
+      // libpg_query keeps the function's own name in `funcname`; `parameters[0]` is the first
+      // *argument*. Reading the argument as the name is how a checker ends up reporting nothing.
+      const funcname = node.CreateFunctionStmt.funcname ?? [];
+      const name = funcname[funcname.length - 1]?.String?.sval ?? null;
       functions.push({
         file,
-        name: params?.[0]?.name,
+        name,
         options: node.CreateFunctionStmt.options ?? [],
-        definition: params?.[0]?.def?.str ?? '',
+        // The AST does not carry the body for every function shape, so the body is sliced out of
+        // the migration text below — checking the whole file would let one function's SQL vouch
+        // for another's.
+        definition: sliceFunctionBody(sql, name),
       });
       continue;
     }
@@ -137,17 +175,37 @@ if (tablesWithoutPolicies.length > 0) {
 }
 
 // SECURITY DEFINER functions must pin their search_path, and none may execute caller-supplied SQL.
+//
+// Both facts are read from the parsed option list, not from the file text. The option for
+// `security definer` is a DefElem named "security" whose argument is a boolean, and the option for
+// `set search_path = …` is a DefElem named "set" whose argument is a VariableSetStmt naming
+// search_path. Reading `o.definer` here (as an earlier version of this script did) always returned
+// undefined, which silently skipped every function and made this check pass on any input.
 for (const fn of functions) {
-  const isDefiner = fn.options.some((o) => o.definer === true);
+  const elems = fn.options.map((o) => o.DefElem).filter(Boolean);
+
+  const isDefiner = elems.some(
+    (e) => e.defname === 'security' && e.arg?.Boolean?.boolval === true,
+  );
   if (!isDefiner) continue;
 
-  const pinned = fn.options.some((o) => typeof o.proconfig === 'string' && o.proconfig.includes('search_path'));
+  const pinned = elems.some((e) => {
+    if (e.defname !== 'set') return false;
+    const set = e.arg?.VariableSetStmt;
+    if (!set) return false;
+    const name = set.name ?? set.kind;
+    return name === 'search_path';
+  });
+
   if (!pinned) {
-    fail(fn.file, `SECURITY DEFINER function ${fn.name} does not pin search_path`);
+    fail(fn.file, `SECURITY DEFINER function ${fn.name}() does not pin search_path`);
   }
 
-  if (/execute\s+(?!format\()\s*[a-z_]/i.test(fn.definition)) {
-    fail(fn.file, `function ${fn.name} executes a variable — caller input must never become a statement`);
+  if (/execute\s+(?!format\s*\()\s*[^;]/i.test(fn.definition)) {
+    fail(
+      fn.file,
+      `function ${fn.name}() executes a variable — caller input must never become a statement`,
+    );
   }
 }
 
