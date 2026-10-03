@@ -31,9 +31,19 @@ jobs:
       ANDROID_NDK_VERSION: "26.1.10909125"
 
       # Catalog (TMDB). Read-only public credentials; empty values are ignored (they never blank
-      # the built-in key in constants/keys.ts). There is no backend credential in this build.
+      # the built-in key in constants/keys.ts).
       EXPO_PUBLIC_TMDB_ACCESS_TOKEN: ${{ secrets.EXPO_PUBLIC_TMDB_ACCESS_TOKEN }}
       EXPO_PUBLIC_TMDB_API_KEY: ${{ secrets.EXPO_PUBLIC_TMDB_API_KEY }}
+
+      # Backend connection (Rork Cloud / Supabase) — client-safe values ONLY. Metro inlines
+      # EXPO_PUBLIC_* at build time, so an APK built without these has no backend at runtime and
+      # the connection gate honestly reports local mode. Never add the service-role key, TMDB
+      # server credentials or push tokens here: those are server-side only
+      # (docs/BACKEND-CREDENTIALS.md).
+      EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+      EXPO_PUBLIC_RORK_APP_KEY: ${{ secrets.EXPO_PUBLIC_RORK_APP_KEY }}
+      EXPO_PUBLIC_MEDIA_BUCKET: ${{ secrets.EXPO_PUBLIC_MEDIA_BUCKET }}
 
     steps:
       # ============================================================
@@ -312,6 +322,8 @@ jobs:
           Commit: ${SOURCE_COMMIT} (${SOURCE_REF}).
 
 
-          Frontend-only build — no backend connected; catalog data by TMDB.
+          Connected build: auth, profiles, feeds, notifications and the connection gate are
+          server-side (Hallyu backend on Rork Cloud) when the EXPO_PUBLIC_SUPABASE_* secrets were
+          present at build time; catalog data still comes from TMDB.
 
           Install: download APK → allow unknown apps → open file."

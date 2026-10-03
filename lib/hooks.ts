@@ -2,6 +2,7 @@ import NetInfo from '@react-native-community/netinfo';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from 'react';
+import { type BackendHealth, getBackendHealth, subscribeBackendHealth } from './api/client';
 import { CatalogHealth, getCatalogHealth, subscribeCatalogHealth } from './catalog';
 import { AccessibilityInfo, Platform, useWindowDimensions } from 'react-native';
 import { marginFor, motion, windowClass, WindowClass } from '../constants/theme';
@@ -264,4 +265,9 @@ export function useAutoplayAllowed(): boolean {
 /** Live catalog status (last TMDB request): lets screens say exactly why artwork isn't loading. */
 export function useCatalogHealth(): CatalogHealth {
   return useSyncExternalStore(subscribeCatalogHealth, getCatalogHealth, getCatalogHealth);
+}
+
+/** Live backend connection state (the five gate states) — mirrors useCatalogHealth's pattern. */
+export function useBackendHealth(): BackendHealth {
+  return useSyncExternalStore(subscribeBackendHealth, getBackendHealth, getBackendHealth);
 }

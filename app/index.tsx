@@ -8,17 +8,43 @@ import { colors, motion } from '../constants/theme';
 import { lastCrash } from '../lib/crash';
 import { bootTrail, markBoot } from '../lib/boot';
 import { useAuth } from '../lib/auth';
+import { isBackendConfigured, probeBackend, type ConnectionStatus } from '../lib/api/client';
+import { useNetwork } from '../lib/hooks';
 import { GUEST_ID, useStore } from '../lib/store';
 
 /**
  * Splash → route gate.
- * Splash is the mark on canvas, no text, ≤ 1.2s when cached. It ends when auth + store are ready.
- * If readiness never arrives, the failsafe below guarantees a way forward (never a dead splash):
+ * Splash is the mark on canvas, no text, ≤ 1.2s when cached. It ends when auth + store + the
+ * backend connection gate are ready. The gate is the honest one (connection contract §7): when the
+ * build has a backend, cold start proves the Rork-hosted path with a real RPC round trip
+ * (get_bootstrap for a member, the anonymous probe otherwise) and says the result on screen —
+ * it never claims "connected" while serving device data. If readiness never arrives, the failsafe
+ * below guarantees a way forward (never a dead splash):
  *  - after 6s the tap switches from "continue" to "diagnostics" — the boot trail and the last
  *    crash are shown on screen, so a stalled release build reports exactly where it stopped;
  *  - the auto-bailout then forces the signed-out path rather than freezing forever.
  */
 const AUTO_BAILOUT_MS = 6000;
+/** The gate probe must settle inside the bailout window so it can never fight the failsafe. */
+const GATE_PROBE_MS = 5000;
+
+/** The one honest line the splash shows about the backend connection. */
+function gateLine(conn: ConnectionStatus | null): string {
+  if (!isBackendConfigured()) return 'Local mode — no backend configured';
+  switch (conn) {
+    case null:
+    case 'connecting':
+      return 'Connecting…';
+    case 'connected':
+      return '';
+    case 'offline':
+      return 'You’re offline — showing cached content';
+    case 'unavailable':
+      return 'Backend unreachable — continuing offline';
+    case 'misconfigured':
+      return 'Connection misconfigured — continuing in local mode';
+  }
+}
 
 export default function Index() {
   const auth = useAuth();
@@ -27,11 +53,30 @@ export default function Index() {
   // expo-router requires the root navigator to be registered before ANY router.replace/push —
   // navigating earlier throws "Attempted to navigate before mounting the Root Layout component".
   const navReady = useRootNavigationState()?.key != null;
+  const online = useNetwork();
   const accountAligned = auth.status === 'signedIn' ? state.profile.id === auth.user?.id : auth.status === 'guest' ? state.profile.id === GUEST_ID : true;
-  const ready = auth.status !== 'loading' && state.hydrated && accountAligned;
+  const coreReady = auth.status !== 'loading' && state.hydrated && accountAligned;
+  // The connection gate: with a backend configured, cold start waits for the bounded probe —
+  // never longer than the bailout window — and publishes the true state via BackendHealth.
+  const [conn, setConn] = useState<ConnectionStatus | null>(isBackendConfigured() ? null : 'misconfigured');
+  const ready = coreReady && conn !== null;
   const fade = useRef(new Animated.Value(0)).current;
   const hasNavigated = useRef(false);
   const [stuck, setStuck] = useState(false);
+
+  useEffect(() => {
+    if (!coreReady || !isBackendConfigured()) return;
+    let cancelled = false;
+    markBoot('gate:probe');
+    void probeBackend(GATE_PROBE_MS, online).then((s) => {
+      if (cancelled) return;
+      setConn(s);
+      markBoot(`gate:${s}`);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [coreReady, online]);
 
   useEffect(() => {
     markBoot('index:mounted');
@@ -95,6 +140,11 @@ export default function Index() {
       <Animated.View style={{ opacity: fade, alignItems: 'center' }}>
         <Image source={require('../assets/branding/splash-mark.png')} style={{ width: 160, height: 160 }} contentFit="contain" />
       </Animated.View>
+      {gateLine(conn) ? (
+        <Text variant="caption" tone="secondary" style={styles.gate}>
+          {gateLine(conn)}
+        </Text>
+      ) : null}
       <Pressable
         onPress={() => (stuck ? showDiagnostics() : bailOut())}
         hitSlop={16}
@@ -115,6 +165,7 @@ export default function Index() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.canvas, alignItems: 'center', justifyContent: 'center' },
+  gate: { position: 'absolute', bottom: 120, paddingHorizontal: 32, textAlign: 'center' },
   stuck: { position: 'absolute', bottom: 84 },
   foot: { position: 'absolute', bottom: 48 },
 });

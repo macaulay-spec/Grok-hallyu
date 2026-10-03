@@ -19,6 +19,8 @@ import { MilestoneWatcher } from '../components/moments/MilestoneWatcher';
 import { ToastProvider } from '../components/ui/Toast';
 import { colors } from '../constants/theme';
 import { reportError } from '../lib/analytics';
+import { installBackendAnalyticsSink } from '../lib/api/analyticsSink';
+import { registerDevicePushToken } from '../lib/api/pushToken';
 import { AuthProvider, useAuth } from '../lib/auth';
 import { markBoot } from '../lib/boot';
 import { installNotificationHandler, reminderUrl, remindersSupported, syncEpisodeReminders } from '../lib/reminders';
@@ -55,6 +57,12 @@ export default function RootLayout() {
   }, []);
 
   // markBoot for the font phase is fired from the splash effect below.
+
+  // Backend analytics: forwards track() to the record_event RPC once a backend is configured;
+  // a no-op in device-local builds (the in-memory buffer behaves exactly as before).
+  useEffect(() => {
+    installBackendAnalyticsSink();
+  }, []);
 
   // Hide the native splash as soon as fonts settle OR the gate times out — whichever comes first.
   // Index keeps its own hideAsync call as a safety net, but we no longer depend on Index mounting.
@@ -263,6 +271,9 @@ function AccountSync() {
         }
         if (stale()) return;
         applied.current = u.id; // mark COMPLETE once the local snapshot is in
+        // Server-side push registration so episode alerts can reach this device (local reminders
+        // stay in addition — §6.4 of the connection contract). Silent no-op on any failure.
+        void registerDevicePushToken();
       } catch (e) {
         // Expected async failures: log diagnostics, keep the app usable.
         reportError('AccountSync.sync', e, { account: u.id });

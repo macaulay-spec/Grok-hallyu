@@ -4,8 +4,12 @@
  * TMDB — the drama and actor catalog, read directly by the client (lib/catalog.ts). The catalog
  * token is a public, read-only credential by design. Rotate it at themoviedb.org → Settings → API.
  *
- * There is no backend credential in this build: no service URL, anon/service key, session config or
- * storage token ships with the app. Those belong to a later backend phase.
+ * Backend — the Rork Cloud (Supabase) connection. Only the client-safe values live here: the
+ * project URL, the anon key, the Rork Auth app key and the media bucket name. The service-role
+ * key, TMDB server credentials and push tokens are server-side only and never reach this file or
+ * the app bundle (docs/BACKEND-CREDENTIALS.md). Every backend value is read from `EXPO_PUBLIC_*`
+ * at build time — never hardcoded — so a build without the secrets simply has no backend, and the
+ * connection gate reports that honestly instead of pretending.
  *
  * An `EXPO_PUBLIC_*` variable overrides a value ONLY when it is non-empty — CI and copied
  * `.env.example` files often define the variable as an empty string, which must not blank the key.
@@ -23,3 +27,23 @@ export const TMDB_ACCESS_TOKEN =
 
 /** TMDB v3 API key (used as `?api_key=` when no v4 token is available). */
 export const TMDB_API_KEY = env(process.env.EXPO_PUBLIC_TMDB_API_KEY) ?? 'ff01f28fc5c47791e28038349445bf58';
+
+// ── Backend (Rork Cloud / Supabase) — client-safe, build-time injected ────────────────────────
+
+/** Supabase project URL (Rork Cloud). Undefined = the build has no backend connection. */
+export const SUPABASE_URL = env(process.env.EXPO_PUBLIC_SUPABASE_URL);
+
+/** Supabase anon key. Client-safe by design: every table is guarded by row level security. */
+export const SUPABASE_ANON_KEY = env(process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY);
+
+/** Rork Auth app key — identifies this app in the Google/Apple OAuth token exchange. */
+export const RORK_APP_KEY = env(process.env.EXPO_PUBLIC_RORK_APP_KEY);
+
+/** Rork Auth base (the OAuth refresh endpoint lives at `${RORK_AUTH_URL}/oauth/refresh`). */
+export const RORK_AUTH_URL = env(process.env.EXPO_PUBLIC_RORK_AUTH_URL) ?? 'https://api.rork.com';
+
+/** The private `media` bucket created by migration 17 (reads go through signed URLs). */
+export const MEDIA_BUCKET = env(process.env.EXPO_PUBLIC_MEDIA_BUCKET) ?? 'media';
+
+/** True when the build carries a backend connection (URL + anon key both present). */
+export const backendConfigured = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);

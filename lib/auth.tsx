@@ -1,19 +1,23 @@
 /**
- * Authentication — device-local only.
+ * Authentication — Rork Cloud sessions with an honest device-local fallback.
  *
- * There is no auth server in this build: an "account" is a profile stored in AsyncStorage on this
- * device (sign-up creates it, sign-in opens it, sign-out closes it) and a guest has no account at
- * all. Nothing is transmitted anywhere — no session, token or password leaves the phone. A real
- * credential service (email delivery, verification links, password reset, cross-device sessions)
- * belongs to a later backend phase; the flows that would need one report that honestly instead of
- * pretending an email was sent or a password was checked.
+ * When the build carries a backend connection (constants/keys.ts `backendConfigured`), accounts are
+ * real Supabase Auth sessions: sign-up creates the `auth.users` row, and the database trigger
+ * (migration 03) creates the profile + preferences — the client never inserts a profile. Password
+ * reset and verification emails are real. The session persists across launches via AsyncStorage.
  *
- * Screens depend only on the AuthValue contract below, which this local implementation keeps intact.
+ * When the build has no backend, the provider falls back to the original device-local behaviour so
+ * a local build still boots: an "account" is a profile in AsyncStorage, and the email-dependent
+ * flows report the honest `NO_MAIL` error instead of pretending an email was sent.
+ *
+ * Screens depend only on the AuthValue contract below, which both implementations keep intact.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import type { Session, User as SupabaseUser } from '@supabase/supabase-js';
 import { reportError, track } from './analytics';
 import { markBoot } from './boot';
+import { setBackendAccessToken, supabase } from './api/client';
 
 export type AuthStatus = 'loading' | 'signedOut' | 'guest' | 'signedIn';
 
@@ -42,7 +46,6 @@ interface AuthValue {
   status: AuthStatus;
   user: AuthUser | null;
   recoveryPending: boolean;
-  /** 'verify' is reserved for a future email-verification flow; the local build always signs in. */
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, displayName: string) => Promise<'signedIn' | 'verify'>;
   sendReset: (email: string) => Promise<void>;
@@ -57,11 +60,13 @@ interface AuthValue {
 const Ctx = createContext<AuthValue | null>(null);
 const GUEST_KEY = 'hallyu.auth.guest';
 const ACCOUNT_KEY = 'hallyu.auth.account.v1';
+/** Deep link the backend emails return to (declared in supabase/config.toml + app.json scheme). */
+const AUTH_REDIRECT = 'hallyu://auth/callback';
 
 const MIN_PASSWORD = 6;
 
-/** Honest message for the flows that need an email service this build does not have. */
-const NO_MAIL = 'Email isn’t sent from this build — accounts live on this device only.';
+/** Honest message for the flows that need an email service when no backend is configured. */
+const NO_MAIL = 'Email isn’t available in this build — no backend is configured.';
 
 function handleFrom(email?: string, name?: string): string {
   const base =
@@ -95,50 +100,136 @@ async function writeLocalAccount(user: AuthUser): Promise<void> {
   await AsyncStorage.setItem(ACCOUNT_KEY, JSON.stringify(user)).catch(() => {});
 }
 
+/** Maps the Supabase auth user onto the AuthUser shape the screens render. */
+function mapSupabaseUser(u: SupabaseUser): AuthUser {
+  const meta = (u.user_metadata ?? {}) as Record<string, string | undefined>;
+  const email = u.email ?? undefined;
+  return {
+    id: u.id,
+    email,
+    displayName: meta.display_name ?? meta.full_name ?? displayNameFor(email ?? 'Member'),
+    handle: meta.handle ?? handleFrom(email, meta.user_name),
+    emailVerified: Boolean(u.email_confirmed_at ?? u.confirmed_at),
+    provider: 'email',
+  };
+}
+
+/** Maps a supabase-js AuthApiError onto the AuthError codes the screens switch on. */
+function mapAuthError(e: unknown): AuthError {
+  if (e instanceof AuthError) return e;
+  const raw = e as { code?: string; message?: string; status?: number } | null;
+  const code = raw?.code ?? '';
+  const message = raw?.message ?? String(e ?? 'Authentication failed.');
+  if (/fetch|network|timeout/i.test(message)) return new AuthError('network', 'You appear to be offline — try again.');
+  if (/invalid login credentials/i.test(message)) return new AuthError('credentials', 'That email and password don’t match an account.');
+  if (/email not confirmed/i.test(message)) return new AuthError('unverified', 'Verify your email first — check your inbox.');
+  if (code === 'user_already_exists' || /already registered|already exists/i.test(message)) return new AuthError('exists', 'An account with that email already exists — sign in instead.');
+  if (code === 'weak_password' || /password.*weak|at least/i.test(message)) return new AuthError('weak_password', 'Use at least 6 characters.');
+  if (/rate|too many/i.test(message)) return new AuthError('rate_limit', 'Too many attempts — wait a minute and try again.');
+  return new AuthError('unknown', message);
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('loading');
   const [user, setUser] = useState<AuthUser | null>(null);
   const [recoveryPending, setRecoveryPending] = useState(false);
   const booted = useRef(false);
 
-  // Boot. The local account resolves straight from storage — no network, no timeout needed.
+  // Boot. With a backend: restore the persisted session and follow auth state changes. Without
+  // one: the original device-local account resolves straight from storage.
   useEffect(() => {
     if (booted.current) return;
     booted.current = true;
-    (async () => {
+
+    if (!supabase) {
+      (async () => {
+        try {
+          const local = await readLocalAccount();
+          if (local) {
+            setUser(local);
+            setStatus('signedIn');
+            markBoot('auth:local-account');
+            return;
+          }
+          setStatus((await AsyncStorage.getItem(GUEST_KEY)) === '1' ? 'guest' : 'signedOut');
+          markBoot('auth:no-session');
+        } catch (e) {
+          reportError('auth.boot', e);
+          markBoot('auth:boot-failed');
+          setStatus('signedOut');
+        }
+      })();
+      return;
+    }
+
+    void (async () => {
       try {
-        const local = await readLocalAccount();
-        if (local) {
-          setUser(local);
+        const { data, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        const session: Session | null = data.session;
+        setBackendAccessToken(session?.access_token ?? null);
+        if (session?.user) {
+          setUser(mapSupabaseUser(session.user));
           setStatus('signedIn');
-          markBoot('auth:local-account');
+          markBoot('auth:session-restored');
           return;
         }
         setStatus((await AsyncStorage.getItem(GUEST_KEY)) === '1' ? 'guest' : 'signedOut');
         markBoot('auth:no-session');
       } catch (e) {
-        reportError('auth.boot', e);
+        reportError('auth.boot.session', e);
         markBoot('auth:boot-failed');
         setStatus('signedOut');
       }
     })();
+
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      setBackendAccessToken(session?.access_token ?? null);
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+        if (session?.user) {
+          setUser(mapSupabaseUser(session.user));
+          setStatus('signedIn');
+        }
+      } else if (event === 'SIGNED_OUT') {
+        // The account switch itself is handled by the store's AccountSync; here we only resolve
+        // back to the signed-out (or guest) state the gate expects.
+        setStatus((prev) => (prev === 'guest' ? 'guest' : 'signedOut'));
+      }
+    });
+    return () => sub.subscription.unsubscribe();
   }, []);
 
   const signIn = useCallback(async (email: string, password: string) => {
     const address = email.trim().toLowerCase();
     if (!address.includes('@')) throw new AuthError('credentials', 'Enter the email address you signed up with.');
     if (password.length < MIN_PASSWORD) throw new AuthError('credentials', 'Your password is at least 6 characters.');
-    // The same account on the same device keeps its display name.
-    const stored = await readLocalAccount();
-    const next: AuthUser =
-      stored && stored.email === address && stored.provider === 'email'
-        ? stored
-        : { id: idFor(address), email: address, displayName: displayNameFor(address), handle: handleFrom(address), emailVerified: true, provider: 'email' };
-    await writeLocalAccount(next);
-    await AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
-    setUser(next);
-    setStatus('signedIn');
-    track('auth.signin', { provider: next.provider });
+
+    if (!supabase) {
+      // Device-local fallback (no backend in this build).
+      const stored = await readLocalAccount();
+      const next: AuthUser =
+        stored && stored.email === address && stored.provider === 'email'
+          ? stored
+          : { id: idFor(address), email: address, displayName: displayNameFor(address), handle: handleFrom(address), emailVerified: true, provider: 'email' };
+      await writeLocalAccount(next);
+      await AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
+      setUser(next);
+      setStatus('signedIn');
+      track('auth.signin', { provider: next.provider });
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({ email: address, password });
+      if (error) throw error;
+      await AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
+      const next = mapSupabaseUser(data.user);
+      setUser(next);
+      setStatus('signedIn');
+      track('auth.signin', { provider: next.provider });
+    } catch (e) {
+      throw mapAuthError(e);
+    }
   }, []);
 
   const signUp = useCallback(async (email: string, password: string, displayName: string) => {
@@ -146,30 +237,84 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!address.includes('@')) throw new AuthError('unknown', 'That email address does not look right.');
     if (password.length < MIN_PASSWORD) throw new AuthError('weak_password', 'Use at least 6 characters.');
     const name = displayName.trim() || displayNameFor(address);
-    const next: AuthUser = { id: idFor(address), email: address, displayName: name, handle: handleFrom(address, name), emailVerified: true, provider: 'email' };
-    await writeLocalAccount(next);
-    await AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
-    setUser(next);
-    setStatus('signedIn');
-    track('auth.signup', { provider: 'email' });
-    return 'signedIn' as const;
+    const handle = handleFrom(address, name);
+
+    if (!supabase) {
+      const next: AuthUser = { id: idFor(address), email: address, displayName: name, handle, emailVerified: true, provider: 'email' };
+      await writeLocalAccount(next);
+      await AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
+      setUser(next);
+      setStatus('signedIn');
+      track('auth.signup', { provider: 'email' });
+      return 'signedIn' as const;
+    }
+
+    try {
+      // `data` feeds the on_auth_user_created trigger (migration 03): handle + display name are
+      // chosen at sign-up, not invented later.
+      const { data, error } = await supabase.auth.signUp({
+        email: address,
+        password,
+        options: { data: { display_name: name, full_name: name, handle }, emailRedirectTo: AUTH_REDIRECT },
+      });
+      if (error) throw error;
+      await AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
+      if (data.session?.user) {
+        setUser(mapSupabaseUser(data.session.user));
+        setStatus('signedIn');
+        track('auth.signup', { provider: 'email' });
+        return 'signedIn' as const;
+      }
+      // Email confirmation is on: the account exists but there is no session yet.
+      setStatus('signedOut');
+      track('auth.signup', { provider: 'email', verify: true });
+      return 'verify' as const;
+    } catch (e) {
+      throw mapAuthError(e);
+    }
   }, []);
 
   const sendReset = useCallback(async (email: string) => {
     const address = email.trim().toLowerCase();
     if (!address.includes('@')) throw new AuthError('unknown', 'That email address does not look right.');
-    // No mail service exists here — say so instead of pretending a link was sent.
-    throw new AuthError('unknown', NO_MAIL);
+
+    if (!supabase) throw new AuthError('unknown', NO_MAIL);
+
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(address, { redirectTo: AUTH_REDIRECT });
+      if (error) throw error;
+      setRecoveryPending(true);
+    } catch (e) {
+      throw mapAuthError(e);
+    }
   }, []);
 
   const updatePassword = useCallback(async (password: string) => {
     if (password.length < MIN_PASSWORD) throw new AuthError('weak_password', 'Use at least 6 characters.');
-    throw new AuthError('unknown', 'Password changes aren’t available yet — this account is stored on this device only.');
+
+    if (!supabase) throw new AuthError('unknown', 'Password changes aren’t available yet — this account is stored on this device only.');
+
+    try {
+      const { error } = await supabase.auth.updateUser({ password });
+      if (error) throw error;
+      setRecoveryPending(false);
+    } catch (e) {
+      throw mapAuthError(e);
+    }
   }, []);
 
   const resendVerification = useCallback(async (email: string) => {
-    if (!email.includes('@')) throw new AuthError('unknown', 'That email address does not look right.');
-    throw new AuthError('unknown', NO_MAIL);
+    const address = email.trim().toLowerCase();
+    if (!address.includes('@')) throw new AuthError('unknown', 'That email address does not look right.');
+
+    if (!supabase) throw new AuthError('unknown', NO_MAIL);
+
+    try {
+      const { error } = await supabase.auth.resend({ type: 'signup', email: address, options: { emailRedirectTo: AUTH_REDIRECT } });
+      if (error) throw error;
+    } catch (e) {
+      throw mapAuthError(e);
+    }
   }, []);
 
   const continueAsGuest = useCallback(() => {
@@ -180,6 +325,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    if (supabase) {
+      await supabase.auth.signOut().catch((e) => reportError('auth.signOut', e));
+      setBackendAccessToken(null);
+    }
     await AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
     await AsyncStorage.removeItem(ACCOUNT_KEY).catch(() => {});
     setUser(null);
@@ -188,7 +337,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const deleteAccount = useCallback(async () => {
-    // No server holds anything: deleting means wiping this device's copy of the account.
+    // Server-side deletion first (migration 20/36: scrubs private data, tombstones the identity),
+    // then the device wipe. When the backend is unavailable, deleting still means wiping the
+    // device's copy — reported honestly by the settings screen's connection state.
+    if (supabase) {
+      try {
+        const { error } = await supabase.rpc('delete_account');
+        if (error) reportError('auth.deleteAccount.rpc', error);
+      } catch (e) {
+        reportError('auth.deleteAccount', e);
+      }
+      await supabase.auth.signOut().catch(() => {});
+      setBackendAccessToken(null);
+    }
     await AsyncStorage.removeItem(ACCOUNT_KEY).catch(() => {});
     await AsyncStorage.removeItem(GUEST_KEY).catch(() => {});
     setUser(null);
