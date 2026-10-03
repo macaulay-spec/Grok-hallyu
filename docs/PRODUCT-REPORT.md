@@ -29,7 +29,7 @@ and lays out what to build next, what to park, and how to know it's working.
 | Surface | State vs. research |
 | --- | --- |
 | Home feed, posts, reactions, discussions, reviews, recommendations | Full generic social feed — the exact "bundle" the research warns against leading with |
-| Shorts (vertical video) + video uploads | Highest-investment, lowest-evidence feature; storage is capped (100 MB/video, 2–12/day; 1 GB free / 100 GB Pro Supabase project, Backend #3 fallback ready) |
+| Shorts (vertical video) + video uploads | Highest-investment, lowest-evidence feature; storage is capped on-device (100 MB/video, 2–12/day) — object storage belongs to a later backend phase |
 | Explore / search | Keyword/tag search — does not yet solve the #1 wedge (taste-intent discovery) |
 | Spoiler system (veiled posts, spoiler tags, episode context) | Real, differentiated machinery already exists — but it is a setting, not the headline |
 | Collections/shelves, follows, profiles, notifications | Solid social plumbing; useful only after a repeat activity exists to gather around |
@@ -93,5 +93,4 @@ Instrument these now (analytics layer already exists — `track()`/`reportError`
   release tag; keep this contract.
 - Boot breadcrumbs + lastCrash are persisted on-device — wire them into Settings → About (and a
   support email) so user reports arrive with diagnostics.
-- Keep Backend #3 dormant-but-configurable; monitor the 1 GB free-tier ceiling on the video
-  project before growth pushes (Pro = 100 GB).
+- Object storage for video is a later backend phase — decide the tier then, before growth pushes.

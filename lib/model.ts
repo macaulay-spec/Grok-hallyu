@@ -183,8 +183,8 @@ export interface Post {
   commentCount: number;
   saveCount: number;
   shareCount: number;
-  /** pending/failed = waiting for / rejected by the backend (only ever true for your own content) */
-  state?: 'active' | 'deleted' | 'hidden' | 'pending' | 'failed';
+  /** deleted = removed by its author; hidden = moderated. Absent means active. */
+  state?: 'active' | 'deleted' | 'hidden';
 }
 
 export interface Comment {
@@ -197,7 +197,8 @@ export interface Comment {
   createdAt: string;
   spoiler: SpoilerLevel;
   reactions: ReactionCounts;
-  state?: 'active' | 'deleted' | 'hidden' | 'pending' | 'failed';
+  /** deleted = removed by its author; hidden = moderated. Absent means active. */
+  state?: 'active' | 'deleted' | 'hidden';
 }
 
 export interface WatchlistItem {

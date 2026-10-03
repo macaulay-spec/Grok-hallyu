@@ -2,7 +2,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect } from 'react';
 import { create } from 'zustand';
 import { useStoreWithEqualityFn } from 'zustand/traditional';
-import { mergePending, mergePendingMap, mergePendingPrefs, pendingIds, pendingPrefKeys } from './data/pending';
 import { markBoot } from './boot';
 import { uid } from './format';
 import { Actor, Collection, Comment, Draft, Drama, FandomId, Notification, NotificationGroup, Post, ReactionCounts, ReactionKind, SpoilerProtection, User, WatchStatus, WatchlistItem } from './model';
@@ -10,21 +9,6 @@ import { Actor, Collection, Comment, Draft, Drama, FandomId, Notification, Notif
 const STORAGE_KEY = 'hallyu.state.v4';
 
 export type Intent = 'discuss' | 'track' | 'discover' | 'reactions' | 'people' | 'actors';
-
-/** A change the member made locally that still has to reach the backend. */
-export interface Mutation {
-  id: string;
-  /** the action that was applied optimistically */
-  action: Action;
-  /** the action that reverts it if the backend rejects it for good (undefined = not revertible) */
-  undo?: Action;
-  createdAt: string;
-  attempts: number;
-  status: 'queued' | 'sending' | 'failed';
-  error?: string;
-  /** what the user sees if it fails, e.g. "Couldn't follow Goblin" */
-  label: string;
-}
 
 export interface Prefs {
   protection: SpoilerProtection;
@@ -42,15 +26,6 @@ export interface Prefs {
   termsVersion: number;
 }
 
-/** One remote feed page: server order for a scope, plus its paging cursor. See lib/data. */
-export interface FeedPage {
-  ids: string[];
-  reasons?: Record<string, string>;
-  cursor?: { before?: string; score?: number; id?: string };
-  exhausted: boolean;
-  fetchedAt: string;
-}
-
 export interface AppState {
   hydrated: boolean;
   onboarding: { done: boolean; step: number; intent?: Intent; genres: string[]; /** the worlds the member picked — empty means ALL, which is the default */ fandoms: FandomId[] };
@@ -62,15 +37,13 @@ export interface AppState {
   reactions: Record<string, ReactionKind>;
   saves: string[];
   revealed: Record<string, true>;
-  /** Content pulled from the backend (plus anything locally created and not yet confirmed). */
+  /** Content created on this device (nothing is fetched from a server). */
   posts: Post[];
   comments: Comment[];
   collections: Collection[];
   notifications: Notification[];
   /** Public profile cards seen in feeds/threads (id → User). */
   users: Record<string, User>;
-  /** Server-ordered lists by scope key: home feeds, drama tabs, profiles, search… */
-  feeds: Record<string, FeedPage>;
   drafts: Draft[];
   blockedUsers: string[];
   mutedUsers: string[];
@@ -81,8 +54,6 @@ export interface AppState {
   importedDramas: Drama[];
   importedActors: Actor[];
   lastSeenActivity: string;
-  /** Mutations waiting to reach the backend (persisted). See lib/data. */
-  outbox: Mutation[];
   /** Device-local, never synced: first-run guides and milestone moments already shown (id → ISO date). */
   seen: Record<string, string>;
 }
@@ -120,7 +91,6 @@ export function initialState(): AppState {
     collections: [],
     notifications: [],
     users: {},
-    feeds: {},
     drafts: [],
     blockedUsers: [],
     mutedUsers: [],
@@ -130,7 +100,6 @@ export function initialState(): AppState {
     importedDramas: [],
     importedActors: [],
     lastSeenActivity: new Date(0).toISOString(),
-    outbox: [],
     seen: {},
   };
 }
@@ -186,42 +155,7 @@ export type Action =
   | { type: 'report'; id: string; targetType?: 'post' | 'comment' | 'user' | 'drama' | 'collection'; reason?: string; detail?: string }
   | { type: 'recentSearch'; q?: string; clear?: boolean }
   | { type: 'import'; dramas?: Drama[]; actors?: Actor[] }
-  | { type: 'seenActivity' }
-  | { type: 'outbox.add'; mutation: Mutation }
-  | { type: 'outbox.update'; id: string; patch: Partial<Mutation> }
-  | { type: 'outbox.remove'; id: string }
-  // remote-sync bookkeeping (applied by the sync layer / pull; never enqueued as mutations)
-  | { type: 'postState'; id: string; state: NonNullable<Post['state']> }
-  | { type: 'removePost'; id: string }
-  | { type: 'commentState'; id: string; state: NonNullable<Comment['state']> }
-  | { type: 'removeComment'; id: string }
-  | { type: 'restoreKey'; slice: 'watchlist' | 'reactions' | 'dramaNotify'; key: string; value?: unknown }
-  | { type: 'mergePosts'; posts: Post[] }
-  | { type: 'mergeComments'; postId: string; comments: Comment[] }
-  | { type: 'mergeUsers'; users: Partial<User>[] }
-  | { type: 'mergeNotifications'; notifications: Notification[]; append?: boolean }
-  | { type: 'mergeCollections'; collections: Collection[] }
-  | { type: 'setFeed'; key: string; ids: string[]; reasons?: Record<string, string>; cursor?: FeedPage['cursor']; append?: boolean; exhausted?: boolean }
-  | { type: 'viewerSync'; reactions: Record<string, ReactionKind | null>; saved: Record<string, boolean> }
-  | { type: 'me'; payload: MePayload }
-  // one-shot cleanup: drops demo-fixture rows from a persisted state so live backend data is the only source
-  | { type: 'purgeDemo' };
-
-/** An account snapshot, already mapped to store shapes (see lib/data/supabaseBackend.ts). */
-export interface MePayload {
-  profile?: Partial<User>;
-  prefs?: Partial<Prefs>;
-  onboarding?: Partial<AppState['onboarding']>;
-  follows?: AppState['follows'];
-  dramaNotify?: string[];
-  watchlist?: Record<string, WatchlistItem>;
-  reactions?: Record<string, ReactionKind>;
-  saves?: string[];
-  collections?: Collection[];
-  blockedUsers?: string[];
-  mutedUsers?: string[];
-  mutedDramas?: string[];
-}
+  | { type: 'seenActivity' };
 
 function toggle(list: string[], id: string, on?: boolean): string[] {
   const has = list.includes(id);
@@ -235,143 +169,10 @@ function bump(counts: ReactionCounts, kind: ReactionKind, delta: number): Reacti
   return { ...counts, [kind]: Math.max(0, counts[kind] + delta) };
 }
 
-const stamp = (x: { createdAt?: string; updatedAt?: string }) => x.createdAt ?? x.updatedAt ?? '';
-const byNewest = (a: { createdAt?: string; updatedAt?: string }, b: { createdAt?: string; updatedAt?: string }) => stamp(b).localeCompare(stamp(a));
-
-/** Upsert by id, newest first; used for everything the feeds pull. */
-function upsert<T extends { id: string; createdAt?: string; updatedAt?: string }>(prev: T[], next: T[], cap = 400): T[] {
-  if (!next.length) return prev;
-  const byId = new Map(prev.map((x) => [x.id, x]));
-  for (const x of next) byId.set(x.id, { ...(byId.get(x.id) ?? ({} as T)), ...x });
-  return [...byId.values()].sort(byNewest).slice(0, cap);
-}
-
 function reducer(s: AppState, a: Action): AppState {
   switch (a.type) {
     case 'hydrate':
       return { ...s, ...a.state, hydrated: true };
-    case 'outbox.add':
-      return { ...s, outbox: [...s.outbox, a.mutation] };
-    case 'outbox.update':
-      return { ...s, outbox: s.outbox.map((m) => (m.id === a.id ? { ...m, ...a.patch } : m)) };
-    case 'outbox.remove':
-      return { ...s, outbox: s.outbox.filter((m) => m.id !== a.id) };
-    case 'postState':
-      return { ...s, posts: s.posts.map((p) => (p.id === a.id ? { ...p, state: a.state } : p)) };
-    case 'removePost':
-      return { ...s, posts: s.posts.filter((p) => p.id !== a.id) };
-    case 'commentState':
-      return { ...s, comments: s.comments.map((c) => (c.id === a.id ? { ...c, state: a.state } : c)) };
-    case 'removeComment': {
-      const c = s.comments.find((x) => x.id === a.id);
-      return {
-        ...s,
-        comments: s.comments.filter((x) => x.id !== a.id),
-        posts: c && c.state !== 'deleted' ? s.posts.map((p) => (p.id === c.postId ? { ...p, commentCount: Math.max(0, p.commentCount - 1) } : p)) : s.posts,
-      };
-    }
-    case 'restoreKey': {
-      const next = { ...(s[a.slice] as Record<string, unknown>) };
-      if (a.value === undefined) delete next[a.key];
-      else next[a.key] = a.value;
-      return { ...s, [a.slice]: next };
-    }
-    case 'mergePosts':
-      return { ...s, posts: upsert(s.posts, a.posts, 600) };
-    case 'mergeComments': {
-      // Server pages are authoritative for a thread, but anything I just sent (pending/failed) must survive the merge.
-      const mine = s.comments.filter((c) => c.postId === a.postId && (c.state === 'pending' || c.state === 'failed'));
-      const others = s.comments.filter((c) => c.postId !== a.postId);
-      const merged = new Map<string, Comment>();
-      for (const c of [...others, ...a.comments, ...mine]) merged.set(c.id, { ...(merged.get(c.id) ?? {}), ...c } as Comment);
-      return { ...s, comments: [...merged.values()].sort(byNewest).slice(0, 1200) };
-    }
-    case 'mergeUsers': {
-      const users = { ...s.users };
-      for (const u of a.users) {
-        if (!u.id) continue;
-        users[u.id] = { ...(users[u.id] ?? { id: u.id, handle: '', displayName: '', favoriteGenres: [], favoriteDramaIds: [], followers: 0, following: 0, joinedAt: new Date().toISOString() }), ...u } as User;
-      }
-      // keep the map bounded: drop the least-referenced entries
-      const MAX = 500;
-      const ids = Object.keys(users);
-      if (ids.length > MAX) {
-        for (const id of ids.slice(0, ids.length - MAX)) delete users[id];
-      }
-      return { ...s, users };
-    }
-    case 'mergeNotifications': {
-      const merged = a.append ? [...a.notifications, ...s.notifications].filter(uniq).sort(byNewest).slice(0, 150) : a.notifications.slice(0, 150);
-      // Read state is monotonic within a session: a stale `activity` pull that still reports a
-      // notification as unread must not resurrect it after the member has read it (mirrors the
-      // pending-save guard in `viewerSync`/`me`). A brand-new id is unaffected and stays unread.
-      const wasRead = new Set(s.notifications.filter((n) => n.read).map((n) => n.id));
-      const notifications = wasRead.size ? merged.map((n) => (n.read || wasRead.has(n.id) ? { ...n, read: true } : n)) : merged;
-      return { ...s, notifications };
-    }
-    case 'mergeCollections':
-      return { ...s, collections: upsert(s.collections, a.collections, 100) };
-    case 'setFeed': {
-      const prev = s.feeds[a.key];
-      return {
-        ...s,
-        feeds: {
-          ...s.feeds,
-          [a.key]: {
-            ids: a.append ? [...new Set([...(prev?.ids ?? []), ...a.ids])] : a.ids,
-            reasons: { ...(prev?.reasons ?? {}), ...(a.reasons ?? {}) },
-            cursor: a.cursor,
-            exhausted: a.exhausted ?? false,
-            fetchedAt: new Date().toISOString(),
-          },
-        },
-      };
-    }
-    case 'viewerSync': {
-      const pendingReacts = pendingIds(s, 'react');
-      const reactions = { ...s.reactions };
-      for (const [id, kind] of Object.entries(a.reactions)) {
-        if (pendingReacts.has(id)) continue; // don't clobber an optimistic reaction awaiting flush
-        if (kind) reactions[id] = kind;
-        else delete reactions[id];
-      }
-      let saves = s.saves;
-      const touched = Object.keys(a.saved);
-      if (touched.length) {
-        const pendingSaves = pendingIds(s, 'save');
-        const set = new Set(saves);
-        for (const id of touched) {
-          if (pendingSaves.has(id)) continue; // don't clobber an optimistic save awaiting flush
-          if (a.saved[id]) set.add(id);
-          else set.delete(id);
-        }
-        saves = [...set];
-      }
-      return { ...s, reactions, saves };
-    }
-    case 'me': {
-      const p = a.payload;
-      // Identity guard: a `me` snapshot is only ever produced for the signed-in account. Drop it if it
-      // does not belong to the profile currently loaded (a late response from a previous account, or an
-      // account snapshot arriving while signed out as guest) so one user's private state can never be
-      // applied under another.
-      if (s.profile.id === GUEST_ID || (p.profile?.id && p.profile.id !== s.profile.id)) return s;
-      return {
-        ...s,
-        profile: p.profile ? { ...s.profile, ...p.profile } : s.profile,
-        prefs: p.prefs ? mergePendingPrefs<Prefs>(p.prefs, s.prefs, pendingPrefKeys(s)) : s.prefs,
-        onboarding: p.onboarding ? { ...s.onboarding, ...p.onboarding } : s.onboarding,
-        follows: p.follows ?? s.follows,
-        dramaNotify: p.dramaNotify ? Object.fromEntries(p.dramaNotify.map((id) => [id, true])) : s.dramaNotify,
-        watchlist: p.watchlist ?? s.watchlist,
-        reactions: p.reactions ? mergePendingMap(p.reactions, s.reactions, pendingIds(s, 'react')) : s.reactions,
-        saves: p.saves ? mergePending(p.saves, s.saves, pendingIds(s, 'save')) : s.saves,
-        blockedUsers: p.blockedUsers ?? s.blockedUsers,
-        mutedUsers: p.mutedUsers ?? s.mutedUsers,
-        mutedDramas: p.mutedDramas ?? s.mutedDramas,
-        collections: p.collections ? upsert(p.collections, s.collections.filter((c) => !p.collections!.some((x) => x.id === c.id)), 100) : s.collections,
-      };
-    }
     case 'replace':
       // Caches that are not account-specific (catalog art, public profiles) survive guest ↔ member switches.
       return {
@@ -466,7 +267,7 @@ function reducer(s: AppState, a: Action): AppState {
     case 'seen':
       return s.seen[a.id] ? s : { ...s, seen: { ...s.seen, [a.id]: new Date().toISOString() } };
     case 'addPost': {
-      // upsert: the backend returns the same client-generated id, so a refetch merges instead of duplicating
+      // upsert by id so re-dispatching the same local post merges instead of duplicating
       const exists = s.posts.some((p) => p.id === a.post.id);
       return { ...s, posts: exists ? s.posts.map((p) => (p.id === a.post.id ? { ...p, ...a.post } : p)) : [a.post, ...s.posts] };
     }
@@ -672,46 +473,14 @@ function reducer(s: AppState, a: Action): AppState {
     }
     case 'seenActivity':
       return { ...s, lastSeenActivity: new Date().toISOString() };
-    case 'purgeDemo': {
-      // Demo fixtures were seeded per-identity and persisted; drop them once so a live
-      // account only ever sees backend data. Demo ids are all prefixed, so this is safe.
-      const isDemoUser = (id?: string) => !!id && (id === 'demo-member' || id.startsWith('u-') || id.startsWith('demo-'));
-      const removedPosts = new Set<string>();
-      const posts = s.posts.filter((p) => {
-        const bad = p.id.startsWith('demo-') || isDemoUser(p.authorId);
-        if (bad) removedPosts.add(p.id);
-        return !bad;
-      });
-      const comments = s.comments.filter((c) => !c.id.startsWith('demo-') && !isDemoUser(c.authorId));
-      const users = Object.fromEntries(Object.entries(s.users).filter(([id]) => !isDemoUser(id)));
-      const collections = s.collections.filter((c) => !c.id.startsWith('demo-') && !isDemoUser(c.ownerId));
-      const notifications = s.notifications.filter((n) => !n.id.startsWith('demo-'));
-      const watchlist = Object.fromEntries(Object.entries(s.watchlist).filter(([id]) => !id.startsWith('demo-')));
-      const reactions = Object.fromEntries(Object.entries(s.reactions).filter(([id]) => !removedPosts.has(id) && !id.startsWith('demo-')));
-      const saves = s.saves.filter((id) => !removedPosts.has(id));
-      const follows = {
-        users: s.follows.users.filter((id) => !isDemoUser(id)),
-        dramas: s.follows.dramas.filter((id) => !id.startsWith('demo-')),
-        actors: s.follows.actors.filter((id) => !id.startsWith('demo-')),
-        collections: s.follows.collections.filter((id) => !id.startsWith('demo-')),
-      };
-      const dramaNotify = Object.fromEntries(Object.entries(s.dramaNotify).filter(([id]) => !id.startsWith('demo-')));
-      const feeds = Object.fromEntries(
-        Object.entries(s.feeds).map(([k, f]) => [k, { ...f, ids: f.ids.filter((id) => !removedPosts.has(id)) }]),
-      );
-      const importedDramas = s.importedDramas.filter((d) => !d.id.startsWith('demo-'));
-      return { ...s, posts, comments, users, collections, notifications, watchlist, reactions, saves, follows, dramaNotify, feeds, importedDramas };
-    }
     default:
       return s;
   }
 }
 
-const uniq = <T extends { id: string }>(x: T, i: number, all: T[]) => all.findIndex((y) => y.id === x.id) === i;
-
 /**
- * Catalog view: every drama/actor the app knows about comes from TMDB (through `ensure-catalog`
- * on the server, or the client catalog cache). Screens treat these lists as the whole catalog.
+ * Catalog view: every drama/actor the app knows about comes from TMDB through the client catalog
+ * (lib/catalog.ts). Screens treat these lists as the whole catalog.
  */
 export function allDramas(s: Pick<AppState, 'importedDramas'>): Drama[] {
   return s.importedDramas;
@@ -743,7 +512,6 @@ const PERSISTED_KEYS: (keyof AppState)[] = [
   'collections',
   'notifications',
   'users',
-  'feeds',
   'drafts',
   'blockedUsers',
   'mutedUsers',
@@ -753,7 +521,6 @@ const PERSISTED_KEYS: (keyof AppState)[] = [
   'importedDramas',
   'importedActors',
   'lastSeenActivity',
-  'outbox',
   'seen',
 ];
 
@@ -782,23 +549,8 @@ function deserialise(raw: string): Partial<AppState> | null {
  */
 export const useHallyu = create<AppState>()(() => initialState());
 
-/**
- * Dispatch seam. `dispatch` is what screens call: it applies the action optimistically and hands
- * (prev, action, next) to the installed middleware — the sync layer uses that to enqueue the
- * mutation for the backend. `dispatchLocal` bypasses the middleware for bookkeeping actions.
- */
-export type DispatchMiddleware = (prev: AppState, action: Action, next: AppState) => void;
-let middleware: DispatchMiddleware | null = null;
-export function setDispatchMiddleware(m: DispatchMiddleware | null): void {
-  middleware = m;
-}
+/** Apply an action: run the reducer and replace the state. There is no server, so a dispatch IS the write. */
 export function dispatch(action: Action): void {
-  const prev = useHallyu.getState();
-  const next = reducer(prev, action);
-  useHallyu.setState(next, true);
-  middleware?.(prev, action, next);
-}
-export function dispatchLocal(action: Action): void {
   useHallyu.setState(reducer(useHallyu.getState(), action), true);
 }
 
@@ -871,7 +623,7 @@ export function useStore(): StoreValue {
   return { state, dispatch, reset, clearPersisted };
 }
 
-/** Convenience: a fresh Post skeleton authored by me (the id is the client-generated UUID the backend keys on). */
+/** Convenience: a fresh Post skeleton authored by me (the id is a client-generated UUID). */
 export function newPost(authorId: string, partial: Partial<Post> & Pick<Post, 'type' | 'body'>): Post {
   return {
     id: uid('p'),

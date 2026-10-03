@@ -15,7 +15,9 @@ import * as FileSystem from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 import { Platform } from 'react-native';
-import { BackendError } from './data/backend';
+
+/** A media operation refused (permission, unsupported platform, cancelled, transfer failure). */
+export class MediaError extends Error {}
 
 const ALBUM = 'Hallyu';
 const DOWNLOADS_KEY = 'hallyu.downloads.v1';
@@ -62,10 +64,9 @@ async function readCounts(): Promise<Record<string, number>> {
 /**
  * Note an attempt to download `key`; returns that key's cumulative count on this device.
  *
- * The server-backed build counted this centrally (so a creator's numbers aggregated across
- * members). Here the count is device-local, and it is deliberately NOT the completed-download
- * ledger: `readDone`/`writeDone` are what dedupe saves, and marking those before the transfer
- * finished would make a failed download report itself as already saved on the next attempt.
+ * The count is device-local, and it is deliberately NOT the completed-download ledger:
+ * `readDone`/`writeDone` are what dedupe saves, and marking those before the transfer finished
+ * would make a failed download report itself as already saved on the next attempt.
  */
 export async function recordDownload(key: string, _postId?: string): Promise<{ counted: boolean; count: number }> {
   const counts = await readCounts();
@@ -113,9 +114,9 @@ async function albumRef(copy = false): Promise<MediaLibrary.Album | null> {
 // ---------------------------------------------------------------------------------------------
 /** Save an image to the gallery, preventing duplicate saves. */
 export async function saveImage(uri: string, dedupeKey?: string): Promise<{ saved: boolean; already?: boolean }> {
-  if (Platform.OS === 'web') throw new BackendError('Saving to the gallery isn’t supported on the web', false);
+  if (Platform.OS === 'web') throw new MediaError('Saving to the gallery isn’t supported on the web');
   const perm = await ensureMediaPermission();
-  if (perm === 'denied') throw new BackendError('Storage permission denied', false);
+  if (perm === 'denied') throw new MediaError('Storage permission denied');
 
   const done = await readDone();
   const dk = dedupeKey ?? uri;
@@ -142,19 +143,19 @@ export interface SaveVideoProgress {
  *  - permissions are requested first and refusal surfaces as a distinct error;
  *  - progress streams through `onProgress`; `signal` aborts cleanly (pause the resumable);
  *  - interrupted downloads resume instead of restarting (resumable downloader);
- *  - the backend ledger is told exactly once (record_download) before the transfer.
+ *  - the on-device download count is recorded before the transfer.
  */
 export async function saveVideo(opts: { key: string; url: string; postId?: string; onProgress?: (p: SaveVideoProgress) => void; signal?: AbortSignal }): Promise<{ saved: boolean; already?: boolean }> {
   const { key, url, postId, onProgress, signal } = opts;
-  if (Platform.OS === 'web') throw new BackendError('Saving to the gallery isn’t supported on the web', false);
+  if (Platform.OS === 'web') throw new MediaError('Saving to the gallery isn’t supported on the web');
   const perm = await ensureMediaPermission();
-  if (perm === 'denied') throw new BackendError('Storage permission denied', false);
+  if (perm === 'denied') throw new MediaError('Storage permission denied');
 
   const done = await readDone();
   if (done[key]) return { saved: true, already: true };
-  if (signal?.aborted) throw new BackendError('Cancelled', false);
+  if (signal?.aborted) throw new MediaError('Cancelled');
 
-  // Counted once server-side, before the transfer, so the ledger survives a client crash mid-download.
+  // Counted before the transfer, so the count survives a crash mid-download.
   await recordDownload(key, postId);
 
   const target = `${FileSystem.cacheDirectory}hallyu_${key.replace(/[^A-Za-z0-9]/g, '_')}.mp4`;
@@ -175,8 +176,8 @@ export async function saveVideo(opts: { key: string; url: string; postId?: strin
   }
 
   const res = await resumable.downloadAsync();
-  if (signal?.aborted) throw new BackendError('Cancelled', false);
-  if (!res || res.status >= 400) throw new BackendError(`Download failed (HTTP ${res?.status ?? 'network'})`, true);
+  if (signal?.aborted) throw new MediaError('Cancelled');
+  if (!res || res.status >= 400) throw new MediaError(`Download failed (HTTP ${res?.status ?? 'network'})`);
 
   const asset = await MediaLibrary.createAssetAsync(res.uri);
   const album = await albumRef();

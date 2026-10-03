@@ -19,19 +19,13 @@ import { MilestoneWatcher } from '../components/moments/MilestoneWatcher';
 import { ToastProvider } from '../components/ui/Toast';
 import { colors } from '../constants/theme';
 import { reportError } from '../lib/analytics';
-import { attachCloudAnalytics } from '../lib/analyticsCloud';
 import { AuthProvider, useAuth } from '../lib/auth';
 import { markBoot } from '../lib/boot';
-import { SyncProvider, getBackend } from '../lib/data/sync';
-import { PushSync } from '../lib/push';
 import { installNotificationHandler, reminderUrl, remindersSupported, syncEpisodeReminders } from '../lib/reminders';
 import { setDownloadScope } from '../lib/media';
 import { freshMemberState, getState, GUEST_ID, guestState, StoreProvider, useHallyu, useSlice, useStore } from '../lib/store';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
-
-// Analytics pipeline: track() events batch and flush to the cloud (mirrored into Postgres).
-attachCloudAnalytics();
 
 export const unstable_settings = { initialRouteName: 'index' };
 
@@ -86,27 +80,20 @@ export default function RootLayout() {
             {/*
               Crash isolation. The root boundary sits high enough to protect the whole application
               tree (the Stack and every screen). The non-visual startup components each get their own
-              `silent` boundary, so an exception in AccountSync / SyncProvider / ReminderSync /
-              MilestoneWatcher is logged and swallowed instead of taking the app down — previously
-              those components sat ABOVE the only ErrorBoundary, so a crash in one of them bypassed
-              it entirely. Startup components also catch their own async failures (see reportError).
+              `silent` boundary, so an exception in AccountSync / ReminderSync / MilestoneWatcher is
+              logged and swallowed instead of taking the app down. Startup components also catch
+              their own async failures (see reportError).
             */}
             <ErrorBoundary scope="Hallyu">
               <StatusBar style="light" backgroundColor={colors.canvas} />
               <ErrorBoundary scope="AccountSync" silent>
                 <AccountSync />
               </ErrorBoundary>
-              <ErrorBoundary scope="SyncProvider" silent>
-                <SyncProvider />
-              </ErrorBoundary>
               <ErrorBoundary scope="ReminderSync" silent>
                 <ReminderSync />
               </ErrorBoundary>
               <ErrorBoundary scope="MilestoneWatcher" silent>
                 <MilestoneWatcher />
-              </ErrorBoundary>
-              <ErrorBoundary scope="PushSync" silent>
-                <PushSync />
               </ErrorBoundary>
               <Stack
                 screenOptions={{
@@ -219,9 +206,6 @@ function AccountSync() {
         reset(guestState());
         dispatch({ type: 'prefs', patch: device });
       }
-      if (auth.status === 'guest') {
-        void getBackend().pull('home').catch(() => {});
-      }
       return;
     }
 
@@ -277,16 +261,10 @@ function AccountSync() {
           }
           dispatch({ type: 'prefs', patch: device });
         }
-        // Pull the account snapshot (profile, graph, watchlist…) and the feeds. The backend drops any
-        // response whose account changed mid-flight, and we re-check here between steps.
-        const backend = getBackend();
-        await backend.pull('me');
         if (stale()) return;
-        await backend.pull('home');
-        if (stale()) return;
-        applied.current = u.id; // mark COMPLETE only after the snapshot and feeds are in
+        applied.current = u.id; // mark COMPLETE once the local snapshot is in
       } catch (e) {
-        // Expected async failures (offline, transient 5xx): log diagnostics, keep the app usable.
+        // Expected async failures: log diagnostics, keep the app usable.
         reportError('AccountSync.sync', e, { account: u.id });
       } finally {
         if (myGen === gen.current) inFlight.current = null;

@@ -69,5 +69,5 @@ Read 01 → 02 → 03 → 04 first; they are the constraints everything else obe
 
 ## Reference material (what already existed, and how it was used)
 
-- `/docs/HALLYU.md`, `/docs/blueprint-ui-ux.png`, the Expo prototype under `/app`, `/components`, `/lib`, and `/supabase/migrations/…_init.sql` were treated as **research**, per the brief. The prototype's near-black + magenta direction and the H-and-dot icon idea were kept because they are good; its navigation, cards, static data, flat comment model, fictional seed drama and layouts were **not** carried forward.
+- `/docs/HALLYU.md`, `/docs/blueprint-ui-ux.png`, and the Expo prototype under `/app`, `/components`, `/lib` (the old SQL draft has since been removed from the repo) were treated as **research**, per the brief. The prototype's near-black + magenta direction and the H-and-dot icon idea were kept because they are good; its navigation, cards, static data, flat comment model, fictional seed drama and layouts were **not** carried forward.
 - Facts checked while writing this spec (September 2026): Korean broadcast grid (twin-night slots, ~22:00 KST, streaming shortly after), TMDB's attribution requirement and image size ladder, Google Play's UGC (report/block/terms) and account-deletion requirements, Android 16 / API 36 targeting, Material 3 window size classes, Supabase free-tier limits.

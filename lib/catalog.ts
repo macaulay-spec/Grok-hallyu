@@ -54,9 +54,9 @@ export interface CatalogProvider {
   getSeasonEpisodes(providerId: number, seasonNumber: number, dramaId: string, signal?: AbortSignal): Promise<Episode[]>;
   /** Person + credits across film and television. */
   getActor(providerId: number, signal?: AbortSignal): Promise<ActorDetail | null>;
-  /** Find the catalog record for a locally-seeded title (used to attach real art + ids). */
+  /** Find the catalog record for a locally-held title (used to attach real art + ids). */
   resolveDrama(hint: ResolveHint, signal?: AbortSignal): Promise<Drama | null>;
-  /** Find a person by name (used to attach headshots to seeded actors). */
+  /** Find a person by name (used to attach real headshots). */
   resolveActor(name: string, koreanName?: string, signal?: AbortSignal): Promise<Actor | null>;
 
   // ---- Editorial lists (Explore, onboarding, genre pages). Thin records, all four worlds. ----

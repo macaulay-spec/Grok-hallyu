@@ -35,7 +35,6 @@ import { FANDOMS, formatFandomOf } from '../../lib/fandoms';
 import { getState } from '../../lib/store';
 import { catalog } from '../../lib/catalog';
 import { adoptDramas } from '../../lib/catalogSync';
-import { useRemote } from '../../lib/data/sync';
 
 type Row =
   | { key: string; kind: 'post'; post: Post; reason?: string }
@@ -78,7 +77,6 @@ function Home() {
   const [tab, setTab] = useState<'forYou' | 'following'>('forYou');
   // Universe selector (spec 3.3): For You + one chip per fandom world; narrows the feed.
   const [universe, setUniverse] = useState<FandomId | 'all'>('all');
-  useRemote(tab === 'following' ? 'feed:following' : 'feed:forYou', 45_000);
   const listRef = useRef<FlatList<Row>>(null);
   const viewport = useViewabilityTracker<Row>((r) => (r.kind === 'post' && r.post.video ? r.post.id : null));
   const { control: refreshControl, onRefresh: pull } = useRefresh('home');

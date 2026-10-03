@@ -12,7 +12,7 @@ import { space } from '../../constants/theme';
 import { AuthError, useAuth } from '../../lib/auth';
 import { useStore } from '../../lib/store';
 
-/** Delete account — explicit, typed confirmation; also points at the web deletion link (Play policy). */
+/** Delete account — explicit, typed confirmation; wipes this device's copy of the account. */
 export default function DeleteAccount() {
   const router = useRouter();
   const auth = useAuth();
@@ -31,7 +31,7 @@ export default function DeleteAccount() {
       toast.show({ message: 'Account deleted. Thank you for the time you spent here.' });
       router.replace('/');
     } catch (e) {
-      setError((e as AuthError).message ?? 'Something went wrong. Try again or email privacy@hallyu.app.');
+      setError((e as AuthError).message ?? 'Something went wrong. Try again.');
     } finally {
       setBusy(false);
     }
@@ -43,7 +43,7 @@ export default function DeleteAccount() {
           This removes everything.
         </Text>
         <Text variant="body" tone="secondary" style={{ marginTop: space.x2 }}>
-          Your profile, posts, comments, reactions, watchlist, collections and follows are deleted within 30 days. Your handle becomes available to others. This cannot be undone.
+          Your profile, posts, comments, reactions, watchlist, collections and follows are removed from this device. This cannot be undone.
         </Text>
         <View style={{ marginTop: space.x5, gap: space.x4 }}>
           <InlineNotice tone="warning" icon="warning-outline" text="Prefer a break? Sign out instead — nothing is lost." />
@@ -51,7 +51,7 @@ export default function DeleteAccount() {
           {error ? <InlineNotice tone="danger" icon="alert-circle-outline" text={error} /> : null}
           <Button label="Delete my account" variant="danger" size="lg" block disabled={!ready} loading={busy} onPress={run} />
           <Text variant="caption" tone="tertiary">
-            You can also request deletion without the app at hallyu.app/delete.
+            This account lives on this device only, so deletion is immediate.
           </Text>
         </View>
       </ScrollScreen>

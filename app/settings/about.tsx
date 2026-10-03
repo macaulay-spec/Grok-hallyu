@@ -63,8 +63,8 @@ export default function About() {
         <SettingsGroup title="Open source">
           <SettingsRow icon="logo-react" label="React Native & Expo" detail="MIT License" onPress={() => Linking.openURL('https://expo.dev').catch(() => {})} />
         </SettingsGroup>
-        <SettingsGroup title="This build" footer="This preview runs without a server: your account, posts and watchlist live on this device only.">
-          <SettingsRow icon="phone-portrait-outline" label="Frontend preview" detail="No backend connected" />
+        <SettingsGroup title="This build" footer="Hallyu stores your account, posts and watchlist on this device only.">
+          <SettingsRow icon="phone-portrait-outline" label="Storage" detail="On this device" />
         </SettingsGroup>
         <Text variant="caption" tone="disabled" align="center" style={{ marginBottom: space.x8, paddingHorizontal: space.margin }}>
           Hallyu is an independent fan project and is not affiliated with any broadcaster, streaming service or agency. Drama titles, posters and stills belong to their respective owners.

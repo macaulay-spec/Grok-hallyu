@@ -31,7 +31,7 @@ A mobile-first social app where every post is tied to one or more dramas, the fe
 ## 2. Product Scope (MVP)
 
 ### Must-haves
-- Auth (email/password via Supabase)
+- Auth (email/password)
 - Profiles (avatar, display name, bio, favorite dramas)
 - Drama entities (title, poster, year, genres, synopsis, cast as text)
 - Posts (text + images) tagged to dramas
@@ -91,38 +91,21 @@ Deep blacks + luminous magenta. Cinematic, Apple-level restraint.
 ## 4. Technical Architecture
 
 - **App**: Expo (React Native + TypeScript) + Expo Router
-- **Backend**: the Rork-managed Supabase Postgres project `mwgmzncsitgibbkhsktt` — schemas, functions,
-  triggers, RLS and Storage live there and are the source of truth. Nothing in this repository
-  provisions, migrates or replaces that database.
-- **Identity**: Rork Auth (`https://api.rork.com`, project `ss819xdajyzsa3znsyi9t`). The Rork JWT is
-  handed to Supabase through the access-token bridge in `lib/supabase.ts`; Postgres authorises every
-  row with `user_id()` = the JWT `sub`.
-- **State**: Zustand + Auth Context, offline-first outbox (`lib/data/sync.ts`)
-- **Media**: expo-image-picker → Supabase Storage (`media` bucket) via `lib/storage.ts`
-- **Distribution**: GitHub Actions APK (`.github/workflows/build-apk.yml`) or EAS Build
+- **Backend**: not attached yet — this repo is a frontend-only build; a backend is a separate phase
+- **State**: Zustand (ready) + Auth Context
+- **Media**: expo-image-picker → device storage
+- **Distribution**: EAS Build → APK
 
 ### Core data model
-profiles, posts, comments, reactions, saves, follows, watchlist, drama_notify, collections,
-collection_items, notifications, prefs, blocks, mutes, reports, events, push_tokens, admin_audit.
-
-These already exist inside the Rork-managed backend; the client's expectations are checked against
-the live schema by `.github/workflows/backend.yml` (`scripts/ci/backend-health.mjs`). There are no
-local migrations for this backend — the repository does not own its schema.
+The intended model (profiles, posts, comments, reactions, saves, follows, watchlist, collections, notifications) will live with the backend when it is attached. This repo ships no schema, migrations or SQL.
 
 ---
 
 ## 5. How to run
 
-1. `bun install` (or `npm install`)
-2. `npx expo start` — the committed client configuration in `constants/keys.ts` already points at the
-   live Rork backend, so nothing else is required to run the app.
-3. Optional: override `EXPO_PUBLIC_*` values in `.env` for local experiments. Overrides are validated
-   at build time, and a privileged (service-role/secret) key is always refused.
-4. Build an installable APK: run the **Build APK** workflow (GitHub Actions → Actions → Build APK →
-   Run workflow) — it validates the credentials, compiles, and verifies the embedded configuration.
-
-There is no Supabase-CLI step, no migration to apply and no project to provision: the Rork backend
-already holds the schema, functions, triggers and RLS policies.
+1. `npm install`
+2. `npx expo start` — the TMDB catalog credential ships in `constants/keys.ts`; rotate it there (or set a non-empty `EXPO_PUBLIC_TMDB_ACCESS_TOKEN`) if you use your own key
+3. Scan QR with Expo Go (or build APK with EAS)
 
 ---
 
@@ -157,13 +140,9 @@ hallyu/
 │   │   ├── ui/              # Design system primitives
 │   │   └── feed/
 │   ├── constants/           # theme.ts
-│   ├── lib/                 # supabase + auth context
+│   ├── lib/                 # auth context, store, catalog
 │   ├── types/
 │   └── hooks/
-├── supabase/
-│   ├── config.toml
-│   ├── migrations/          # applied by GitHub Actions
-│   └── functions/           # ensure-catalog, delete-account, push-dispatch
 ├── package.json
 ├── app.json
 └── tsconfig.json

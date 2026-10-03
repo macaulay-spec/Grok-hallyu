@@ -13,10 +13,10 @@
  *
  * The module-scope offenders on that chain were `fast-png` (`var latin1Decoder = new
  * TextDecoder('latin1')`) and `iobuffer` (`var encoder = new TextEncoder()`), reached via the now
- * deleted watermark compositor. Supabase's Realtime/Auth clients use both too, lazily.
+ * deleted watermark compositor. Some bundled libraries use both too, lazily.
  *
- * CURRENT STATUS: the offenders are gone — the watermark chain was deleted and the auth/database
- * clients moved to `backend/`, so nothing in the app constructs these globals today. This stays as a
+ * CURRENT STATUS: the offenders are gone — the watermark chain was deleted and no backend client
+ * ships with the app, so nothing in the app constructs these globals today. This stays as a
  * safety net: Hermes still has neither global, the cost is a no-op at runtime, and the failure mode
  * it prevents (one lazily-evaluating dependency collapsing the root layout) is invisible until a
  * release build boots on a device.

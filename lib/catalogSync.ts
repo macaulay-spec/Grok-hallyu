@@ -1,8 +1,8 @@
 /**
  * Adopting live catalog results (TMDB-backed) into the store so every list opens the same Drama Hub.
  *
- * A TMDB result that matches a title already held on the device (from a previous import or from the
- * backend's post cards) resolves to that richer local record; anything new is imported once so
+ * A TMDB result that matches a title already held on the device (from a previous import or a post
+ * card) resolves to that richer local record; anything new is imported once so
  * `/drama/[id]` can render it. Returns the de-duplicated, display-ready list.
  */
 import { Actor, Drama, MediaType } from './model';

@@ -84,7 +84,7 @@ export function seasonEpisodeLabel(season?: number, episode?: number, seasonCoun
 }
 
 /**
- * Client-generated ids are real UUIDs: the backend uses them as primary keys (idempotent create, offline-first).
+ * Client-generated ids are real UUIDs: stable, collision-proof keys for locally created content.
  * The prefix is kept only for call-site readability; it is not part of the id.
  */
 export function uid(_prefix = 'id'): string {

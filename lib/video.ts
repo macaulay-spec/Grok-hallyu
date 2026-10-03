@@ -1,32 +1,33 @@
 /**
- * Video & media helper for Hallyu.
+ * Video, without a video backend.
  *
- * Playable sources pass through unchanged: local (`file://`, `blob:`, `data:`, `content:`, `ph:`)
- * while composing, remote (`http://`, `https://`) once uploaded. Publishing needs the cloud to
- * accept the file: `lib/storage.ts` uploads it to the backend's Storage bucket and the row keeps the
- * public URL.
+ * The device *is* the storage: a post's video is the local file URI captured by the picker, which
+ * plays straight from disk and survives in the persisted store. That keeps the whole create → post →
+ * watch loop exercisable offline.
  *
- * `videoUploadsAvailable()` is the composer's honesty gate. It asks the bucket whether it is really
- * there (a cached, non-blocking probe) so the UI can refuse to attach a clip it could never publish —
- * instead of accepting one and silently dropping it at insert time, which is what made a short look
- * "posted" while its video never left the device.
+ * Real object storage belongs to a later backend phase: it means implementing `uploadVideo` again
+ * and swapping the identity `videoUrl` for a key→public-URL mapping.
  */
-import { publicMediaUrl, storageReady } from './storage';
 
+/** Local cap, kept in step with the picker's UI copy. */
 export const VIDEO_MAX_BYTES = 100 * 1024 * 1024;
 
 /**
- * Can the cloud accept a video right now? False when the media bucket is confirmed missing (a
- * backend configuration problem the composer must explain). An unreachable network is *not* treated
- * as "unavailable": the clip is accepted, the outbox retries, and a real failure is reported.
+ * Can this build carry video posts? Always — no bucket, no quota, no ledger to consult. Note this is
+ * synchronous on purpose: the create screen checks it before choosing the video path, and an async
+ * check there would always look constructible.
  */
-export async function videoUploadsAvailable(): Promise<boolean> {
-  return storageReady();
+export function videoUploadsAvailable(): boolean {
+  return true;
 }
 
-/** Playable source for a stored video reference (uploads store absolute URLs; older rows may not). */
+/**
+ * Playable source for a stored video reference.
+ *
+ * There is no storage key namespace to resolve any more: posts hold a remote URL or a local file
+ * URI. Both are already sources, so this is an identity function — which also means the existing
+ * call sites (`url.startsWith('http') ? url : videoUrl(url)`) keep working unchanged for both cases.
+ */
 export function videoUrl(key: string): string {
-  if (!key) return key;
-  if (/^(https?:|file:|content:|ph:|blob:|data:)/.test(key)) return key;
-  return publicMediaUrl(key);
+  return key;
 }

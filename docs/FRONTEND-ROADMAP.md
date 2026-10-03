@@ -4,9 +4,9 @@ Companion to the independent cross-fandom research (27 Sep 2026) and to this rep
 `docs/PRODUCT-REPORT.md`. This document is about **this codebase**: what it already does well, what to
 change in the UI/UX, and which research findings are worth buying with real engineering effort.
 
-Written after the backend was removed (see `backend/README.md`). The app is now a frontend-only demo
-build: local accounts, local writes, seeded social content, and a drama/actor catalog read from TMDB
-directly by the client.
+Written for the frontend-only codebase: local accounts, local writes, and a drama/actor catalog
+read from TMDB directly by the client. There is no backend and no mock backend in the app —
+re-attaching a real one is a separate phase.
 
 ---
 
@@ -21,7 +21,7 @@ Verified by reading the code, not the docs.
 | Design token system (`constants/theme.ts`) | One near-black canvas, one accent, a real type scale, window size classes, motion tokens. Most apps at this stage have ad-hoc hex values. |
 | Spoiler machinery (`lib/spoiler.ts`, `SpoilerBlock`, veiled posts/comments) | The research's #2 wedge, *already built*: spoilers default from watched state, not from voluntary tags. |
 | Editorial home (`app/(tabs)/index.tsx`) | Tonight → Up next → posts *interleaved* with shorts/dramas/people/discussions. Not a firehose. Directly contradicts the "generic feed" the research warns about. |
-| Offline-first write path (`lib/data/sync.ts`, `lib/store.tsx`) | Optimistic writes, coalescing outbox, rollback with Retry, "Couldn't post · Retry · Discard" strips. This is the hardest part of a social app and it is done. |
+| Local write path (`lib/store.tsx`) | Every mutation applies optimistically to the persisted store through one reducer — no round-trip, no queue. The sync/outbox layer was removed with the backend; re-adding one is a backend-phase task. |
 | Boot diagnostics (`lib/boot.ts`, `lib/crash.ts`) | A breadcrumb trail and the last uncaught error render on the splash screen. Rare, and it is why the cold-boot crash was findable at all. |
 | Empty states, skeletons, a11y | Every empty state is authored; `useLoad` holds skeletons behind a 150 ms rule; roles/labels are set; reduce-motion, true-black, data-saver and quiet hours exist as preferences. |
 
@@ -89,15 +89,14 @@ adopted into the same record shape.
 - **Onboarding step: what to exclude.** One screen: formats/regions you never want. It is what makes
   a cross-fandom product deliberate rather than accidental.
 
-### P2 — Honesty and polish in the demo build
+### P2 — Honesty and polish
 
 Small, but a reviewer will hit these immediately:
 
-- `/settings/account` still offers "Request a copy of your data — Emailed within 48 hours", which is
-  not true of a device-local build. It should say where the data actually is.
 - Legal / guidelines / privacy screens describe a server-hosted, moderated service. They need a
-  demo notice until a backend is re-attached.
-- The demo member has no avatar (initials fallback is fine, but a seeded avatar reads better).
+  clear "local build" notice until a backend is attached.
+- Account flows that need a server (password reset, email verification) already fail honestly —
+  keep any future copy from promising an email this build cannot send.
 
 ### P3 — Demote what the evidence does not support yet
 
@@ -159,9 +158,10 @@ the data is already captured on device and shown only on the splash screen today
 
 ## 5. Status of this pass
 
-Done: backend removed from the app and parked under `backend/`; local demo backend + seeded social
-content; local accounts; local video and download ledger; TMDB catalog untouched and still live.
-Verified: `typecheck`, `lint`, the save-flow regression suite, and an Android Hermes export whose
-bundle contains **no** Supabase credentials, RPC names or backend modules.
+Done: backend, mock backend and seeded social content fully removed from the app (no cloud client,
+no demo member, no fixtures); local accounts; local video and download ledger; TMDB catalog
+untouched and still live.
+Verified: `typecheck`, `lint`, the fandom checks, and an Android Hermes export whose bundle
+contains **no** backend credentials, RPC names or backend modules.
 
 Next: P1 taste-aware discovery.

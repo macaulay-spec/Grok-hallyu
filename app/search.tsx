@@ -23,7 +23,6 @@ import { useApp, useDebounced, useLoad, useNetwork } from '../lib/hooks';
 import { Actor, Drama } from '../lib/model';
 import { searchLocal, trendingDramas, trendingHashtags } from '../lib/selectors';
 import { track } from '../lib/analytics';
-import { useRemote } from '../lib/data/sync';
 
 type Scope = 'all' | 'dramas' | 'actors' | 'people' | 'posts' | 'collections';
 
@@ -41,7 +40,6 @@ export default function Search() {
   const [q, setQ] = useState(params.q ?? '');
   const [scope, setScope] = useState<Scope>(params.scope ?? (params.q?.startsWith('#') ? 'posts' : 'all'));
   const debounced = useDebounced(q.trim(), 250);
-  useRemote(debounced.length > 1 ? `search:${encodeURIComponent(debounced)}` : 'noop', 15_000);
   const local = useMemo(() => searchLocal(state, debounced), [state, debounced]);
   const isTag = debounced.startsWith('#');
 

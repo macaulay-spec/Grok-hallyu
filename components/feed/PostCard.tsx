@@ -17,12 +17,10 @@ import { ReactionButton, ReactionSummary } from './Reactions';
 import { FeedVideo } from '../media/FeedVideo';
 import { ImageCarousel } from '../media/ImageCarousel';
 import { SpoilerBlock, SpoilerTag } from './SpoilerBlock';
-import { SyncStrip } from './SyncStrip';
 import { RichText } from './RichText';
 import * as Clipboard from 'expo-clipboard';
-import { localDone, saveImage, saveVideo } from '../../lib/media';
+import { localDone, saveImage, saveVideo, MediaError } from '../../lib/media';
 import { videoUrl } from '../../lib/video';
-import { BackendError } from '../../lib/data/backend';
 
 export const KIND_LABEL: Record<DiscussionKind, string> = { general: 'Discussion', theory: 'Theory', ending: 'Ending talk', character: 'Character', scene: 'Scene', question: 'Question' };
 export const TYPE_LABEL: Record<Post['type'], string> = { post: 'Post', reaction: 'Reaction', discussion: 'Discussion', review: 'Review', recommendation: 'Recommendation', short: 'Short' };
@@ -103,7 +101,7 @@ function PostCardBase({ post, reason, detail, hideContext, style, onOpenComments
           }
         }
       } catch (e) {
-        if (e instanceof BackendError && e.message.toLowerCase().includes('permission')) {
+        if (e instanceof MediaError && e.message.toLowerCase().includes('permission')) {
           toast.show({ message: 'Storage permission denied', icon: 'lock-closed-outline', tone: 'danger' });
         } else {
           toast.show({ message: 'Download failed — try again', icon: 'cloud-offline-outline', tone: 'danger' });
@@ -285,9 +283,6 @@ function PostCardBase({ post, reason, detail, hideContext, style, onOpenComments
         <SpoilerBlock id={post.id} level={post.spoiler} drama={drama} season={post.context.season} episode={post.context.episode} veiled={veiled}>
           {Body}
         </SpoilerBlock>
-
-        {/* Delivery state for your own content */}
-        <SyncStrip postId={post.id} state={post.state} noun={TYPE_LABEL[post.type].toLowerCase()} />
 
         {/* Hashtags not already inline in the body */}
         {post.hashtags.length && !veiled ? (

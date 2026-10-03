@@ -6,10 +6,7 @@ import { TopBar } from '../../components/ui/TopBar';
 import { useAuth } from '../../lib/auth';
 import { useApp } from '../../lib/hooks';
 
-const METHOD_LABEL: Record<string, string> = { email: 'Email & password', google: 'Google', apple: 'Apple', demo: 'Demo (device only)' };
-const METHOD_ICON: Record<string, string> = { email: 'mail-outline', google: 'logo-google', apple: 'logo-apple', demo: 'sparkles-outline' };
-
-/** Account — identity, sign-in method, data controls. */
+/** Account — identity and data. */
 export default function AccountSettings() {
   const router = useRouter();
   const auth = useAuth();
@@ -20,13 +17,9 @@ export default function AccountSettings() {
         <SettingsGroup title="Identity">
           <SettingsRow icon="person-outline" label="Profile" value={`@${me.handle}`} onPress={() => router.push('/edit-profile')} />
           <SettingsRow icon="mail-outline" label="Email" value={auth.user?.email ?? '—'} />
-          <SettingsRow
-            icon={(METHOD_ICON[auth.user?.provider ?? 'google'] ?? 'logo-google') as React.ComponentProps<typeof SettingsRow>['icon']}
-            label="Sign-in method"
-            value={METHOD_LABEL[auth.user?.provider ?? 'google'] ?? 'Google'}
-          />
+          <SettingsRow icon="phone-portrait-outline" label="Sign-in method" value="Email · stored on this device" />
         </SettingsGroup>
-        <SettingsGroup title="Your data" footer="Deleting your account wipes your posts, comments, watchlist, collections and follows from the cloud immediately.">
+        <SettingsGroup title="Your data" footer="This account and everything it holds live on this device.">
           <SettingsRow icon="trash-outline" label="Delete account" tone="danger" onPress={() => router.push('/settings/delete-account')} />
         </SettingsGroup>
       </ScrollScreen>

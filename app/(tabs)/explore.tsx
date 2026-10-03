@@ -22,7 +22,6 @@ import { TopBar } from '../../components/ui/TopBar';
 import { WorldTile } from '../../components/fandom/WorldTile';
 import { colors, radius, space } from '../../constants/theme';
 import { catalog, invalidateCatalogLists, friendlyCatalogCopy } from '../../lib/catalog';
-import { supabase } from '../../lib/supabase';
 import { FANDOMS } from '../../lib/fandoms';
 import { adoptActors, adoptDramas } from '../../lib/catalogSync';
 import { Loadable, useApp, useCatalogHealth, useLayout, useLoad, useNetwork } from '../../lib/hooks';
@@ -58,18 +57,19 @@ export default function Explore() {
   const netflix = useDramas((s) => catalog.onProvider(NETFLIX, s));
   const faces = useLoad<Actor[]>(async (s) => adoptActors(await catalog.trendingPeople(s)), [], catalog.available);
 
-  // Community pulse — live counts from the Hallyu backend (the last 24 hours + total members).
-  const pulse = useLoad(async () => {
-    const since = new Date(Date.now() - 86_400_000).toISOString();
-    const [p, c, m] = await Promise.all([
-      supabase.from('posts').select('id', { count: 'exact', head: true }).gte('created_at', since),
-      supabase.from('comments').select('id', { count: 'exact', head: true }).gte('created_at', since),
-      supabase.from('profiles').select('id', { count: 'exact', head: true }),
-    ]);
-    return { posts: p.count ?? 0, comments: c.count ?? 0, members: m.count ?? 0 };
-  }, []);
+  // Community pulse — the last 24 hours *on this device*. There is no server in this build to
+  // count a global community, so this reports the local store and hides itself when it is empty.
+  const pulse = useMemo(() => {
+    const since = Date.now() - 86_400_000;
+    const fresh = (iso?: string) => !!iso && Date.parse(iso) >= since;
+    return {
+      posts: state.posts.filter((p) => fresh(p.createdAt)).length,
+      comments: state.comments.filter((c) => fresh(c.createdAt)).length,
+      people: Object.keys(state.users).length,
+    };
+  }, [state]);
 
-  // Personalized rail: the member's favorite genres, straight from their profile on the backend.
+  // Personalized rail: the member's own favorite genres (stored in the local profile).
   const favGenres = useMemo(() => state.profile.favoriteGenres?.slice(0, 2) ?? [], [state.profile.favoriteGenres]);
   const forYou = useLoad<Drama[]>(async (signal) => {
     const lists = await Promise.all(favGenres.map((g) => catalog.byGenre(g, 8, signal)));
@@ -94,7 +94,6 @@ export default function Explore() {
     upcoming.reload();
     netflix.reload();
     faces.reload();
-    pulse.reload();
     forYou.reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refresh.refreshing]);
@@ -172,14 +171,14 @@ export default function Explore() {
           </Pressable>
         ) : null}
 
-        {/* Community pulse — proof the backend is alive: the last 24 hours, live from Postgres. */}
-        {pulse.data && (pulse.data.posts > 0 || pulse.data.members > 1) ? (
+        {/* Your activity — the last 24 hours on this device (no server counts a global community here). */}
+        {pulse.posts > 0 || pulse.comments > 0 || pulse.people > 1 ? (
           <View style={styles.section}>
-            <SectionHeader eyebrow="Live" title="Community pulse" subtitle="The last 24 hours in Hallyu" live />
+            <SectionHeader eyebrow="On device" title="Your last 24 hours" subtitle="Everything captured on this device" />
             <View style={styles.pulseRow}>
-              <PulsePill icon="flame-outline" label="New posts" value={pulse.data.posts} onPress={() => router.push('/trending')} />
-              <PulsePill icon="chatbubbles-outline" label="Comments" value={pulse.data.comments} onPress={() => router.push('/trending')} />
-              <PulsePill icon="people-outline" label="Members" value={pulse.data.members} onPress={() => router.push('/people')} />
+              <PulsePill icon="flame-outline" label="New posts" value={pulse.posts} onPress={() => router.push('/trending')} />
+              <PulsePill icon="chatbubbles-outline" label="Comments" value={pulse.comments} onPress={() => router.push('/trending')} />
+              <PulsePill icon="people-outline" label="People" value={pulse.people} onPress={() => router.push('/people')} />
             </View>
           </View>
         ) : null}
@@ -225,7 +224,7 @@ export default function Explore() {
 
         <LiveRail eyebrow="Trending" title="Everyone’s talking about" subtitle="K-Dramas, C-Dramas, anime and Hollywood together" state={trending} slice={[1]} size="m" onAction={() => router.push('/trending')} />
 
-        {/* For you — the member's favorite genres, personalized from their backend profile. */}
+        {/* For you — the member's own favorite genres, from the local profile. */}
         {favGenres.length > 0 ? (
           <LiveRail
             eyebrow="For you"

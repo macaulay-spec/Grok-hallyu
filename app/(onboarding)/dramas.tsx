@@ -20,7 +20,7 @@ const STATUS_LABEL: Record<WatchStatus, string> = { want: 'Want to watch', watch
 
 /**
  * Step 3 — the dramas you know. The grid is the live catalog (what's trending and popular on TMDB
- * right now, plus all-time favourites) so it looks like the real K-drama world, not a demo. Each
+ * right now, plus all-time favourites) so it looks like the real K-drama world. Each
  * pick asks a one-tap status so the spoiler system works from minute one.
  */
 export default function DramasStep() {

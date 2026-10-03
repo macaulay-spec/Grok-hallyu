@@ -19,7 +19,6 @@ export type AnalyticsEvent =
   | 'spoiler.reveal'
   | 'search.query'
   | 'catalog.import'
-  | 'sync.failed'
   | 'error.boundary'
   | 'error.async';
 

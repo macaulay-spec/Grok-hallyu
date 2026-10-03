@@ -1,16 +1,13 @@
 /**
  * Followers / following lookups, without a server.
  *
- * The server-backed build asked a `followers`/`following` RPC for the rows. The model has no
- * follower edges to query locally — the store keeps the graph in one direction only
+ * The model has no follower edges to query — the store keeps the graph in one direction only
  * (`follows.users` is what *you* follow) — so this answers from what the device actually knows:
  *
  *   • your own Following tab is your real graph (the people you followed, in order);
- *   • anyone else's tab is a stable slice of the community, ordered the way the old endpoint
- *     ordered it (most followed first).
+ *   • anyone else's tab is a stable slice of the community, most followed first.
  *
- * That is a demo-grade answer, not a fake one: it never claims an edge that does not exist on the
- * device, and re-attaching a backend means replacing this one function.
+ * It never claims an edge that does not exist on the device.
  */
 import { User } from '../model';
 import * as sel from '../selectors';

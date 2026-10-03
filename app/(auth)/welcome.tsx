@@ -1,36 +1,28 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Pressable, StyleSheet, View } from 'react-native';
+import React, { useEffect, useMemo, useRef } from 'react';
+import { Animated, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { AppleButton } from '../../components/ui/AppleButton';
-import { GoogleButton } from '../../components/ui/GoogleButton';
+import { Button } from '../../components/ui/Button';
 import { Text } from '../../components/ui/Text';
-import { toast } from '../../components/ui/Toast';
 import { LivingWall } from '../../components/onboarding/LivingWall';
 import { Wordmark } from '../../components/ui/TopBar';
 import { colors, motion, space } from '../../constants/theme';
-import { AuthError, useAuth } from '../../lib/auth';
+import { useAuth } from '../../lib/auth';
 import { useLayout, useLoad } from '../../lib/hooks';
 import { catalog } from '../../lib/catalog';
 import { adoptDramas } from '../../lib/catalogSync';
 import { allDramas, useSlice } from '../../lib/store';
 
 /**
- * Welcome — the promise, then the doors.
- *
- * The mark leads, the promise is set in the display serif, and the choices arrive as a short stack:
- * Google, then Apple, then a quiet guest link. "Look around first" is a text link, not a third
- * button — it should never compete with the two ways in. The background is a quiet poster mosaic
- * under a scrim: cinematic, never a gradient.
+ * Welcome: the promise, the two doors in (create an account / sign in) and "Browse as a guest".
+ * Background is a quiet poster mosaic under a scrim — cinematic, not a gradient.
  */
 export default function Welcome() {
   const router = useRouter();
   const auth = useAuth();
   const insets = useSafeAreaInsets();
   const { width } = useLayout();
-  const [googleBusy, setGoogleBusy] = useState(false);
-  const [appleBusy, setAppleBusy] = useState(false);
   const rise = useRef(new Animated.Value(24)).current;
   const fade = useRef(new Animated.Value(0)).current;
 
@@ -41,21 +33,6 @@ export default function Welcome() {
     ]).start();
   }, [rise, fade]);
 
-  /** One entry helper: spin the tapped door, land home on success, toast on real failures. */
-  const enter = (door: () => Promise<void>, setBusy: (busy: boolean) => void) => async () => {
-    setBusy(true);
-    try {
-      await door();
-      router.replace('/');
-    } catch (e) {
-      const err = e as AuthError;
-      if (err.code !== 'cancelled') toast.show({ message: err.message || 'Sign-in failed — try again.', tone: 'danger' });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  // The wall of real posters: what's trending this week (live), with saved art filling in.
   const importedDramas = useSlice((s) => s.importedDramas);
   const cols = width >= 840 ? 6 : width >= 600 ? 5 : 4;
   const posterW = Math.max(88, Math.floor((width - space.margin * 2 - space.x2 * (cols - 1)) / cols));
@@ -93,32 +70,30 @@ export default function Welcome() {
         <Text variant="bodyLarge" tone="secondary" style={{ marginTop: space.x3 }}>
           Where K-drama fans meet — episode by episode, spoiler-safe.
         </Text>
+        <Text variant="caption" tone="tertiary" style={{ marginTop: space.x2 }}>
+          No account needed to look around.
+        </Text>
 
         <View style={{ gap: space.x3, marginTop: space.x8 }}>
-          <GoogleButton label="Continue with Google" size="lg" onPress={enter(auth.signInWithGoogle, setGoogleBusy)} loading={googleBusy} disabled={googleBusy} />
-          <AppleButton label="Continue with Apple" size="lg" onPress={enter(auth.signInWithApple, setAppleBusy)} loading={appleBusy} disabled={appleBusy} />
+          <Button label="Create an account" icon="mail-outline" size="lg" block onPress={() => router.push('/(auth)/sign-up')} />
+          <Button label="I already have an account" variant="ghost" size="md" block onPress={() => router.push('/(auth)/sign-in')} />
         </View>
 
         <View style={styles.guestRow}>
-          <Pressable
+          <Button
+            label="Browse as a guest"
+            variant="ghost"
+            size="sm"
+            iconRight="arrow-forward"
             onPress={() => {
               auth.continueAsGuest();
               router.replace('/(tabs)');
             }}
-            accessibilityRole="button"
-            accessibilityLabel="Browse as a guest"
-            hitSlop={10}
-            style={styles.guestLink}
-          >
-            <Text variant="bodySmall" tone="secondary">
-              Look around first
-            </Text>
-            <Ionicons name="arrow-forward" size={14} color={colors.textSecondary} />
-          </Pressable>
+          />
         </View>
 
         <Text variant="caption" tone="tertiary" align="center" style={{ marginTop: space.x4 }}>
-          Free with Google or Apple — your watchlist, posts and reactions live in the cloud.
+          Accounts, posts and watchlists are stored on this device only.
         </Text>
         <View style={styles.tmdb}>
           <Ionicons name="film-outline" size={12} color={colors.textDisabled} />
@@ -134,7 +109,6 @@ export default function Welcome() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.canvas },
   content: { flex: 1, justifyContent: 'flex-end', paddingHorizontal: space.x6, maxWidth: 560, width: '100%', alignSelf: 'center' },
-  guestRow: { flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap', gap: space.x2, marginTop: space.x4 },
-  guestLink: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 10 },
+  guestRow: { flexDirection: 'row', justifyContent: 'center', flexWrap: 'wrap', gap: space.x2, marginTop: space.x3 },
   tmdb: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, marginTop: space.x2 },
 });

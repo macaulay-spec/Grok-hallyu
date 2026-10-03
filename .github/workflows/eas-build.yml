@@ -10,10 +10,8 @@ name: EAS Build (Expo)
 #   EXPO_PROJECTID (or EAS_PROJECT_ID)  the projectId EAS created for "hallyu" (printed by the first run, or expo.dev → project settings)
 #
 # NOTE: EAS builds run on Expo's servers and do not inherit this job's environment. They therefore
-# rely on the committed client configuration in constants/keys.ts (the Rork cloud, Rork Auth, TMDB) —
+# rely on the committed client configuration in constants/keys.ts (the TMDB catalog credential) —
 # put secrets in EAS Secrets (`eas secret:create`) if you ever need to override them there.
-# This workflow no longer runs inside the legacy "Supabase_acess token" environment: that name and
-# the credentials it held belong to the retired Supabase CLI pipeline and should be deleted.
 #
 # On the first run, if EAS_PROJECT_ID is not set, the job creates the Expo project automatically
 # (needs EXPO_ACCESS_TOKEN) and prints the new projectId in the run summary — add it as a secret then.
@@ -49,7 +47,7 @@ jobs:
       - name: Check Expo token
         run: |
           if [ -z "$EXPO_TOKEN" ]; then
-            echo "::error::EXPO_TOKEN secret is missing — create one at expo.dev → Account Settings → Access tokens and add it at repository level (Settings → Secrets and variables → Actions → Repository secrets) as EXPO_TOKEN. It used to live inside the retired 'Supabase_acess token' environment, which this workflow deliberately no longer uses."
+            echo "::error::EXPO_TOKEN secret is missing — create one at expo.dev → Account Settings → Access tokens and add it at repository level (Settings → Secrets and variables → Actions → Repository secrets) as EXPO_TOKEN."
             exit 1
           fi
 

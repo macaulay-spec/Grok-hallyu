@@ -26,7 +26,7 @@ import { Screen, useColumn, useListPadding } from '../../components/ui/Screen';
 import { KeyValue, ProgressBar, SectionHeader } from '../../components/ui/Section';
 import { Segmented } from '../../components/ui/Segmented';
 import { Sheet, SheetRow } from '../../components/ui/Sheet';
-import { PostSkeleton } from '../../components/ui/Skeleton';
+import { ListSkeleton, PostSkeleton } from '../../components/ui/Skeleton';
 import { EmptyState, ErrorState } from '../../components/ui/States';
 import { Text } from '../../components/ui/Text';
 import { useToast } from '../../components/ui/Toast';
@@ -40,7 +40,6 @@ import { heroInterpolations, useArrive, useHeroSettle, useScrollY, withAlpha } f
 import { dramaFandom, isFilm, runtimeLabel } from '../../lib/fandoms';
 import { CastCredit, Drama, emptyReactions, Episode, Post, PostType } from '../../lib/model';
 import { collectionsContaining, isPostVeiled as postVeiled, postsForDrama, relatedDramas } from '../../lib/selectors';
-import { useRemote } from '../../lib/data/sync';
 
 type Tab = 'overview' | 'episodes' | 'community' | 'cast';
 /** Old deep links used six tabs; Media now lives in Overview and Activity is Community sorted by Latest. */
@@ -56,8 +55,6 @@ export default function DramaHub() {
   const toast = useToast();
   const params = useLocalSearchParams<{ id: string; tab?: string }>();
   const { state, dispatch, getDrama, getActor, watch, isFollowing } = useApp();
-  // Fresh posts for this hub whenever it opens (server-ordered, newest first).
-  useRemote(`drama:${params.id}`);
   const require = useRequireMember();
   const { width, wc } = useLayout();
   const insets = useSafeAreaInsets();
@@ -639,7 +636,7 @@ export default function DramaHub() {
           ) : null}
           <View style={styles.sortRow}>
             <Text variant="caption" tone="secondary">
-              {eps.length ? `${eps.length} episodes${item ? ` · ${item.season === season ? item.currentEpisode : 0} watched` : ''}` : 'Episode list not available yet'}
+              {eps.length ? `${eps.length} episodes${item ? ` · ${item.season === season ? item.currentEpisode : 0} watched` : ''}` : enrich.loading ? 'Loading episodes…' : 'Episode list not available yet'}
             </Text>
             {item && eps.length ? (
               <Button
@@ -703,12 +700,18 @@ export default function DramaHub() {
         return <PostCard post={row.p} hideContext />;
       case 'empty':
         return tab === 'episodes' ? (
-          <EmptyState
-            compact
-            icon="film-outline"
-            title="No episodes listed"
-            body={drama.status === 'upcoming' ? 'The schedule lands closer to the premiere.' : 'We don’t have the episode list for this title yet.'}
-          />
+          enrich.loading ? (
+            <ListSkeleton rows={4} />
+          ) : enrich.error ? (
+            <ErrorState compact kind="network" title="Couldn’t load the episodes" body="The live catalogue didn’t answer. Everything else on this page is still here." onRetry={enrich.reload} />
+          ) : (
+            <EmptyState
+              compact
+              icon="film-outline"
+              title="No episodes listed"
+              body={drama.status === 'upcoming' ? 'The schedule lands closer to the premiere.' : 'We don’t have the episode list for this title yet.'}
+            />
+          )
         ) : tab === 'cast' ? (
           <EmptyState compact icon="people-outline" title="Cast not available" body="We’re missing the credits for this title." />
         ) : (

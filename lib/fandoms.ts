@@ -145,7 +145,7 @@ export function inferFormat(input: { media: MediaType; language?: string; countr
   return input.media === 'movie' ? 'hollywood-movie' : 'hollywood-series';
 }
 
-/** A record's world, including local/demo records that predate the format field. */
+/** A record's world, including local records that predate the format field. */
 export function dramaFormat(d: Drama): Format {
   return d.format ?? inferFormat({ media: d.mediaType ?? 'tv', language: d.originalLanguage, genres: d.genres });
 }

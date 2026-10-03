@@ -1,15 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Button } from '../../components/ui/Button';
-import { AppleButton } from '../../components/ui/AppleButton';
-import { GoogleButton } from '../../components/ui/GoogleButton';
 import { Text } from '../../components/ui/Text';
-import { toast } from '../../components/ui/Toast';
 import { colors, radius, space } from '../../constants/theme';
-import { AuthError, useAuth } from '../../lib/auth';
 
 type Frame = { icon: React.ComponentProps<typeof Ionicons>['name']; title: string; body: string };
 
@@ -28,33 +24,15 @@ function frameFor(reason: string | undefined): Frame {
 }
 
 /**
- * Auth gate for guests: a sheet, not a wall. Says what the action needs, offers the two doors,
+ * Auth gate for guests: a sheet, not a wall. Says what the action needs, offers the three doors,
  * and "Not now" returns to exactly where they were.
  */
 export default function Gate() {
   const router = useRouter();
-  const auth = useAuth();
   const insets = useSafeAreaInsets();
   const { reason } = useLocalSearchParams<{ reason?: string }>();
-  const [googleBusy, setGoogleBusy] = useState(false);
-  const [appleBusy, setAppleBusy] = useState(false);
   const close = () => (router.canGoBack() ? router.back() : router.replace('/(tabs)'));
   const frame = frameFor(reason);
-
-  /** One entry helper: spin the tapped door, land home on success, toast on real failures. */
-  const enter = (door: () => Promise<void>, setBusy: (busy: boolean) => void) => async () => {
-    setBusy(true);
-    try {
-      await door();
-      router.replace('/');
-    } catch (e) {
-      const err = e as AuthError;
-      if (err.code !== 'cancelled') toast.show({ message: err.message || 'Sign-in failed — try again.', tone: 'danger' });
-    } finally {
-      setBusy(false);
-    }
-  };
-
   return (
     <View style={styles.root}>
       <Pressable style={StyleSheet.absoluteFill} onPress={close} accessibilityLabel="Not now" />
@@ -70,8 +48,8 @@ export default function Gate() {
           {frame.body}
         </Text>
         <View style={{ gap: space.x2, marginTop: space.x5 }}>
-          <GoogleButton label="Continue with Google" size="md" onPress={enter(auth.signInWithGoogle, setGoogleBusy)} loading={googleBusy} disabled={googleBusy} />
-          <AppleButton label="Continue with Apple" size="md" onPress={enter(auth.signInWithApple, setAppleBusy)} loading={appleBusy} disabled={appleBusy} />
+          <Button label="Create an account" icon="mail-outline" block onPress={() => router.replace('/(auth)/sign-up')} />
+          <Button label="I already have an account" variant="ghost" onPress={() => router.replace('/(auth)/sign-in')} />
           <Button label="Not now" variant="ghost" onPress={close} />
         </View>
       </View>

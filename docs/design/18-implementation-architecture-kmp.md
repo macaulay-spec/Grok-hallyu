@@ -52,7 +52,7 @@ Features depend on `core:*` only, never on each other; cross-feature navigation 
 
 ## 5. Backend contract (Supabase) — delta from the existing SQL
 
-Keep from `supabase/migrations/…_init.sql`: profiles, dramas, episodes, posts, post_dramas, comments, likes → **replace with `reactions`**, saves, follows_users/follows_dramas → **replace with `follows`**, notifications, reports, triggers pattern, storage buckets, RLS style. Remove the fictional seed and the `moods` vocabulary (replaced by reactions).
+Keep from the prototype's original init SQL (no longer in this repo): profiles, dramas, episodes, posts, post_dramas, comments, likes → **replace with `reactions`**, saves, follows_users/follows_dramas → **replace with `follows`**, notifications, reports, triggers pattern, storage buckets, RLS style. Remove the fictional seed and the `moods` vocabulary (replaced by reactions).
 
 Add / change:
 - `seasons`; `episodes.season_number`, `air_date_kst`, `runtime`, `still_url`, `synopsis`, `posts_count`, `reaction_meter jsonb`.

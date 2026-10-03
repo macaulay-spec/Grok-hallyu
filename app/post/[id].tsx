@@ -24,7 +24,6 @@ import { Comment, emptyReactions, LIMITS, SpoilerLevel } from '../../lib/model';
 import { commentsFor } from '../../lib/selectors';
 import { SPOILER_LABEL } from '../../lib/spoiler';
 import { track } from '../../lib/analytics';
-import { useRemote } from '../../lib/data/sync';
 
 type Sort = 'top' | 'newest' | 'oldest';
 type Row = { key: string; comment: Comment; isReply: boolean; replyCount: number };
@@ -38,7 +37,6 @@ export default function PostDetail() {
   const column = useColumn();
   const { id, commentId, focus } = useLocalSearchParams<{ id: string; commentId?: string; focus?: string }>();
   const { state, dispatch, getPost, getUser, me } = useApp();
-  useRemote(`post:${id}`);
   const require = useRequireMember();
   const post = getPost(id);
   const [sort, setSort] = useState<Sort>('top');
