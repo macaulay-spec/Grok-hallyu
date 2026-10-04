@@ -88,7 +88,7 @@ Two rules outrank everything else:
 ```
 supabase/
 ├── config.toml                 6 Edge Functions registered, auth/storage settings, [db.seed]
-├── migrations/                 37 ordered migrations — the entire schema
+├── migrations/                 39 ordered migrations — the entire schema
 ├── seed.sql                    reference rows only: 4 worlds, provider `tmdb`, 4 official rooms
 ├── env.example                 every credential NAME with PLACEHOLDER values (no real value)
 ├── functions/

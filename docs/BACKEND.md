@@ -28,7 +28,7 @@ playback are deliberately out of scope: `titles.trailer_url` still exists, and n
 ```
 supabase/
 ├── config.toml                     project configuration for `supabase start` / `db reset`
-├── migrations/                     37 ordered migrations — the schema, applied in filename order
+├── migrations/                     39 ordered migrations — the schema, applied in filename order
 ├── seed.sql                        reference rows only (4 worlds, 1 provider, 4 official rooms)
 ├── env.example                     every credential name, placeholder values only
 ├── functions/

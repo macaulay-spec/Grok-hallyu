@@ -61,12 +61,7 @@ grant execute on function public.browse_titles(text, text, text, text, integer, 
 comment on function public.browse_titles(text, text, text, text, integer, integer) is
   'Titles matching a genre / streaming provider / world filter, ordered by Hallyu relevance unless another sort is named. The single browse ordering, so genre pages cannot disagree with Trending.';
 
--- Which sorts the client may ask for. Anything else falls through to 'relevance' above, so a typo
--- degrades to the app-wide ordering instead of an error page.
-create or replace function public.browse_sort_is_valid(p_sort text)
-returns boolean
-language sql
-immutable
-as $$
-  select p_sort is null or p_sort in ('relevance', 'popular', 'top', 'new')
-$$;
+-- An unrecognised p_sort deliberately falls through to 'relevance' in the CASE above rather than
+-- raising: a typo in the client degrades to the app-wide ordering instead of an error page. There
+-- is no separate "is this sort valid" function — nothing calls one, and a check the server never
+-- consults is documentation pretending to be a constraint.

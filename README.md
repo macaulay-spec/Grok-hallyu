@@ -6,7 +6,7 @@ Full Expo + React Native + TypeScript rebuild of Hallyu, following the approved 
 
 The Hallyu backend is **defined in this repository** and is **not connected**:
 
-- `supabase/migrations/` — 38 ordered migrations that create the whole database: profiles, the social
+- `supabase/migrations/` — 39 ordered migrations that create the whole database: profiles, the social
   graph, posts, comments, reactions, saves, collections, watchlist, notifications, preferences, push
   tokens, moderation reports, a partitioned analytics table, the entertainment catalog cache, 47
   functions/RPCs, 26 triggers, row level security on every table, and the private `media` storage
