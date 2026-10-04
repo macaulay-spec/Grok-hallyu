@@ -11,8 +11,10 @@
 //   SUPABASE_URL                  project URL                     required
 //   SUPABASE_ANON_KEY             public/anon key (client-safe)    required
 //   SUPABASE_SERVICE_ROLE_KEY     privileged key (CI only)         required
-//   RORK_APP_KEY                 Rork app key (client-safe)      optional
-//   RORK_TEST_REFRESH_TOKEN       refresh token for the Rork user  optional
+//
+// The Rork OAuth leg is deliberately NOT here: it depends on a human-minted refresh token, so it
+// lives in its own suite — scripts/verify-rork-auth.mjs — and its own CI job. This suite gates the
+// backend; that one gates the optional Google/Apple path. Neither hides the other.
 //
 // Exit codes:  0 = PASS   1 = FAIL   2 = NOT CONFIGURED (no credentials in this environment)
 
@@ -23,9 +25,6 @@ import { scanRepository } from './lib/secret-scan.mjs';
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.EXPO_PUBLIC_SUPABASE_URL || '';
 const ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const RORK_APP_KEY = process.env.RORK_APP_KEY || process.env.EXPO_PUBLIC_RORK_APP_KEY || '';
-const RORK_AUTH_URL = process.env.RORK_AUTH_URL || process.env.EXPO_PUBLIC_RORK_AUTH_URL || 'https://api.rork.com';
-const RORK_TEST_REFRESH_TOKEN = process.env.RORK_TEST_REFRESH_TOKEN || '';
 
 // ---------------------------------------------------------------------------------------------
 // Test harness
@@ -369,31 +368,10 @@ await test('Second member signs in', async () => {
   return `session for ${bobId}`;
 });
 
-if (RORK_APP_KEY && RORK_TEST_REFRESH_TOKEN) {
-  await test('Rork-minted access token authenticates (client auth path)', async () => {
-    const response = await fetch(`${RORK_AUTH_URL}/oauth/refresh`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ app_key: RORK_APP_KEY, refresh_token: RORK_TEST_REFRESH_TOKEN }),
-    });
-    assert(response.ok, `Rork refresh returned ${response.status}`);
-    const payload = await response.json();
-    const token = payload?.access_token;
-    assert(typeof token === 'string' && token.length > 20, 'Rork did not return an access token');
-
-    const client = createClient(SUPABASE_URL, ANON_KEY, {
-      auth: { persistSession: false },
-      accessToken: async () => token,
-    });
-    const { error } = await client.from('profiles').select('id').limit(1);
-    assert(!error, `Rork token rejected by PostgREST: ${error?.message}`);
-    return 'access token accepted';
-  });
-} else {
-  await test('Rork token check (skipped: RORK_APP_KEY / RORK_TEST_REFRESH_TOKEN not set)', async () => {
-    return 'skipped — optional credentials absent';
-  });
-}
+// The Rork OAuth leg is verified by scripts/verify-rork-auth.mjs (its own CI job) — see the header.
+await test('Rork Auth leg is covered by its own suite', async () => {
+  return 'scripts/verify-rork-auth.mjs — optional credentials, never a silent skip';
+});
 
 // ---------------------------------------------------------------------------------------------
 // 3. Catalog fixture + CRUD

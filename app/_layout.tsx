@@ -26,6 +26,7 @@ import { markBoot } from '../lib/boot';
 import { installNotificationHandler, reminderUrl, remindersSupported, syncEpisodeReminders } from '../lib/reminders';
 import { setDownloadScope } from '../lib/media';
 import { freshMemberState, getState, GUEST_ID, guestState, StoreProvider, useHallyu, useSlice, useStore } from '../lib/store';
+import { adoptBackendState } from '../lib/sync';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -274,6 +275,19 @@ function AccountSync() {
         // Server-side push registration so episode alerts can reach this device (local reminders
         // stay in addition — §6.4 of the connection contract). Silent no-op on any failure.
         void registerDevicePushToken();
+        // Adopt the member's real backend state (profile, prefs, follows, saves, watchlist, the
+        // latest feed page, the notification inbox) into the cache. No-op without a session.
+        void adoptBackendState({
+          getState,
+          apply: (patch) => {
+            if (!stale()) dispatch({ type: 'hydrate', state: patch });
+          },
+          addPosts: (posts) => {
+            if (stale()) return;
+            for (const post of posts) dispatch({ type: 'addPost', post });
+          },
+          isStale: stale,
+        });
       } catch (e) {
         // Expected async failures: log diagnostics, keep the app usable.
         reportError('AccountSync.sync', e, { account: u.id });

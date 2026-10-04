@@ -1,12 +1,16 @@
 name: Backend verification
 
-# Proves the Hallyu backend actually works, in two clearly separated layers:
+# Proves the Hallyu backend actually works, in three clearly separated layers:
 #
 #   offline    — always runs, needs no project: SQL invariants, type contract, capability surface,
 #                secret scan, typecheck/lint.
-#   connected  — the live suite against the real project. REQUIRED REPOSITORY SECRETS; a missing
-#                secret is a configuration failure (red), never a silent skip. The suite
-#                distinguishes configuration, authentication and test failures in its summary.
+#   connected  — the live suite against the real project (scripts/verify-backend.mjs). REQUIRED
+#                REPOSITORY SECRETS: the Supabase URL + anon key + service-role key. Missing =
+#                configuration failure (red), never a silent skip. This job gates the backend.
+#   rork-auth  — the OPTIONAL Rork OAuth leg (Google/Apple sign-in), isolated on purpose: it needs
+#                a human-minted RORK_TEST_REFRESH_TOKEN, so its absence cannot masquerade as a
+#                broken backend. When the credentials ARE configured, the Rork suite runs here and
+#                fails the workflow if the exchange breaks.
 #
 # Secret naming: the repository stores the client-safe connection values under the SAME names the
 # Expo build consumes (EXPO_PUBLIC_*) so one Supabase project serves builds and verification. This
@@ -74,11 +78,10 @@ jobs:
       # Credentials exist only as environment variables inside this job. They are masked before any
       # command runs, are never echoed, and are never written to the repository or the summary.
       # EXPO_PUBLIC_* → script names: one underlying Supabase project, no duplicated credentials.
+      # This job requires ONLY the Supabase trio; the Rork leg lives in its own job below.
       SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
       SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      RORK_APP_KEY: ${{ secrets.EXPO_PUBLIC_RORK_APP_KEY }}
-      RORK_TEST_REFRESH_TOKEN: ${{ secrets.RORK_TEST_REFRESH_TOKEN }}
 
     steps:
       - name: Check out the repository
@@ -99,8 +102,6 @@ jobs:
           echo "::add-mask::$SUPABASE_URL"
           echo "::add-mask::$SUPABASE_ANON_KEY"
           echo "::add-mask::$SUPABASE_SERVICE_ROLE_KEY"
-          echo "::add-mask::$RORK_APP_KEY"
-          echo "::add-mask::$RORK_TEST_REFRESH_TOKEN"
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -112,8 +113,6 @@ jobs:
           if [ -z "$SUPABASE_URL" ]; then missing="$missing EXPO_PUBLIC_SUPABASE_URL"; fi
           if [ -z "$SUPABASE_ANON_KEY" ]; then missing="$missing EXPO_PUBLIC_SUPABASE_ANON_KEY"; fi
           if [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then missing="$missing SUPABASE_SERVICE_ROLE_KEY"; fi
-          if [ -z "$RORK_APP_KEY" ]; then missing="$missing EXPO_PUBLIC_RORK_APP_KEY"; fi
-          if [ -z "$RORK_TEST_REFRESH_TOKEN" ]; then missing="$missing RORK_TEST_REFRESH_TOKEN"; fi
           if [ -n "$missing" ]; then
             echo "::error title=Configuration failure::Connected verification cannot start — missing repository secrets:$missing"
             echo "Add them under Settings → Secrets and variables → Actions."
@@ -137,9 +136,6 @@ jobs:
             echo "::error title=Configuration failure::verify-backend.mjs reports NOT CONFIGURED — the mapped secrets did not reach the environment."
             exit 1
           fi
-          if grep -q '✗ Rork-minted access token' backend-verification.log; then
-            echo "::error title=Authentication failure::The Rork Auth leg failed — mint a fresh RORK_TEST_REFRESH_TOKEN (one interactive sign-in) and update the secret. See RORK-CREDENTIALS.md."
-          fi
           echo "::error title=Backend failure::The live suite FAILED (exit $code) — failing checks are listed in the job summary."
           exit 1
 
@@ -154,16 +150,99 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+  rork-auth:
+    name: Rork Auth (optional credentials)
+    needs: offline
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+
+    env:
+      # The Rork leg is optional by configuration: Google/Apple sign-in only. Email/password auth
+      # is covered by the connected job. A configured-but-broken Rork credential still fails this
+      # job — "optional" means "may be absent", never "may fail silently".
+      SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+      RORK_APP_KEY: ${{ secrets.EXPO_PUBLIC_RORK_APP_KEY }}
+      RORK_TEST_REFRESH_TOKEN: ${{ secrets.RORK_TEST_REFRESH_TOKEN }}
+      RORK_AUTH_URL: ${{ secrets.EXPO_PUBLIC_RORK_AUTH_URL }}
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Set up bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Mask secrets in the log
+        run: |
+          echo "::add-mask::$SUPABASE_URL"
+          echo "::add-mask::$SUPABASE_ANON_KEY"
+          echo "::add-mask::$RORK_APP_KEY"
+          echo "::add-mask::$RORK_TEST_REFRESH_TOKEN"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Check the optional Rork credentials
+        id: config
+        run: |
+          if [ -n "$RORK_APP_KEY" ] && [ -n "$RORK_TEST_REFRESH_TOKEN" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "Rork credentials are configured — the exchange will be verified."
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Optional Rork credentials absent::EXPO_PUBLIC_RORK_APP_KEY / RORK_TEST_REFRESH_TOKEN are not configured. The Google/Apple token-exchange leg is not exercised in this run; email/password authentication is covered by the connected job. Mint a refresh token with one interactive Rork sign-in and add it under Settings → Secrets and variables → Actions."
+          fi
+
+      - name: Run the Rork Auth suite
+        id: rork
+        if: steps.config.outputs.configured == 'true'
+        run: |
+          set +e
+          node scripts/verify-rork-auth.mjs | tee rork-auth.log
+          code=${PIPESTATUS[0]}
+          if [ "$code" = "0" ]; then exit 0; fi
+          echo "::error title=Authentication failure::The Rork Auth exchange FAILED (exit $code). Mint a fresh RORK_TEST_REFRESH_TOKEN (one interactive sign-in) and update the secret. See RORK-CREDENTIALS.md."
+          exit 1
+
+      - name: Write the run summary
+        if: always()
+        run: |
+          {
+            echo "## Hallyu backend verification — Rork Auth (optional)"
+            echo ""
+            if [ "${{ steps.config.outputs.configured }}" = "true" ]; then
+              echo '```text'
+              cat rork-auth.log 2>/dev/null || echo "(no log)"
+              echo '```'
+            else
+              echo "Not configured in this repository: the optional Rork credentials are absent, so the Google/Apple token-exchange leg did not run. Email/password authentication is covered by the connected job."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
 # ────────────────────────────────────────────────────────────────────────────────────────────────
-# Required repository secrets (Settings → Secrets and variables → Actions → New repository secret):
+# Repository secrets (Settings → Secrets and variables → Actions → New repository secret):
 #
-#   EXPO_PUBLIC_SUPABASE_URL       https://<project-ref>.supabase.co          (client-safe)
-#   EXPO_PUBLIC_SUPABASE_ANON_KEY  the project's publishable/anon key          (client-safe)
-#   SUPABASE_SERVICE_ROLE_KEY      privileged key — CI only, never in a client bundle
-#   EXPO_PUBLIC_RORK_APP_KEY       Rork app key (client-safe; identifies the app for Rork Auth)
-#   RORK_TEST_REFRESH_TOKEN        refresh token for a real Rork test member (one interactive
-#                                  sign-in mints it; rotate any time)
-#   EXPO_PUBLIC_MEDIA_BUCKET       consumed by connected APK builds (build-apk.yml), not here
+#   REQUIRED for the connected job:
+#     EXPO_PUBLIC_SUPABASE_URL       https://<project-ref>.supabase.co          (client-safe)
+#     EXPO_PUBLIC_SUPABASE_ANON_KEY  the project's publishable/anon key          (client-safe)
+#     SUPABASE_SERVICE_ROLE_KEY      privileged key — CI only, never in a client bundle
+#
+#   OPTIONAL, used by the isolated rork-auth job (Google/Apple sign-in):
+#     EXPO_PUBLIC_RORK_APP_KEY       Rork app key (client-safe; identifies the app for Rork Auth)
+#     RORK_TEST_REFRESH_TOKEN        refresh token for a real Rork test member (one interactive
+#                                    sign-in mints it; rotate any time)
+#     EXPO_PUBLIC_RORK_AUTH_URL      optional issuer override (default https://api.rork.com)
+#
+#   REQUIRED for connected APK builds (build-apk.yml), not here:
+#     EXPO_PUBLIC_MEDIA_BUCKET       the private storage bucket name (defaults to `media`)
 #
 # Never commit any of these. `.gitignore` blocks `.env*` apart from `.env.example`.
 # RORK-CREDENTIALS.md is the complete inventory.

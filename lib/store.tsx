@@ -3,6 +3,7 @@ import React, { useEffect } from 'react';
 import { create } from 'zustand';
 import { useStoreWithEqualityFn } from 'zustand/traditional';
 import { markBoot } from './boot';
+import { mirrorAction } from './sync';
 import { uid } from './format';
 import { Actor, Collection, Comment, Draft, Drama, FandomId, Notification, NotificationGroup, Post, ReactionCounts, ReactionKind, SpoilerProtection, User, WatchStatus, WatchlistItem } from './model';
 
@@ -546,12 +547,17 @@ function deserialise(raw: string): Partial<AppState> | null {
 /**
  * The store lives outside React (zustand) so components can subscribe to exactly the slice they read.
  * `dispatch` runs the reducer and replaces the whole state; persistence is a debounced subscriber.
+ * When the build is connected and a session exists, the action is also mirrored to the Hallyu
+ * backend (lib/sync.ts) — the store is the optimistic cache, the backend is the record.
  */
 export const useHallyu = create<AppState>()(() => initialState());
 
-/** Apply an action: run the reducer and replace the state. There is no server, so a dispatch IS the write. */
+/** Apply an action: run the reducer, replace the state, and mirror the write to the backend. */
 export function dispatch(action: Action): void {
-  useHallyu.setState(reducer(useHallyu.getState(), action), true);
+  const prev = useHallyu.getState();
+  const next = reducer(prev, action);
+  useHallyu.setState(next, true);
+  mirrorAction(action, prev, next);
 }
 
 export function getState(): AppState {
