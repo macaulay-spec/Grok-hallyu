@@ -16,7 +16,7 @@ import * as Notifications from 'expo-notifications';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ErrorBoundary } from '../components/ui/ErrorBoundary';
 import { MilestoneWatcher } from '../components/moments/MilestoneWatcher';
-import { ToastProvider } from '../components/ui/Toast';
+import { ToastProvider, toast } from '../components/ui/Toast';
 import { colors } from '../constants/theme';
 import { reportError } from '../lib/analytics';
 import { installBackendAnalyticsSink } from '../lib/api/analyticsSink';
@@ -26,7 +26,7 @@ import { markBoot } from '../lib/boot';
 import { installNotificationHandler, reminderUrl, remindersSupported, syncEpisodeReminders } from '../lib/reminders';
 import { setDownloadScope } from '../lib/media';
 import { freshMemberState, getState, GUEST_ID, guestState, StoreProvider, useHallyu, useSlice, useStore } from '../lib/store';
-import { adoptBackendState } from '../lib/sync';
+import { adoptBackendState, getSyncFailures, subscribeSyncFailures, type SyncFailure } from '../lib/sync';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -97,6 +97,7 @@ export default function RootLayout() {
               <StatusBar style="light" backgroundColor={colors.canvas} />
               <ErrorBoundary scope="AccountSync" silent>
                 <AccountSync />
+                <SyncFailureToasts />
               </ErrorBoundary>
               <ErrorBoundary scope="ReminderSync" silent>
                 <ReminderSync />
@@ -297,6 +298,31 @@ function AccountSync() {
     })();
   }, [auth.status, auth.user, state.hydrated, state.profile.id, reset, state.prefs.reduceMotion, state.prefs.trueBlack, dispatch]);
 
+  return null;
+}
+
+/**
+ * Turns a rejected backend write into something the member can see.
+ *
+ * lib/sync.ts rolls the optimistic cache back when the server refuses a mutation; without this the
+ * rollback would be invisible and the app would look like it had simply ignored the tap. Every
+ * failure therefore raises one toast that names what did not save and says the change was undone,
+ * so a "successful" UI can never outlive a failed backend write.
+ */
+function SyncFailureToasts() {
+  const seen = useRef(new Set<SyncFailure>());
+  useEffect(() => {
+    const flush = () => {
+      for (const failure of getSyncFailures()) {
+        if (seen.current.has(failure)) continue;
+        seen.current.add(failure);
+        toast.show({ message: `${failure.message}. It was not saved and has been undone.`, tone: 'danger', icon: 'alert-circle' });
+      }
+    };
+    // A toast raised before the provider mounted would be dropped, so replay on mount too.
+    flush();
+    return subscribeSyncFailures(flush);
+  }, []);
   return null;
 }
 

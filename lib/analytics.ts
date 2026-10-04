@@ -10,6 +10,10 @@ export type AnalyticsEvent =
   | 'auth.guest'
   | 'onboarding.done'
   | 'post.publish'
+  /** A media post finished the whole upload pipeline and was confirmed by post_media. */
+  | 'post.publish.media'
+  /** A media post failed partway; the draft was kept and the member was told which step. */
+  | 'post.publish.failed'
   | 'post.delete'
   | 'comment.add'
   | 'reaction.set'

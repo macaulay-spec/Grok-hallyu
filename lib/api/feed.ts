@@ -8,6 +8,7 @@
  */
 import type { Comment, Notification, Post, PostType, SpoilerLevel, User } from '../model';
 import { getBackendAccessToken, supabase } from './client';
+import { fetchPostMedia, signedUrls, type PostMedia } from './media';
 
 function db() {
   if (!supabase) throw new Error('no backend configured');
@@ -131,6 +132,65 @@ function toPost(row: ServerPost, dramaIds: Map<string, string>): Post {
   };
 }
 
+/**
+ * Fold `post_media` into the client Post shape.
+ *
+ * A post read from the backend carries only storage paths, and the media bucket is private, so
+ * without this every adopted post renders with no images at all — indistinguishable, to the member,
+ * from an upload that never happened. Images become signed URLs; the single video keeps its poster
+ * and duration so the card can play it.
+ */
+async function withMedia(posts: Post[], media: Map<string, PostMedia[]>): Promise<Post[]> {
+  const wanted = new Set<string>();
+  for (const post of posts) {
+    for (const m of media.get(post.id) ?? []) {
+      if (m.storagePath) wanted.add(m.storagePath);
+      if (m.posterPath) wanted.add(m.posterPath);
+    }
+  }
+  if (!wanted.size) return posts;
+  let urls: Map<string, string>;
+  try {
+    urls = await signedUrls([...wanted]);
+  } catch {
+    // A signing failure must not lose the text of the post: show it without media rather than not
+    // at all. The next read will retry.
+    return posts;
+  }
+  return posts.map((post) => {
+    const rows = media.get(post.id);
+    if (!rows?.length) return post;
+    const images = rows.filter((m) => m.kind === 'image').map((m) => urls.get(m.storagePath)).filter((u): u is string => Boolean(u));
+    const clip = rows.find((m) => m.kind === 'video');
+    const videoUrl = clip ? urls.get(clip.storagePath) : undefined;
+    if (clip && videoUrl) {
+      const poster = clip.posterPath ? urls.get(clip.posterPath) : undefined;
+      return {
+        ...post,
+        images: images.length ? images : undefined,
+        video: {
+          url: videoUrl,
+          duration: clip.durationMs ? Math.round(clip.durationMs / 1000) : 15,
+          poster,
+          width: clip.width ?? undefined,
+          height: clip.height ?? undefined,
+        },
+      };
+    }
+    return images.length ? { ...post, images } : post;
+  });
+}
+
+/** Fetch the media for a page of posts and fold it in. Never throws — see the note above. */
+async function attachMedia(posts: Post[]): Promise<Post[]> {
+  if (!posts.length) return posts;
+  try {
+    return await withMedia(posts, await fetchPostMedia(posts.map((p) => p.id)));
+  } catch {
+    return posts;
+  }
+}
+
 function toComment(row: ServerComment): Comment {
   return {
     id: row.id,
@@ -181,7 +241,7 @@ export async function fetchFeed(
   const dramaIds = await resolveDramaClientIds(items.map((p) => p.title_id).filter((x): x is string => Boolean(x)));
   return {
     scope: payload.scope ?? scope,
-    items: items.map((p) => toPost(p, dramaIds)),
+    items: await attachMedia(items.map((p) => toPost(p, dramaIds))),
     hasMore: Boolean(payload.has_more),
     nextCursor: payload.next_cursor ?? null,
   };
@@ -206,7 +266,7 @@ export async function fetchPosts(ids: string[]): Promise<Post[]> {
   if (error) throw new Error(`post lookup failed: ${error.message}`);
   const rows = (data ?? []) as ServerPost[];
   const dramaIds = await resolveDramaClientIds(rows.map((p) => p.title_id).filter((x): x is string => Boolean(x)));
-  return rows.map((p) => toPost(p, dramaIds));
+  return attachMedia(rows.map((p) => toPost(p, dramaIds)));
 }
 
 // ── Profiles ──────────────────────────────────────────────────────────────────────────────────

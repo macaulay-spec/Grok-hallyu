@@ -52,6 +52,21 @@
           "autoVerify": false,
           "data": [
             {
+              "scheme": "hallyu",
+              "host": "auth",
+              "pathPrefix": "/"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        },
+        {
+          "action": "VIEW",
+          "autoVerify": false,
+          "data": [
+            {
               "scheme": "https",
               "host": "hallyu.app",
               "pathPrefix": "/"

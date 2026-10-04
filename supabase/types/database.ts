@@ -2482,6 +2482,17 @@ export type Database = {
           title_id: string;
         }[];
       };
+      browse_titles: {
+        Args: {
+          p_genre?: string;
+          p_limit?: number;
+          p_offset?: number;
+          p_provider?: string;
+          p_sort?: string;
+          p_world?: string;
+        };
+        Returns: Database['public']['Tables']['titles']['Row'][];
+      };
       trending_titles: {
         Args: {
           p_genre?: string;

@@ -32,3 +32,14 @@ supabase/.temp/
 supabase/logs/
 .supabase/
 
+# GitHub Actions log bundles pulled down while inspecting a run
+# (`gh api .../actions/runs/<id>/logs > z.zip`). These are per-job debug output, not source:
+# committing them buries real changes under tens of thousands of log lines. The patterns are
+# deliberately narrow — a broad `*_*.txt` would also hide real files.
+*.zip
+apklogs/
+/Connected backend (live project)/
+/Offline validation (no credentials)/
+/Apply migrations to the live project/
+/Rork Auth (optional credentials)/
+

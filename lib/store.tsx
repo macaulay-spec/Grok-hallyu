@@ -3,7 +3,7 @@ import React, { useEffect } from 'react';
 import { create } from 'zustand';
 import { useStoreWithEqualityFn } from 'zustand/traditional';
 import { markBoot } from './boot';
-import { mirrorAction } from './sync';
+import { mirrorAction, setApplyDispatcher } from './sync';
 import { uid } from './format';
 import { Actor, Collection, Comment, Draft, Drama, FandomId, Notification, NotificationGroup, Post, ReactionCounts, ReactionKind, SpoilerProtection, User, WatchStatus, WatchlistItem } from './model';
 
@@ -126,6 +126,13 @@ export function guestState(): AppState {
 
 export type Action =
   | { type: 'hydrate'; state: Partial<AppState> }
+  /**
+   * Put named slices back to an earlier value. This is how a failed backend write is undone
+   * (lib/sync.ts): the optimistic cache is only allowed to keep showing a change the server
+   * actually accepted, so a rejected mutation is reverted rather than left on screen. It is a
+   * plain merge and is never mirrored back to the backend.
+   */
+  | { type: 'restore'; patch: Partial<AppState> }
   | { type: 'replace'; state: AppState }
   | { type: 'onboarding'; patch: Partial<AppState['onboarding']> }
   | { type: 'seen'; id: string }
@@ -174,6 +181,8 @@ function reducer(s: AppState, a: Action): AppState {
   switch (a.type) {
     case 'hydrate':
       return { ...s, ...a.state, hydrated: true };
+    case 'restore':
+      return { ...s, ...a.patch };
     case 'replace':
       // Caches that are not account-specific (catalog art, public profiles) survive guest ↔ member switches.
       return {
@@ -559,6 +568,14 @@ export function dispatch(action: Action): void {
   useHallyu.setState(next, true);
   mirrorAction(action, prev, next);
 }
+
+/**
+ * lib/sync.ts needs to apply cache writes that must NOT be mirrored back — the rollback of a
+ * rejected write, and the composer's adoption of a post it has already sent itself — but importing
+ * `dispatch` from there would close a runtime cycle (this module already imports the mirror from
+ * sync). So the dispatcher is handed over once, here, and sync keeps only the reference.
+ */
+setApplyDispatcher((action) => dispatch(action));
 
 export function getState(): AppState {
   return useHallyu.getState();

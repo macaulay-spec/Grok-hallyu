@@ -539,14 +539,19 @@ export const serverProvider: CatalogProvider = {
   byGenre(genre, page = 1, signal, fandom) {
     return call('genre', (signal) =>
       memo(`genre:${genre}:${page}:${fandom ?? 'all'}`, async () => {
-        let query = supabase!
-          .from('titles')
-          .select('*')
-          .contains('genres', [genre])
-          .order('popularity', { ascending: false, nullsFirst: false })
-          .range((page - 1) * 24, page * 24 - 1);
-        if (fandom) query = query.eq('world', fandom);
-        const { data, error } = await query.abortSignal(signal!);
+        // One ranking for the whole app (migration 38). This used to read `titles` and sort on the
+        // raw provider `popularity` column, which is a different ordering from Trending and the
+        // world rails — the same title could be #1 in one and last in the other.
+        const { data, error } = await supabase!
+          .rpc('browse_titles', {
+            p_genre: genre,
+            p_provider: null,
+            p_world: fandom ?? null,
+            p_sort: 'relevance',
+            p_limit: 24,
+            p_offset: (page - 1) * 24,
+          })
+          .abortSignal(signal!);
         if (error) throw new CatalogError(`genre browse failed: ${error.message}`, 500);
         return ((data ?? []) as TitleRow[]).map(toDrama);
       }),
@@ -558,14 +563,16 @@ export const serverProvider: CatalogProvider = {
       memo(`provider:${providerId}:${fandom ?? 'all'}`, async () => {
         const name = PROVIDER_NAMES[providerId];
         if (!name) return []; // unknown watch provider — no honest server-side equivalent
-        let query = supabase!
-          .from('titles')
-          .select('*')
-          .contains('streaming_on', [name])
-          .order('popularity', { ascending: false, nullsFirst: false })
-          .limit(24);
-        if (fandom) query = query.eq('world', fandom);
-        const { data, error } = await query.abortSignal(signal!);
+        const { data, error } = await supabase!
+          .rpc('browse_titles', {
+            p_genre: null,
+            p_provider: name,
+            p_world: fandom ?? null,
+            p_sort: 'relevance',
+            p_limit: 24,
+            p_offset: 0,
+          })
+          .abortSignal(signal!);
         if (error) throw new CatalogError(`provider browse failed: ${error.message}`, 500);
         return ((data ?? []) as TitleRow[]).map(toDrama);
       }),

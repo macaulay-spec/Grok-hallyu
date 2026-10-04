@@ -2,6 +2,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { makePoster } from '../../lib/media';
+import { attachAsset, discardAssets, MediaPipelineError, uploadAsset, uploadPoster, verifyPostMedia } from '../../lib/api/media';
+import { fetchPosts } from '../../lib/api/feed';
+import { insertPost } from '../../lib/api/social';
+import { adoptLocal, worldOf } from '../../lib/sync';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
@@ -26,7 +30,7 @@ import { colors, fonts, radius, space } from '../../constants/theme';
 import { useAuth } from '../../lib/auth';
 import { extractHashtags, extractMentions, uid } from '../../lib/format';
 import { haptic, useApp } from '../../lib/hooks';
-import { DiscussionKind, Draft, LIMITS, PostType, REACTIONS, ReactionKind, SpoilerLevel } from '../../lib/model';
+import { DiscussionKind, Draft, LIMITS, Post, PostType, REACTIONS, ReactionKind, SpoilerLevel } from '../../lib/model';
 import { allActors, newPost } from '../../lib/store';
 import { videoUploadsAvailable } from '../../lib/video';
 import { SPOILER_LABEL, suggestSpoilerLevel } from '../../lib/spoiler';
@@ -235,19 +239,121 @@ export default function Composer() {
     }
     const post = newPost(me.id, { type, ...common });
     if (type === 'reaction') post.reactions = { ...post.reactions, [reactionKind]: 1 };
-    dispatch({ type: 'addPost', post });
     track('post.publish', { type, spoiler, hasDrama: !!dramaId, images: images.length, video: !!video });
+
+    // Text-only posts keep the optimistic path (the mirror rolls the cache back if the server
+    // refuses). A post carrying media cannot: the member has to be able to see the upload reach
+    // the server, so it waits for the whole pipeline before anything claims success.
+    if (images.length || video) {
+      void publishWithMedia(post);
+      return;
+    }
+
+    dispatch({ type: 'addPost', post });
     if (draft) dispatch({ type: 'deleteDraft', id: draft.id });
     haptic.success();
     toast.show({
-      // No upload step in the frontend-only build: a video post keeps the device's own file.
-      message: video ? (type === 'short' ? 'Short posted' : 'Posted with your video') : type === 'review' ? 'Review published' : 'Posted',
+      message: type === 'review' ? 'Review published' : 'Posted',
       icon: 'checkmark-circle',
       tone: 'success',
       actionLabel: 'View',
       onAction: () => router.push(`/post/${post.id}`),
     });
     goBack();
+  };
+
+  /**
+   * The media pipeline, in the order the backend requires it.
+   *
+   *   reserve path → send bytes → create the server post → attach each upload → read post_media back
+   *
+   * The last step is what makes "posted" honest: `complete_media_upload` returning a media id is
+   * not proof on its own, so the composer re-reads `post_media` and refuses to claim success
+   * unless the server really holds a row for every file it sent. Any failure throws, and this
+   * function's catch turns that into "not posted, here's why, retry" with the draft intact — the
+   * member never keeps a "Posted" toast for media the backend does not have.
+   */
+  const publishWithMedia = async (post: Post) => {
+    const uploaded: string[] = [];
+    try {
+      const assets: { uploadId: string; posterPath?: string; width?: number | null; height?: number | null; durationMs?: number | null }[] = [];
+
+      for (const [i, uri] of images.entries()) {
+        const asset = await uploadAsset({ userId: me.id, uri, kind: 'image', unique: `${post.id}-${i}` });
+        uploaded.push(asset.storagePath);
+        assets.push({ uploadId: asset.uploadId });
+      }
+
+      if (video) {
+        // The poster is its own object; `complete_media_upload` records its path on the video row.
+        const posterPath = video.poster ? await uploadPoster({ userId: me.id, posterUri: video.poster, unique: post.id }) : undefined;
+        if (posterPath) uploaded.push(posterPath);
+        const asset = await uploadAsset({ userId: me.id, uri: video.uri, kind: 'video', unique: post.id });
+        asset.posterPath = posterPath;
+        uploaded.push(asset.storagePath);
+        assets.push({
+          uploadId: asset.uploadId,
+          posterPath,
+          width: video.width ?? null,
+          height: video.height ?? null,
+          durationMs: Math.round(video.duration * 1000),
+        });
+      }
+
+      // The post row must exist before media can be attached to it. The client id IS the server
+      // id (social.insertPost inserts it explicitly), so the local post and the server post are
+      // the same row — which is what lets the media be attached before anything is cached.
+      await insertPost(post, me.id, worldOf(state, post.context.dramaId));
+
+      let position = 0;
+      for (const asset of assets) {
+        await attachAsset({
+          uploadId: asset.uploadId,
+          postId: post.id,
+          position: position++,
+          width: asset.width,
+          height: asset.height,
+          durationMs: asset.durationMs,
+          posterPath: asset.posterPath ?? null,
+        });
+      }
+
+      await verifyPostMedia(post.id, uploaded);
+
+      // Adopt what the server actually stored (including signed media URLs) rather than the local
+      // device URIs, so the cache and the backend agree on what this post contains.
+      const [serverPost] = await fetchPosts([post.id]);
+      if (!serverPost) throw new MediaPipelineError('verify', 'The post could not be read back after publishing, so it is not confirmed saved.');
+      adoptLocal({ type: 'addPost', post: serverPost });
+
+      track('post.publish.media', { images: images.length, video: !!video });
+      if (draft) dispatch({ type: 'deleteDraft', id: draft.id });
+      haptic.success();
+      toast.show({
+        message: video ? (type === 'short' ? 'Short posted' : 'Posted with your video') : 'Posted',
+        icon: 'checkmark-circle',
+        tone: 'success',
+        actionLabel: 'View',
+        onAction: () => router.push(`/post/${post.id}`),
+      });
+      goBack();
+    } catch (e) {
+      // The bytes are not referenced by a post the member can see; take them out of the bucket so
+      // an abandoned upload does not sit there until retention collects it.
+      await discardAssets(uploaded);
+      // Keep everything the member wrote, and let them try again from the same screen.
+      saveDraft();
+      setPosting(false);
+      const why = e instanceof MediaPipelineError ? e.message : (e as Error)?.message || 'unknown error';
+      track('post.publish.failed', { step: e instanceof MediaPipelineError ? e.step : 'unknown' });
+      toast.show({
+        message: `Not posted — ${why}. Your draft was kept; you can retry.`,
+        tone: 'danger',
+        icon: 'alert-circle',
+        actionLabel: 'Drafts',
+        onAction: () => router.push('/drafts'),
+      });
+    }
   };
 
   const contextVisible = contextOpen || needsDrama || !!drama || actorIds.length > 0 || spoiler !== 'none' || !!hint;

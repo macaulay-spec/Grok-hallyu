@@ -4,15 +4,19 @@
  * Two directions, both no-ops unless a connected build has a real session:
  *
  *  mirror   every write the app performs as a store action is forwarded to the Hallyu backend
- *           (lib/api/social.ts). The store stays the optimistic cache: a failed write is reported
- *           (lib/analytics.ts) and the member keeps working — the next adoption reconciles.
+ *           (lib/api/social.ts). The store is the optimistic cache, NOT the source of truth: when
+ *           the backend rejects a write the cache is rolled back to the value it held before, and
+ *           the failure is published so the screen can say so. A member must never keep looking at
+ *           a like, save, follow or post that the server refused — that was the previous
+ *           behaviour (fire-and-forget, logged to analytics, cache left showing "done").
  *
  *  adopt    on sign-in/session restore the member's server state (bootstrap: profile, preferences,
  *           follows, saves, watchlist; the latest feed page; the notification inbox) is read and
  *           folded into the cache, so what screens show is real backend data.
  *
  * The store imports `mirrorAction` (one line in `dispatch`); adoption is called from AccountSync
- * (app/_layout.tsx). `import type` from './store' keeps the module graph acyclic at runtime.
+ * (app/_layout.tsx). `import type` from './store' keeps the module graph acyclic at runtime — the
+ * one value sync needs back from the store (dispatch) arrives through `setRestoreDispatcher`.
  */
 import { reportError } from './analytics';
 import { fetchBootstrap, serverProfileToUser } from './api/bootstrap';
@@ -22,6 +26,69 @@ import { getBackendAccessToken, supabase } from './api/client';
 import type { AppState, Action, Prefs } from './store';
 import type { Comment, Post, WatchlistItem } from './model';
 
+// ── Failed writes ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A write the backend refused. Screens subscribe through `subscribeSyncFailures` (the app shell
+ * turns each one into a toast) so the member is told the truth instead of silently losing the
+ * change at the next adoption.
+ */
+export interface SyncFailure {
+  /** The store action type that failed, e.g. 'save'. */
+  scope: string;
+  /** What the member was trying to do, phrased for them. */
+  message: string;
+  /** Always true today: the optimistic cache change was put back. */
+  rolledBack: boolean;
+  error: unknown;
+}
+
+let failures: readonly SyncFailure[] = [];
+const failureListeners = new Set<() => void>();
+
+export function getSyncFailures(): readonly SyncFailure[] {
+  return failures;
+}
+
+export function subscribeSyncFailures(fn: () => void): () => void {
+  failureListeners.add(fn);
+  return () => {
+    failureListeners.delete(fn);
+  };
+}
+
+function publishFailure(failure: SyncFailure): void {
+  // Bounded: this is a live signal for "that did not save", not an archive.
+  failures = [...failures, failure].slice(-20);
+  for (const fn of Array.from(failureListeners)) fn();
+}
+
+/** Human wording per action, so the toast names what failed rather than an internal scope. */
+const FAILURE_COPY: Record<string, string> = {
+  addPost: 'Your post was not saved',
+  editPost: 'Your edit was not saved',
+  deletePost: 'That post was not deleted',
+  addComment: 'Your comment was not saved',
+  deleteComment: 'That comment was not deleted',
+  react: 'That reaction was not saved',
+  save: 'That save was not saved',
+  follow: 'That follow was not saved',
+  'watch.remove': 'Removing that title was not saved',
+  'watch.upsert': 'Updating your watchlist was not saved',
+  'watch.progress': 'Updating your progress was not saved',
+  prefs: 'Your preferences were not saved',
+  profile: 'Your profile was not saved',
+  onboarding: 'Finishing setup was not saved',
+  readNotifications: 'That was not marked as read',
+  block: 'That block was not saved',
+  muteUser: 'That mute was not saved',
+  muteDrama: 'That mute was not saved',
+  report: 'Your report was not sent',
+  upsertCollection: 'That collection was not saved',
+  deleteCollection: 'That collection was not deleted',
+  collectionItem: 'That change to the collection was not saved',
+};
+
 // ── Mirror ────────────────────────────────────────────────────────────────────────────────────
 
 /** True while adoption is writing server rows into the cache — those writes must not mirror back. */
@@ -29,10 +96,94 @@ let adopting = false;
 
 const sessionReady = (): boolean => Boolean(supabase && getBackendAccessToken());
 
-const caught = (scope: string) => (e: unknown) => reportError(`sync.${scope}`, e);
+/**
+ * The slices each mirrored action can change. A rejected write must put exactly these back, and
+ * nothing else: reverting more would throw away unrelated edits the member made in the meantime.
+ */
+const MIRRORED_SLICES: Record<string, (keyof AppState)[]> = {
+  addPost: ['posts'],
+  editPost: ['posts'],
+  deletePost: ['posts'],
+  addComment: ['comments', 'posts'],
+  deleteComment: ['comments', 'posts'],
+  react: ['reactions', 'posts', 'comments'],
+  save: ['saves', 'posts'],
+  follow: ['follows'],
+  watch: ['watchlist', 'follows'],
+  progress: ['watchlist', 'follows'],
+  note: ['watchlist'],
+  prefs: ['prefs'],
+  profile: ['profile'],
+  onboarding: ['onboarding'],
+  readNotifications: ['notifications'],
+  block: ['blockedUsers', 'follows'],
+  muteUser: ['mutedUsers'],
+  muteDrama: ['mutedDramas'],
+  report: ['reported'],
+  upsertCollection: ['collections'],
+  deleteCollection: ['collections'],
+  collectionItem: ['collections'],
+};
+
+/** Installed by lib/store.tsx (see the note there): the rollback needs dispatch, sync cannot import it. */
+let applyWithoutMirror: ((action: Action) => void) | null = null;
+
+export function setApplyDispatcher(fn: (action: Action) => void): void {
+  applyWithoutMirror = fn;
+}
+
+/**
+ * Apply a cache action WITHOUT mirroring it to the backend.
+ *
+ * Two callers need this and both have already written to the server themselves:
+ *  - the rollback below, whose undo must not be sent back;
+ *  - the media composer, which awaits `insertPost` + `complete_media_upload` itself before adding
+ *    the post to the cache, because it has to know the server accepted the upload before the cache
+ *    is allowed to show it as posted.
+ */
+function applyLocal(action: Action): void {
+  if (!applyWithoutMirror) return;
+  adopting = true;
+  try {
+    applyWithoutMirror(action);
+  } finally {
+    adopting = false;
+  }
+}
+
+/** Put the slices `action` touched back to the value they held before the failed write. */
+function revert(action: Action, prev: AppState): void {
+  const keys = MIRRORED_SLICES[action.type];
+  if (!keys) return;
+  const patch: Partial<AppState> = {};
+  for (const key of keys) (patch as Record<string, unknown>)[key] = prev[key];
+  applyLocal({ type: 'restore', patch });
+}
+
+/**
+ * Adopt a server-owned write into the cache without mirroring it back. The media composer uses this
+ * after it has itself created the post and attached the uploads, so the cache only ever shows a
+ * post the server actually accepted.
+ */
+export function adoptLocal(action: Action): void {
+  applyLocal(action);
+}
+
+/**
+ * Attach the rollback + the visible failure to one mirrored write. `work` is the backend promise;
+ * a rejection means the server did NOT accept the change, so the optimistic cache must not keep
+ * pretending it did.
+ */
+function write(action: Action, prev: AppState, scope: string, work: Promise<unknown>): void {
+  void work.catch((e) => {
+    revert(action, prev);
+    reportError(`sync.${scope}`, e);
+    publishFailure({ scope, message: FAILURE_COPY[scope] ?? 'That change was not saved', rolledBack: true, error: e });
+  });
+}
 
 /** The world a drama belongs to (posts.world is a worlds.id reference). */
-function worldOf(state: AppState, dramaId?: string): string | null {
+export function worldOf(state: AppState, dramaId?: string): string | null {
   if (!dramaId) return null;
   const format = state.importedDramas.find((d) => d.id === dramaId)?.format;
   if (!format) return null;
@@ -58,100 +209,103 @@ export function mirrorAction(action: Action, prev: AppState, next: AppState): vo
 
   switch (action.type) {
     case 'addPost':
-      void social.insertPost(action.post, action.post.authorId ?? me, worldOf(next, action.post.context.dramaId)).catch(caught('addPost'));
+      write(action, prev, 'addPost', social.insertPost(action.post, action.post.authorId ?? me, worldOf(next, action.post.context.dramaId)));
       return;
     case 'editPost':
-      void social.updatePost(action.id, action.patch).catch(caught('editPost'));
+      write(action, prev, 'editPost', social.updatePost(action.id, action.patch));
       return;
     case 'deletePost':
-      void social.deletePost(action.id).catch(caught('deletePost'));
+      write(action, prev, 'deletePost', social.deletePost(action.id));
       return;
     case 'addComment':
-      void social.insertComment(action.comment, action.comment.authorId || me).catch(caught('addComment'));
+      write(action, prev, 'addComment', social.insertComment(action.comment, action.comment.authorId || me));
       return;
     case 'deleteComment':
-      void social.deleteComment(action.id).catch(caught('deleteComment'));
+      write(action, prev, 'deleteComment', social.deleteComment(action.id));
       return;
     case 'react': {
       const target = action.isComment ? { commentId: action.targetId } : { postId: action.targetId };
-      void social.setReaction(me, target, action.kind).catch(caught('react'));
+      write(action, prev, 'react', social.setReaction(me, target, action.kind));
       return;
     }
     case 'save': {
       const on = next.saves.includes(action.postId);
-      if (on !== prev.saves.includes(action.postId)) void social.setSaved(me, action.postId, on).catch(caught('save'));
+      if (on !== prev.saves.includes(action.postId)) write(action, prev, 'save', social.setSaved(me, action.postId, on));
       return;
     }
     case 'follow': {
       const on = next.follows[action.kind].includes(action.id);
       if (on !== prev.follows[action.kind].includes(action.id)) {
-        void social.setFollow(FOLLOW_KINDS[action.kind], action.id, on).catch(caught('follow'));
+        write(action, prev, 'follow', social.setFollow(FOLLOW_KINDS[action.kind], action.id, on));
       }
       return;
     }
     case 'watch': {
       if (action.status === null) {
-        void social.removeWatchlist(action.dramaId).catch(caught('watch.remove'));
+        write(action, prev, 'watch.remove', social.removeWatchlist(action.dramaId));
       } else {
         const item = next.watchlist[action.dramaId];
-        if (item) void social.upsertWatchlist(action.dramaId, item).catch(caught('watch.upsert'));
+        if (item) write(action, prev, 'watch.upsert', social.upsertWatchlist(action.dramaId, item));
       }
       return;
     }
     case 'progress':
     case 'note': {
       const item = next.watchlist[action.dramaId];
-      if (item) void social.upsertWatchlist(action.dramaId, item).catch(caught('watch.progress'));
+      if (item) write(action, prev, 'watch.progress', social.upsertWatchlist(action.dramaId, item));
       return;
     }
     case 'prefs':
-      void social.mergePreferences(action.patch).catch(caught('prefs'));
+      write(action, prev, 'prefs', social.mergePreferences(action.patch));
       return;
     case 'profile':
-      void social.updateProfile(me, action.patch).catch(caught('profile'));
+      write(action, prev, 'profile', social.updateProfile(me, action.patch));
       return;
     case 'onboarding':
       if ('done' in action.patch || 'step' in action.patch || 'fandoms' in action.patch || 'genres' in action.patch) {
-        void social
-          .completeOnboarding({ worlds: next.onboarding.fandoms, genres: next.onboarding.genres, step: next.onboarding.step })
-          .catch(caught('onboarding'));
+        write(
+          action,
+          prev,
+          'onboarding',
+          social.completeOnboarding({ worlds: next.onboarding.fandoms, genres: next.onboarding.genres, step: next.onboarding.step }),
+        );
       }
       return;
     case 'readNotifications': {
       const group = action.group && action.group !== 'all' ? action.group : undefined;
-      void social.markNotificationsRead(action.id ? [action.id] : undefined, group).catch(caught('readNotifications'));
+      write(action, prev, 'readNotifications', social.markNotificationsRead(action.id ? [action.id] : undefined, group));
       return;
     }
     case 'block': {
       const on = next.blockedUsers.includes(action.userId);
-      if (on !== prev.blockedUsers.includes(action.userId)) void social.setBlock(action.userId, on).catch(caught('block'));
+      if (on !== prev.blockedUsers.includes(action.userId)) write(action, prev, 'block', social.setBlock(action.userId, on));
       return;
     }
     case 'muteUser': {
       const on = next.mutedUsers.includes(action.userId);
-      if (on !== prev.mutedUsers.includes(action.userId)) void social.setMute('user', action.userId, on).catch(caught('muteUser'));
+      if (on !== prev.mutedUsers.includes(action.userId)) write(action, prev, 'muteUser', social.setMute('user', action.userId, on));
       return;
     }
     case 'muteDrama': {
       const on = next.mutedDramas.includes(action.dramaId);
-      if (on !== prev.mutedDramas.includes(action.dramaId)) void social.setMute('title', action.dramaId, on).catch(caught('muteDrama'));
+      if (on !== prev.mutedDramas.includes(action.dramaId)) write(action, prev, 'muteDrama', social.setMute('title', action.dramaId, on));
       return;
     }
     case 'report':
-      void social.reportContent(action.targetType ?? 'post', action.id, action.reason ?? 'other', action.detail).catch(caught('report'));
+      write(action, prev, 'report', social.reportContent(action.targetType ?? 'post', action.id, action.reason ?? 'other', action.detail));
       return;
     case 'upsertCollection': {
       const collection = next.collections.find((c) => c.id === action.collection.id);
-      if (collection) void social.upsertCollection(collection, me).catch(caught('upsertCollection'));
+      if (collection) write(action, prev, 'upsertCollection', social.upsertCollection(collection, me));
       return;
     }
     case 'deleteCollection':
-      void social.deleteCollection(action.id).catch(caught('deleteCollection'));
+      write(action, prev, 'deleteCollection', social.deleteCollection(action.id));
       return;
     case 'collectionItem': {
       const collection = next.collections.find((c) => c.id === action.collectionId);
       const item = collection?.items.find((i) => i.dramaId === action.dramaId);
-      void social.setCollectionItem(action.collectionId, action.dramaId, action.on, item?.note).catch(caught('collectionItem'));
+      write(action, prev, 'collectionItem', social.setCollectionItem(action.collectionId, action.dramaId, action.on, item?.note));
       return;
     }
     default:

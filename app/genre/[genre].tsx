@@ -14,7 +14,11 @@ import { useApp, useLayout } from '../../lib/hooks';
 import { Drama } from '../../lib/model';
 import { dramasByGenre } from '../../lib/selectors';
 
-/** Genre browse — live catalog, popularity order, endless grid. Falls back to saved titles offline. */
+/**
+ * Genre browse — the backend's own relevance order, endless grid. Falls back to saved titles
+ * offline. The ordering is Hallyu's, not the provider's raw popularity figure: that is the same
+ * ranking Trending and the world rails use, so a title cannot be #1 in one and last in the other.
+ */
 export default function GenrePage() {
   const { genre } = useLocalSearchParams<{ genre: string }>();
   const name = decodeURIComponent(genre ?? '');
@@ -81,7 +85,7 @@ export default function GenrePage() {
   return (
     <Screen
       header={
-        <TopBar mode="stack" title={name} subtitle={offlineFallback ? `${saved.length} saved titles` : list.length ? `${list.length}${done ? '' : '+'} titles · by popularity` : 'Across all 4 fandoms'} />
+        <TopBar mode="stack" title={name} subtitle={offlineFallback ? `${saved.length} saved titles` : list.length ? `${list.length}${done ? '' : '+'} titles · by relevance` : 'Across all 4 fandoms'} />
       }
     >
       {loading && !list.length ? (
