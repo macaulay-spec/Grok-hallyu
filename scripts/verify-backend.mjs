@@ -1832,6 +1832,11 @@ await test('A failed upload queues its object for removal', async () => {
 });
 
 await test('No client can read or write the media removal queue', async () => {
+  // The table must exist before "a client cannot see it" means anything: against a project without
+  // it, every member read and write simply errors and the check would pass without proving a thing.
+  const { error: adminError } = await admin().from('media_removal_queue').select('path').limit(1);
+  assert(!adminError, `the project has no readable media_removal_queue: ${adminError?.message}`);
+
   // The table is not granted to `authenticated` at all, so PostgREST either refuses the read or
   // returns nothing. Both are the guarantee; a single visible row is not.
   const { data } = await alice.from('media_removal_queue').select('*').limit(5);
@@ -1842,7 +1847,7 @@ await test('No client can read or write the media removal queue', async () => {
     reason: 'orphaned',
   });
   assert(insertError, 'a client queued an object for deletion');
-  return 'reads return nothing, writes are refused';
+  return 'the queue exists and reads nothing, writes refused, for a member';
 });
 
 await test('The reconciliation job runs and reports what it did', async () => {
@@ -1882,11 +1887,30 @@ await test('A job run is claimed once and not twice for the same key', async () 
 });
 
 await test('The job dispatcher runs and reports each job', async () => {
-  const { data, error } = await admin().rpc('run_scheduled_jobs', { p_jobs: ['catalog.status'] });
+  const job = 'catalog.status';
+  const { data, error } = await admin().rpc('run_scheduled_jobs', { p_jobs: [job] });
   assert(!error, `run_scheduled_jobs failed: ${error?.message}`);
   assert(Array.isArray(data), 'the dispatcher returned no rows');
   assert(data.every((row) => row.status !== 'failed'), `a job failed: ${JSON.stringify(data)}`);
-  return `${data.length} job(s) run, none failed`;
+
+  // The run key is hourly, so a second suite run inside the same hour legitimately reports nothing —
+  // the window was already claimed, by this run or an earlier one. Asserting on what this call
+  // returned therefore proves nothing about the scheduler, and "0 job(s) run" once passed for exactly
+  // that reason. What must hold either way is that the window holds a *completed* run for this job.
+  const { data: runs, error: runsError } = await admin()
+    .from('job_runs')
+    .select('id, status, attempt, items_processed, started_at')
+    .eq('job', job)
+    .order('started_at', { ascending: false })
+    .limit(5);
+  assert(!runsError, `could not read job_runs: ${runsError?.message}`);
+
+  const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
+  const inWindow = (runs ?? []).find((run) => new Date(run.started_at).getTime() >= twoHoursAgo);
+  assert(inWindow, `no ${job} run is recorded in the last two hours — the scheduler did not run`);
+  assert(inWindow.status === 'succeeded', `the ${job} run finished as "${inWindow.status}"`);
+
+  return `${data.length} job(s) run by this call; the window's run is ${inWindow.status} (attempt ${inWindow.attempt}, ${inWindow.items_processed} item(s))`;
 });
 
 await test('Jobs cannot be run by a member', async () => {
@@ -1896,12 +1920,32 @@ await test('Jobs cannot be run by a member', async () => {
 });
 
 await test('Running the same job twice in a window does no work twice', async () => {
-  const first = await admin().rpc('run_scheduled_jobs', { p_jobs: ['catalog.episode_schedule'] });
+  const job = 'catalog.episode_schedule';
+  const first = await admin().rpc('run_scheduled_jobs', { p_jobs: [job] });
   assert(!first.error, `first dispatch failed: ${first.error?.message}`);
-  const second = await admin().rpc('run_scheduled_jobs', { p_jobs: ['catalog.episode_schedule'] });
+  const second = await admin().rpc('run_scheduled_jobs', { p_jobs: [job] });
   assert(!second.error, `second dispatch failed: ${second.error?.message}`);
   assert((second.data ?? []).length === 0, 'the job ran twice in the same window');
-  return 'the second run was skipped by the run key';
+
+  // The same trap as the dispatcher check: the first call reports nothing when an earlier run in this
+  // hourly window already did the work. One row for (job, run_key) is what "did the work once" means.
+  const { data: runs, error: runsError } = await admin()
+    .from('job_runs')
+    .select('id, status, run_key')
+    .eq('job', job)
+    .order('started_at', { ascending: false })
+    .limit(10);
+  assert(!runsError, `could not read job_runs: ${runsError?.message}`);
+
+  const distinctKeys = new Set((runs ?? []).map((run) => run.run_key));
+  assert(distinctKeys.size > 0, `no ${job} run is recorded at all`);
+  assert((runs ?? []).every((run) => run.status !== 'failed'), `a ${job} run failed: ${JSON.stringify(runs)}`);
+
+  const twoHoursAgo = Date.now() - 2 * 60 * 60 * 1000;
+  const recent = (runs ?? []).filter((run) => new Date(run.started_at ?? 0).getTime() >= twoHoursAgo);
+  assert(recent.length <= 2, `${recent.length} ${job} runs started inside one window`);
+
+  return `the second run was skipped by the run key; ${(runs ?? []).length} run row(s) recorded over ${distinctKeys.size} window(s)`;
 });
 
 await test('A failed run is retryable and counted', async () => {
