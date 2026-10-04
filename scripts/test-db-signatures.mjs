@@ -50,6 +50,16 @@ check(
 
 check('a function with no parameters is probed with an empty body', nullArgsBody(expected.get('get_bootstrap').argText) === '{}');
 
+// The probe body must key every parameter by name: an `undefined` key serialises to `{}`, which
+// PostgREST answers with PGRST202 for every function and would report a healthy project as empty.
+// (This exact bug shipped once: the shared helper returned names where the caller expected objects.)
+check(
+  'every probed parameter is keyed by its declared name',
+  Object.keys(JSON.parse(nullArgsBody(expected.get('purge_deleted_accounts').argText))).join(',') === 'retention' &&
+    JSON.parse(nullArgsBody(expected.get('purge_deleted_accounts').argText)).retention === null,
+  nullArgsBody(expected.get('purge_deleted_accounts').argText),
+);
+
 check(
   'a type with a comma in it is not split (numeric(10, 2))',
   !namedArgs('p_amount numeric(10, 2), p_note text').includes('2'),
@@ -92,12 +102,17 @@ check(
 
 // A gateway that is down is neither present nor missing — reporting it as either is a lie.
 check(
-  'a 5xx is unreachable, not missing',
-  classifyRpcProbe({ message: 'Internal Server Error', status: 503 }) === 'unreachable',
+  'a bare 5xx with no answer is unreachable',
+  classifyRpcProbe({ message: '', status: 503 }) === 'unreachable',
 );
 check(
   'a transport failure is unreachable',
   classifyRpcProbe({ message: 'fetch failed', status: 0 }) === 'unreachable',
+);
+// …but PostgREST answers 500 when a function raises, and a function that raised was found and run.
+check(
+  'a function that raised (PostgREST 500) is present, not unreachable',
+  classifyRpcProbe({ message: 'catalog provider <NULL> is not active', status: 500 }) === 'present',
 );
 
 console.log('');

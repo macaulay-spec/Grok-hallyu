@@ -13,7 +13,7 @@
 // Exit: 0 = the project has every function the repository defines, 1 = drift, 2 = not configured
 import process from 'node:process';
 import path from 'node:path';
-import { expectedFunctions, namedArgs } from './lib/db-signatures.mjs';
+import { expectedFunctions, nullArgsBody, classifyRpcProbe } from './lib/db-signatures.mjs';
 
 if (typeof globalThis.WebSocket === 'undefined') {
   try {
@@ -40,12 +40,11 @@ const MIGRATIONS = path.join(REPO, 'supabase', 'migrations');
 const expected = expectedFunctions(MIGRATIONS);
 
 const call = async (fn) => {
-  const args = namedArgs(fn.argText);
   // Every declared parameter is sent as null: the names resolve the function (so a function the
   // project does not have answers PGRST202), while a null argument is refused by any writer before
   // it touches a row. Declared defaults are deliberately not replayed — this is a presence probe,
   // not a behavioural test (scripts/verify-backend.mjs is that).
-  const body = JSON.stringify(Object.fromEntries(args.map((arg) => [arg.name, null])));
+  const body = nullArgsBody(fn.argText);
   const response = await fetch(`${URL_BASE}/rest/v1/rpc/${fn.name}`, {
     method: 'POST',
     headers: {
@@ -54,16 +53,20 @@ const call = async (fn) => {
       'Content-Type': 'application/json',
       Accept: 'application/json',
     },
-    body: args.length ? body : '{}',
+    body: body === '{}' ? '{}' : body,
   });
   const text = await response.text();
   let code = null;
+  let message = '';
   try {
-    code = JSON.parse(text)?.code ?? null;
+    const parsed = JSON.parse(text);
+    code = parsed?.code ?? null;
+    message = parsed?.message ?? parsed?.error ?? '';
   } catch {
     /* the body is not JSON (a plain-text error) */
+    message = text;
   }
-  return { status: response.status, code, text: text.slice(0, 200) };
+  return { status: response.status, code, message, verdict: classifyRpcProbe({ code, message, status: response.status }), text: text.slice(0, 200) };
 };
 
 console.log(`Probing ${expected.size} declared function(s) against ${URL_BASE}`);
@@ -78,7 +81,10 @@ for (const fn of expected.values()) {
     failures.push({ fn, error: e?.message ?? String(e) });
     continue;
   }
-  if (outcome.status === 404 || outcome.code === 'PGRST202') missing.push({ fn, outcome });
+  // The shared classifier decides: a function that raised, or refused a null argument, is present;
+  // only a resolution failure is missing, and a transport failure is neither.
+  if (outcome.verdict === 'missing') missing.push({ fn, outcome });
+  else if (outcome.verdict === 'unreachable') failures.push({ fn, error: outcome.message || `HTTP ${outcome.status}` });
   else present.push({ fn, outcome });
 }
 

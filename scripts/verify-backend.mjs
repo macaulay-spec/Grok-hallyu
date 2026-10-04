@@ -158,7 +158,11 @@ await test('Project serves a PostgREST schema', async () => {
   for (const [label, key] of attempts) {
     if (!key) continue;
     const response = await fetch(`${SUPABASE_URL}/rest/v1/`, {
-      headers: { apikey: key, Authorization: `Bearer ${key}`, Accept: 'application/openapi+json, application/json' },
+      // `application/openapi+json` exactly, with no fallback in the list: PostgREST answers the root
+      // with a compact Swagger 2.0 document when the client will take `application/json`, and that
+      // document has no `relationships` at all — which would report every foreign key as missing on
+      // a project whose foreign keys are all present.
+      headers: { apikey: key, Authorization: `Bearer ${key}`, Accept: 'application/openapi+json' },
     });
 
     if (!response.ok) {
@@ -269,6 +273,17 @@ if (requireSchema()) {
       watchlist_items: ['profiles', 'titles'],
       collection_items: ['collections', 'titles'],
     };
+
+    // PostgREST only publishes relationship metadata in its OpenAPI 3 document. If the document
+    // carries none at all, that is a different fact from "these foreign keys are missing", and
+    // saying so stops thirteen phantom failures from reading as thirteen broken constraints.
+    const declaresAny = Object.values(openapi.definitions).some(
+      (definition) => Array.isArray(definition?.relationships) && definition.relationships.length > 0,
+    );
+    assert(
+      declaresAny,
+      'the schema document declares no relationships at all — it is not the OpenAPI 3 document, so this check cannot say anything about foreign keys',
+    );
 
     for (const [table, targets] of Object.entries(expectRelationships)) {
       const definition = openapi.definitions[table];
@@ -2118,7 +2133,9 @@ await test('Member uploads into their own folder', async () => {
 await test('Member reads their own object back', async () => {
   const { data, error } = await alice.storage.from('media').download(uploadedPath);
   assert(!error, `download failed: ${error?.message}`);
-  assert(data.byteLength > 0, 'the object came back empty');
+  // The size is reported either way: an empty body with no error is a different failure from a
+  // refused read, and only the number tells them apart.
+  assert(data.byteLength > 0, `the object came back empty (${data.byteLength} bytes of ${typeof data})`);
   return `${data.byteLength} bytes retrieved`;
 });
 

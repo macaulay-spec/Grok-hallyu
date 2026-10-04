@@ -120,6 +120,12 @@ export const classifyRpcProbe = ({ code = null, message = '', status = 0 } = {})
     /function\s+[a-z0-9_."]+\s*\(.*\)\s*does not exist/i.test(message);
 
   if (code === 'PGRST202' || undefinedFunction) return 'missing';
-  if (status >= 500 || /fetch failed|ECONNREFUSED|ETIMEDOUT|socket hang up/i.test(message)) return 'unreachable';
+
+  // A status of 500 is not by itself "unreachable": PostgREST answers 500 when a function *raises*,
+  // and a function that raised was found, resolved and executed. That is evidence it exists. Only a
+  // transport failure — the request never got an answer at all — says the project could not be asked.
+  const transportFailure = /fetch failed|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|socket hang up|terminated/i.test(message);
+  if (transportFailure || (status >= 500 && !message.trim())) return 'unreachable';
+
   return 'present';
 };
