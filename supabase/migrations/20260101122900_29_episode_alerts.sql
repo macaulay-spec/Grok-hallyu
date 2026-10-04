@@ -50,10 +50,15 @@ set search_path = public, pg_temp
 as $$
   select case
     when coalesce((select quiet_hours from public.user_preferences where user_id = p_user_id), false)
-      then date_trunc('day', p_moment at time zone coalesce(
-        (select locale from public.push_tokens where user_id = p_user_id order by created_at desc limit 1),
-        'UTC'
-      )) + interval '9 hours'
+      -- 09:00 on the member's local day. The sum is parenthesised so `at time zone` applies to the
+      -- timestamp; unparenthesised the shift binds to the interval and PostgreSQL looks for
+      -- timezone(text, interval), which does not exist.
+      then (
+        date_trunc('day', p_moment at time zone coalesce(
+          (select locale from public.push_tokens where user_id = p_user_id order by created_at desc limit 1),
+          'UTC'
+        )) + interval '9 hours'
+      )
       at time zone coalesce(
         (select locale from public.push_tokens where user_id = p_user_id order by created_at desc limit 1),
         'UTC'

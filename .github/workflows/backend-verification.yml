@@ -3,7 +3,10 @@ name: Backend verification
 # Proves the Hallyu backend actually works, in three clearly separated layers:
 #
 #   offline    — always runs, needs no project: SQL invariants, type contract, capability surface,
-#                secret scan, typecheck/lint.
+#                secret scan, typecheck/lint — AND the migrations are applied to a real PostgreSQL,
+#                every function body is compiled, and the backend behaviour checks are replayed
+#                against that database. A SQL parser cannot see inside a function body, so this is
+#                the only place a body-level regression is caught before it reaches the project.
 #   connected  — the live suite against the real project (scripts/verify-backend.mjs). REQUIRED
 #                REPOSITORY SECRETS: the Supabase URL + anon key + service-role key. Missing =
 #                configuration failure (red), never a silent skip. This job gates the backend.
@@ -52,6 +55,30 @@ jobs:
     name: Offline validation (no credentials)
     runs-on: ubuntu-22.04
     timeout-minutes: 15
+
+    # A real PostgreSQL, not a parser: the migrations have to EXECUTE, and every function body has
+    # to compile and plan. Nothing here touches the live project or any credential.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - '5432:5432'
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      HALLYU_LOCAL_DB: hallyu
+
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
@@ -82,6 +109,15 @@ jobs:
 
       - name: Scan the repository for committed credentials
         run: node scripts/verify-no-secrets.mjs
+
+      - name: Apply every migration to a real PostgreSQL
+        run: node scripts/localdb/apply.mjs "$GITHUB_WORKSPACE"
+
+      - name: Replay the backend behaviour checks against that database
+        run: node scripts/localdb/check.mjs "$GITHUB_WORKSPACE"
+
+      - name: Compile and plan every function body
+        run: node scripts/localdb/surface.mjs
 
       - name: Typecheck, lint and unit checks
         run: npm run check
@@ -159,6 +195,26 @@ jobs:
           echo "::error title=Backend failure::The live suite FAILED (exit $code) — failing checks are listed in the job summary."
           exit 1
 
+      # Why the suite failed, stated in terms the repository can answer: which function the project
+      # does not have. Runs even when the suite failed, because a project provisioned from an older
+      # branch is the single most common cause of a wall of failures here.
+      - name: Compare the project against this repository's migrations
+        if: always()
+        run: |
+          set +e
+          node scripts/verify-schema-sync.mjs "$GITHUB_WORKSPACE" | tee schema-sync.log
+          code=${PIPESTATUS[0]}
+          if [ "$code" = "0" ]; then
+            echo "The project implements every function this repository defines."
+            exit 0
+          fi
+          if [ "$code" = "2" ]; then
+            echo "::notice title=Schema comparison skipped::the connection values did not reach this step (the configuration gate above already failed)."
+            exit 0
+          fi
+          echo "::error title=Schema drift::The project does not implement every function this repository defines — the list is in schema-sync.log. Apply supabase/migrations to the project in filename order, then re-run this workflow."
+          exit 1
+
       - name: Write the run summary
         if: always()
         run: |
@@ -167,6 +223,12 @@ jobs:
             echo ""
             echo '```text'
             cat backend-verification.log 2>/dev/null || echo "(no log — the configuration gate failed)"
+            echo '```'
+            echo ""
+            echo "### Project vs this repository"
+            echo ""
+            echo '```text'
+            cat schema-sync.log 2>/dev/null || echo "(not run)"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 

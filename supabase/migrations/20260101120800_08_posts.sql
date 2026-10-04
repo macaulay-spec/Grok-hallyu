@@ -38,7 +38,7 @@ create table if not exists public.posts (
   save_count     integer     not null default 0,
   share_count    integer     not null default 0,
   search_document tsvector   generated always as (
-                    to_tsvector('simple', coalesce(title, '') || ' ' || coalesce(body, '') || ' ' || coalesce(array_to_string(hashtags, ' '), ''))
+                    to_tsvector('simple', coalesce(title, '') || ' ' || coalesce(body, '') || ' ' || public.genres_search_text(hashtags))
                   ) stored,
   created_at     timestamptz not null default now(),
   updated_at     timestamptz not null default now(),

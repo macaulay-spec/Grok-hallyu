@@ -40,7 +40,7 @@ begin
     raw := convert_from(decode(rtrim(p_cursor, '='), 'base64'), 'UTF8');
   exception when others then
     return;
-  end if;
+  end;
 
   parts := string_to_array(raw, '|');
   if array_length(parts, 1) <> 3 then
@@ -53,7 +53,7 @@ begin
     id := parts[3]::uuid;
   exception when others then
     return;
-  end if;
+  end;
 
   return;
 end;
@@ -257,7 +257,6 @@ set search_path = public, pg_temp
 as $$
 declare
   page jsonb := '{}'::jsonb;
-  item jsonb;
   ids uuid[] := '{}';
   seen integer := 0;
   skip_rows integer := greatest(coalesce(p_offset, 0), 0);

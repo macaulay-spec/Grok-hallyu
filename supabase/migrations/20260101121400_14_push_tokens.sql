@@ -26,9 +26,10 @@ create unique index if not exists push_tokens_token_key on public.push_tokens (t
 create index if not exists push_tokens_user_idx on public.push_tokens (user_id);
 create index if not exists push_tokens_active_idx on public.push_tokens (user_id) where disabled_at is null;
 
-create trigger push_tokens_set_updated_at
-  before update on public.push_tokens
-  for each row execute function public.set_updated_at();
+-- No `updated_at` trigger here: this table has no `updated_at` column — `set_updated_at()` writes
+-- `new.updated_at`, so the trigger made EVERY update of a push token fail ("record \"new\" has no
+-- field \"updated_at\""). The row's own freshness marker is `last_seen_at`, which register_push_token
+-- and disable_push_token maintain.
 
 alter table public.push_tokens enable row level security;
 

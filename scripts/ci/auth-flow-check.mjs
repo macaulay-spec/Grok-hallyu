@@ -7,10 +7,12 @@
 //
 //   1. fresh state (pm clear) → welcome screen renders;
 //   2. sign in with a real account created for this run (scripts/ci/test-account.mjs);
-//   3. the app reaches the tabs as a signed-in member and the connection gate reports `gate:connected`
-//      — an authenticated get_bootstrap() round trip, not a TCP ping;
-//   4. force-stop and relaunch → `auth:session-restored` + `gate:connected` + tabs again: the session
-//      genuinely persists across an app restart;
+//   3. the app navigates away from the signed-out welcome route as a signed-in member
+//      (`index:redirect` to the onboarding step a brand-new account must take, or straight to the
+//      tabs) and the connection gate reports `gate:connected` — an authenticated get_bootstrap()
+//      round trip, not a TCP ping;
+//   4. force-stop and relaunch → `auth:session-restored` + `gate:connected` + a signed-in redirect
+//      again: the session genuinely persists across an app restart;
 //   5. no crash trap, no navigate-before-mount, no FATAL/ANR anywhere in the window.
 //
 // The workflow then asserts the account's `auth.signin` analytics row on the backend (a second,
@@ -61,6 +63,21 @@ async function waitFor(label, predicate, timeoutMs, pollMs = 1500) {
   fail(`${label} — not seen within ${Math.round(timeoutMs / 1000)}s${last ? ` (last: ${String(last).slice(0, 200)})` : ''}`);
   return null;
 }
+
+/**
+ * The post-sign-in redirect line, or null. `app/index.tsx` logs `index:redirect <dest>` when the
+ * member still owes onboarding (a brand-new test account always does) and `index:redirect:tabs
+ * /(tabs)` when they are done — both prove the sign-in was accepted; the signed-out welcome
+ * destination never counts.
+ */
+const signedInRedirect = () => {
+  const line = trail()
+    .split('\n')
+    .find((l) => l.includes('index:redirect') && !l.includes('(auth)/welcome'));
+  if (!line) return null;
+  const marker = line.slice(line.indexOf('index:redirect'));
+  return marker.replace('[hallyu:boot]', '').trim();
+};
 
 const logcat = () => {
   try {
@@ -173,24 +190,24 @@ note('phase 3: submit and wait for the signed-in redirect');
 clearLogcat();
 adb(['shell', 'input', 'keyevent', '66']); // the password field's "go"/enter submits
 
-let toTabs = await waitFor('index:redirect:tabs after sign-in', () => trail().includes('index:redirect:tabs'), 60_000, 2000);
-if (!toTabs) {
+let signedIn = await waitFor('signed-in index:redirect after sign-in', signedInRedirect, 60_000, 2000);
+if (!signedIn) {
   // Fallback for soft keyboards that swallow ENTER: dismiss it and tap the button.
   note('ENTER did not submit — dismissing the keyboard and tapping the Sign in button');
   adb(['shell', 'input', 'keyevent', '4']);
   await sleep(800);
   const button = biggestByText(dumpNodes(), 'Sign in');
   if (button) tap(button, '"Sign in"');
-  toTabs = await waitFor('index:redirect:tabs after tapping Sign in', () => trail().includes('index:redirect:tabs'), 60_000, 2000);
+  signedIn = await waitFor('signed-in index:redirect after tapping Sign in', signedInRedirect, 60_000, 2000);
 }
-if (!toTabs) {
+if (!signedIn) {
   console.log(trail());
   process.exit(1);
 }
 
 const signInTrail = trail();
-if (!signInTrail.includes('gate:connected')) fail('the app reached the tabs but the connection gate never reported connected (no authenticated backend round trip).');
-note('signed in — tabs reached with gate:connected');
+if (!signInTrail.includes('gate:connected')) fail('the app navigated in as a member but the connection gate never reported connected (no authenticated backend round trip).');
+note(`signed in — ${signedIn} reached with gate:connected`);
 
 // ── Phase 4 · restart → the session must persist ──────────────────────────────────────────────
 note('phase 4: force-stop, relaunch, and require a restored session');
@@ -204,12 +221,9 @@ if (!restored) {
   console.log(trail());
   process.exit(1);
 }
-const restartTrail = await waitFor(
-  'restart trail: gate:connected + index:redirect:tabs',
-  () => {
-    const t = trail();
-    return t.includes('gate:connected') && t.includes('index:redirect:tabs') ? t : null;
-  },
+const restartRedirect = await waitFor(
+  'restart trail: gate:connected + a signed-in index:redirect',
+  () => (trail().includes('gate:connected') && signedInRedirect() ? trail() : null),
   60_000,
   2000,
 );
@@ -221,13 +235,18 @@ if (FATAL.test(lines)) fail('FATAL EXCEPTION or ANR during the auth flow.');
 
 const ui = dumpNodes();
 const tabBar = ['Explore', 'Activity', 'You'].filter((label) => byText(ui, label));
-if (tabBar.length === 0) fail('the app never rendered the tab bar — it did not navigate into the signed-in product.');
+// A brand-new member lands on the onboarding step ("What are you into?"); an established session
+// lands on the tabs. Either is the signed-in product — the signed-out welcome screen is neither.
+const onboarding = ['What are you into?', 'Pick at least one', 'Continue with'].filter((label) => byText(ui, label));
+if (tabBar.length === 0 && onboarding.length === 0) {
+  fail('after the restart the app showed neither the tab bar nor the signed-in onboarding step — it did not come back as a member.');
+}
 
 console.log('');
 console.log('=== AUTH FLOW BOOT TRAIL (sign-in) ===');
 console.log(signInTrail || '(none)');
 console.log('=== AUTH FLOW BOOT TRAIL (restart) ===');
-console.log(restartTrail ?? trail() ?? '(none)');
+console.log(restartRedirect ?? trail() ?? '(none)');
 console.log('======================================');
 
 if (process.exitCode === 1) {
@@ -235,5 +254,8 @@ if (process.exitCode === 1) {
   process.exit(1);
 }
 
-note(`PASSED — signed in as the run's test member, gate:connected, session restored after restart, tabs rendered (${tabBar.join(', ')}).`);
+note(
+  `PASSED — signed in as the run's test member, gate:connected, session restored after restart; ` +
+    (tabBar.length ? `tabs rendered (${tabBar.join(', ')})` : `onboarding step rendered (${onboarding.join(', ')})`) + '.',
+);
 process.exit(0);

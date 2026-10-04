@@ -270,7 +270,7 @@ begin
 
   if membership.user_id is not null then
     update public.community_members
-       set status = case when room.join_policy = 'open' then 'active' else 'pending' end
+       set status = (case when room.join_policy = 'open' then 'active' else 'pending' end)::public.membership_status
      where community_id = p_community_id and user_id = actor;
 
     return jsonb_build_object('community_id', p_community_id, 'status', (select status::text from public.community_members where community_id = p_community_id and user_id = actor));
@@ -279,7 +279,7 @@ begin
   insert into public.community_members (community_id, user_id, role, status)
   values (
     p_community_id, actor, 'member',
-    case when room.join_policy = 'open' then 'active' else 'pending' end
+    (case when room.join_policy = 'open' then 'active' else 'pending' end)::public.membership_status
   )
   on conflict (community_id, user_id) do update
     set status = excluded.status;

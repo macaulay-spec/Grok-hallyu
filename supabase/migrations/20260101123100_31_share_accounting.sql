@@ -91,6 +91,7 @@ declare
   actor uuid := auth.uid();
   recent_shares integer;
   counted boolean := false;
+  written integer := 0;
   current_count integer := 0;
 begin
   if actor is null then
@@ -129,14 +130,15 @@ begin
   values (p_post_id, actor, p_channel, (now() at time zone 'utc')::date)
   on conflict (post_id, user_id, channel, share_date) do nothing;
 
-  get diagnostics counted = row_count;
+  get diagnostics written = row_count;
+  counted := written > 0;
 
   select p.share_count into current_count from public.posts p where p.id = p_post_id;
 
   return jsonb_build_object(
     'post_id', p_post_id,
     'share_count', current_count,
-    'counted', counted > 0,
+    'counted', counted,
     'your_shares_today', (
       select count(*) from public.post_shares s
       where s.post_id = p_post_id and s.user_id = actor and s.share_date = (now() at time zone 'utc')::date

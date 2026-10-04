@@ -156,15 +156,37 @@ alter table public.profiles enable row level security;
 
 -- A profile card is public; a suspended account is hidden; a deleted account is only visible to
 -- itself and to moderators (so an orphaned post still renders an author chip).
+-- The post lookup lives in a SECURITY DEFINER helper rather than inline: with `exists (select …
+-- from posts)` written directly into the policy, PostgreSQL's row-security planner walks
+-- posts_insert_own (its WITH CHECK reads profiles) → this policy (reads posts) and rejects the
+-- statement with "infinite recursion detected in policy for relation posts" before any row is
+-- touched. The helper keeps the same semantics — it reads posts as the table owner, outside the
+-- caller's policy context.
+create or replace function public.author_has_live_post(p_profile_id uuid)
+returns boolean
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  return exists (
+    select 1 from public.posts p
+    where p.author_id = p_profile_id and p.state <> 'deleted'
+  );
+end;
+$$;
+
+revoke all on function public.author_has_live_post(uuid) from public;
+grant execute on function public.author_has_live_post(uuid) to authenticated;
+
 create policy profiles_select_visible on public.profiles
   for select to authenticated
   using (
     account_status <> 'deleted'
     or id = auth.uid()
     or public.is_moderator()
-    or exists (
-      select 1 from public.posts p where p.author_id = profiles.id and p.state <> 'deleted'
-    )
+    or public.author_has_live_post(profiles.id)
   );
 
 create policy profiles_select_anonymous on public.profiles

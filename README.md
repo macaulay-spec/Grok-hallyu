@@ -41,8 +41,20 @@ node scripts/verify-db-types.mjs   # offline: the TypeScript contract matches th
 node scripts/verify-backend.mjs    # live: real CRUD, RLS isolation and storage against a project
 ```
 
-`.github/workflows/backend-verification.yml` runs all three from GitHub Secrets and fails the build
-when a live check fails.
+A SQL parser cannot see inside a function body, so there is a second offline layer that runs the
+migrations on a real PostgreSQL (`npm run test:db-exec`, needs a local `psql`/server; the
+**Backend verification** workflow runs it against a `postgres:16` service container):
+
+```
+node scripts/localdb/apply.mjs     # applies supabase/migrations verbatim, in filename order
+node scripts/localdb/check.mjs     # replays the backend behaviour checks against that database
+node scripts/localdb/surface.mjs   # compiles and plans every function body
+```
+
+`.github/workflows/backend-verification.yml` runs all of it, then the live suite from GitHub Secrets,
+and fails the build when a live check fails. It also reports **schema drift**: if the project does
+not implement every function this repository defines, the workflow says so by name
+(`scripts/verify-schema-sync.mjs`) — apply `supabase/migrations` to the project and re-run.
 
 ## Android
 

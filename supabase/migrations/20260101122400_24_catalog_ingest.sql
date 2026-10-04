@@ -584,7 +584,7 @@ set search_path = public, pg_temp
 as $$
 declare
   target_provider text := coalesce(p_provider_id, 'tmdb');
-  external_id text;
+  v_external_id text;
   person_name text;
   row_id uuid;
 begin
@@ -592,10 +592,10 @@ begin
     raise exception 'catalog ingest is a service-role operation' using errcode = 'insufficient_privilege';
   end if;
 
-  external_id := nullif(btrim(p_payload ->> 'external_id'), '');
+  v_external_id := nullif(btrim(p_payload ->> 'external_id'), '');
   person_name := nullif(btrim(p_payload ->> 'name'), '');
 
-  if external_id is null or person_name is null then
+  if v_external_id is null or person_name is null then
     raise exception 'person payload requires external_id and name' using errcode = 'invalid_parameter_value';
   end if;
 
@@ -603,7 +603,7 @@ begin
     provider_id, external_id, name, korean_name, photo_url, birth_date, bio, known_for_count, catalog_synced_at
   )
   values (
-    target_provider, external_id, left(person_name, 200),
+    target_provider, v_external_id, left(person_name, 200),
     nullif(left(p_payload ->> 'korean_name', 200), ''),
     nullif(left(p_payload ->> 'photo_url', 500), ''),
     nullif(p_payload ->> 'birth_date', '')::date,
@@ -613,10 +613,10 @@ begin
   )
   on conflict (provider_id, external_id) do update
     set name = excluded.name,
-        korean_name = coalesce(excluded.korean_name, public.people.korean_name),
-        photo_url = coalesce(excluded.photo_url, public.people.photo_url),
-        birth_date = coalesce(excluded.birth_date, public.people.birth_date),
-        bio = coalesce(excluded.bio, public.people.bio),
+        korean_name = coalesce(excluded.korean_name, p.korean_name),
+        photo_url = coalesce(excluded.photo_url, p.photo_url),
+        birth_date = coalesce(excluded.birth_date, p.birth_date),
+        bio = coalesce(excluded.bio, p.bio),
         known_for_count = excluded.known_for_count,
         catalog_synced_at = now()
   returning p.id into row_id;
@@ -641,7 +641,7 @@ set search_path = public, pg_temp
 as $$
 declare
   item jsonb;
-  person_id uuid;
+  v_person_id uuid;
   written integer := 0;
   job_value text;
 begin
@@ -663,7 +663,7 @@ begin
       continue;
     end if;
 
-    person_id := public.catalog_upsert_person(
+    v_person_id := public.catalog_upsert_person(
       'tmdb',
       jsonb_build_object(
         'external_id', item ->> 'external_id',
@@ -672,27 +672,27 @@ begin
       )
     );
 
-    if person_id is null then
+    if v_person_id is null then
       continue;
     end if;
 
     insert into public.title_people as tp (title_id, person_id, character, job, order_index, catalog_synced_at)
     values (
-      p_title_id, person_id,
+      p_title_id, v_person_id,
       nullif(left(item ->> 'character', 200), ''),
       job_value,
       greatest(coalesce(nullif(item ->> 'order_index', '')::integer, 0), 0),
       now()
     )
     on conflict (title_id, person_id) do update
-      set character = coalesce(excluded.character, public.title_people.character),
+      set character = coalesce(excluded.character, tp.character),
           job = excluded.job,
           order_index = excluded.order_index,
           catalog_synced_at = now()
     where
-      public.title_people.character is distinct from excluded.character
-      or public.title_people.job is distinct from excluded.job
-      or public.title_people.order_index is distinct from excluded.order_index;
+      tp.character is distinct from excluded.character
+      or tp.job is distinct from excluded.job
+      or tp.order_index is distinct from excluded.order_index;
 
     if found then
       written := written + 1;

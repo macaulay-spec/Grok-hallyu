@@ -449,29 +449,35 @@ begin
 
   return query
   select * from (
-    select 'title'::text as kind, t.id, t.title as label,
-           coalesce(t.genres[1], t.world) as subtitle
-    from public.titles t
-    where t.title ilike trimmed || '%'
-      and public.catalog_lifecycle_of(t) <> 'unavailable'
-    order by public.catalog_relevance_score(t) desc, t.id asc
-    limit cap
+    (
+      select 'title'::text as kind, t.id, t.title as label,
+             coalesce(t.genres[1], t.world) as subtitle
+      from public.titles t
+      where t.title ilike trimmed || '%'
+        and public.catalog_lifecycle_of(t) <> 'unavailable'
+      order by public.catalog_relevance_score(t) desc, t.id asc
+      limit cap
+    )
 
     union all
 
-    select 'person'::text, pe.id, pe.name, coalesce(pe.korean_name, 'Cast & crew')
-    from public.people pe
-    where pe.name ilike trimmed || '%'
-    order by pe.follower_count desc, pe.id asc
-    limit 3
+    (
+      select 'person'::text, pe.id, pe.name, coalesce(pe.korean_name, 'Cast & crew')
+      from public.people pe
+      where pe.name ilike trimmed || '%'
+      order by pe.follower_count desc, pe.id asc
+      limit 3
+    )
 
     union all
 
-    select 'community'::text, c.id, c.name, c.fandom
-    from public.communities c
-    where c.name ilike trimmed || '%'
-    order by c.member_count desc, c.id asc
-    limit 3
+    (
+      select 'community'::text, c.id, c.name, c.fandom
+      from public.communities c
+      where c.name ilike trimmed || '%'
+      order by c.member_count desc, c.id asc
+      limit 3
+    )
   ) suggestions
   limit cap;
 end;

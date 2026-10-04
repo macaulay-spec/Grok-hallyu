@@ -91,12 +91,23 @@ create index if not exists titles_year_desc_idx on public.titles (year desc);
 create index if not exists titles_genres_gin_idx on public.titles using gin (genres);
 create index if not exists titles_title_trgm_idx on public.titles using gin (title extensions.gin_trgm_ops);
 -- Server-side catalog search (search_titles RPC) uses this generated column.
+-- The array join has to be IMMUTABLE to sit inside a generated column, and `array_to_string` is
+-- stable on current PostgreSQL engines — the same wrapper the live project runs (connection report §3).
+create or replace function public.genres_search_text(p_genres text[])
+returns text
+language sql
+immutable
+set search_path = public, pg_temp
+as $$
+  select coalesce(array_to_string(p_genres, ' '), '')
+$$;
+
 alter table public.titles
   add column if not exists search_document tsvector
   generated always as (
     to_tsvector('simple',
       coalesce(title, '') || ' ' || coalesce(original_title, '') || ' ' ||
-      coalesce(array_to_string(genres, ' '), '') || ' ' || coalesce(network, '')
+      public.genres_search_text(genres) || ' ' || coalesce(network, '')
     )
   ) stored;
 create index if not exists titles_search_gin_idx on public.titles using gin (search_document);

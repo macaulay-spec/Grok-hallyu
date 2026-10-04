@@ -18,6 +18,7 @@
     "test:db-types": "node scripts/verify-db-types.mjs",
     "test:backend-surface": "node scripts/verify-backend-surface.mjs",
     "test:secrets": "node scripts/verify-no-secrets.mjs",
+    "test:db-exec": "node scripts/localdb/apply.mjs . && node scripts/localdb/check.mjs . && node scripts/localdb/surface.mjs",
     "test:backend": "node scripts/verify-backend.mjs"
   },
   "dependencies": {

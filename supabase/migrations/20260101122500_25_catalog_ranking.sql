@@ -245,10 +245,12 @@ as $$
     and (p_genre is null or p_genre = any(t.genres))
     and public.catalog_lifecycle_of(t) <> 'unavailable'
     and (
-      p_lifecycle is null
-      or public.catalog_lifecycle_of(t) = any(p_lifecycle)
-      -- "classic" is never returned by a default trending list; it has to be asked for.
-      or (public.catalog_lifecycle_of(t) <> 'classic')
+      -- A classic (long-finished) title is never returned by a default trending list; it has to be
+      -- asked for by naming it in p_lifecycle. An explicit filter returns exactly what it names.
+      case
+        when p_lifecycle is null then public.catalog_lifecycle_of(t) <> 'classic'
+        else public.catalog_lifecycle_of(t) = any(p_lifecycle)
+      end
     )
   order by public.catalog_relevance_score(t) desc, t.id asc
   limit least(greatest(coalesce(p_limit, 20), 1), 50)
@@ -453,7 +455,7 @@ begin
     case
       when exists (select 1 from public.title_follows tf where tf.title_id = t.id and tf.user_id = actor) then 'You follow this'
       when exists (select 1 from public.watchlist_items w where w.title_id = t.id and w.user_id = actor) then 'On your watchlist'
-      when v.genres <> '{}' and t.genres && v.genres then 'Because of your taste in ' || (t.genres & v.genres)[1]
+      when v.genres <> '{}' and t.genres && v.genres then 'Because of your taste in ' || (select g from unnest(t.genres) g where g = any(v.genres) limit 1)
       when v.worlds <> '{}' and t.world = any(v.worlds) then 'Popular in ' || t.world
       else 'Trending now'
     end as backdrop_note,

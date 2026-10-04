@@ -135,7 +135,7 @@ as $$
 declare
   prefs public.user_preferences%rowtype;
   row_id uuid;
-  created integer := 0;
+  created boolean := false;
 begin
   if p_recipient is null or p_dedupe_key is null or length(btrim(p_dedupe_key)) = 0 then
     raise exception 'recipient and dedupe_key are required' using errcode = 'invalid_parameter_value';
@@ -445,7 +445,7 @@ begin
 
   -- Transient failure: exponential backoff, capped, and the attempt ceiling decides when it stops.
   update public.notification_deliveries
-     set status = case when d.attempt >= 5 then 'failed' else 'queued' end,
+     set status = (case when d.attempt >= 5 then 'failed' else 'queued' end)::public.delivery_status,
          last_error = left(p_error, 300),
          next_attempt_at = now() + make_interval(mins => least(60, (2 ^ greatest(d.attempt, 1))::integer)),
          updated_at = now()

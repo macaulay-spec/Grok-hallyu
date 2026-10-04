@@ -127,7 +127,7 @@ begin
     set kind = excluded.kind,
         byte_size = excluded.byte_size,
         content_type = excluded.content_type,
-        state = case when public.media_uploads.state = 'attached' then 'attached' else 'pending' end,
+        state = (case when public.media_uploads.state = 'attached' then 'attached' else 'pending' end)::public.media_state,
         expires_at = now() + interval '24 hours',
         error = null
   returning id into upload_id;

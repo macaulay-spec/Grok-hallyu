@@ -215,3 +215,28 @@ State after the completion pass — `RORK-CREDENTIALS.md` is the credential inve
   authenticated fetch → anonymous read blocked → delete, all green.
 - **Remaining:** mint `RORK_TEST_REFRESH_TOKEN` (one sign-in), fill `EXPO_PUBLIC_RORK_APP_KEY`'s
   value, then run the connected workflow once; EAS secrets if EAS builds are adopted.
+
+---
+
+## Live-project verification update
+
+The first live run of the connected suite (2026-10-04, commit `a877324`) failed 117 of 119 checks.
+Every failure reproduced against a PostgreSQL 14 instance built from `supabase/migrations` — **none of
+them were live drift**: they were definitions in this repository that parse as text but never execute
+correctly. Fourteen were fixed in the migrations (see the commit message for the list), and the
+blind spot that let them through is now a gate:
+
+- `scripts/localdb/apply.mjs` applies the migrations verbatim, in filename order, to a real database.
+- `scripts/localdb/check.mjs` replays 19 behaviour checks (member post creation under RLS, reactions,
+  comments, notifications + delivery, catalog ingest, communities, media, feed/search, jobs,
+  `get_bootstrap`) as SQL.
+- `scripts/localdb/surface.mjs` compiles and plans **every** function body — the only offline way to
+  see inside one.
+- All three run in the `offline` job against a `postgres:16` service container, and are available
+  locally as `npm run test:db-exec`.
+
+**What this means for the project:** the fixes live in the repository, so the connected job keeps
+failing until `supabase/migrations` is applied to the Rork Cloud project again. That needs database
+credentials this workspace does not have. `scripts/verify-schema-sync.mjs` runs after the live suite
+and names every function the project is missing, so the next run states the cause instead of a wall
+of symptoms.

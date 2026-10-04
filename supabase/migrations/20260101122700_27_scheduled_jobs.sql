@@ -87,7 +87,7 @@ begin
            started_at = now(),
            finished_at = null,
            error = null
-     where id = existing.id;
+     where job_runs.id = existing.id;
 
     return query select existing.id, true, next_attempt;
     return;
