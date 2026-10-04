@@ -11,16 +11,18 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "ios": "expo run:ios",
-    "check": "npm run typecheck && npm run lint && npm run test:fandoms && npm run test:sql && npm run test:db-types && npm run test:signatures && npm run test:backend-surface && npm run test:secrets && npm run test:home-render",
+    "check": "npm run typecheck && npm run lint && npm run test:fandoms && npm run test:sql && npm run test:db-types && npm run test:signatures && npm run test:apply && npm run test:backend-surface && npm run test:secrets && npm run test:home-render",
     "test:home-render": "node scripts/verify-home-render.mjs",
     "test:fandoms": "node scripts/verify-fandoms.mjs",
     "test:sql": "node scripts/verify-sql.mjs",
     "test:db-types": "node scripts/verify-db-types.mjs",
     "test:signatures": "node scripts/test-db-signatures.mjs",
+    "test:apply": "node scripts/test-apply-migrations.mjs",
     "test:backend-surface": "node scripts/verify-backend-surface.mjs",
     "test:secrets": "node scripts/verify-no-secrets.mjs",
     "test:db-exec": "node scripts/localdb/apply.mjs . && node scripts/localdb/check.mjs . && node scripts/localdb/surface.mjs",
-    "test:backend": "node scripts/verify-backend.mjs"
+    "test:backend": "node scripts/verify-backend.mjs",
+    "migrate:live": "node scripts/ci/apply-migrations.mjs ."
   },
   "dependencies": {
     "@expo/cli": "^0.18.31",

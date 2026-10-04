@@ -72,6 +72,20 @@ NEVER expose to the Expo/client bundle. Never commit. CI-only or function-runtim
   committed) · **CI:** required.
 - **NEVER expose to Expo/client bundle.**
 
+### `SUPABASE_DB_URL`
+- **Where stored:** GitHub Actions secret ✅ (set to the project's pooled Postgres URI) — **nowhere
+  else.** It is the only credential in this repository with DDL rights, so it exists solely inside the
+  `migrate` job of `backend-verification.yml`, which applies `supabase/migrations` to the live
+  project in filename order before the live suite runs. It is deliberately *not* an `EXPO_PUBLIC_*`
+  value and must never reach the APK.
+- **Purpose:** `scripts/ci/apply-migrations.mjs` (`npm run migrate:live`) connects with it and runs
+  the migration set against the existing project — it never creates a project and never drops one.
+- **Local dev:** optional. `SUPABASE_DB_URL` in the environment works the same way; the applier exits
+  with a clear "database was not reached" if it is missing, and applies nothing.
+- **CI:** required by the `migrate` job. If it is absent the job fails red naming this secret rather
+  than skipping — a skipped apply would leave the project on an older schema and let the connected
+  suite report that older schema's behaviour as this branch's failures.
+
 ### `RORK_TEST_REFRESH_TOKEN`
 - **Where stored:** GitHub Actions secret ⚠️ (**not set yet** — minting one requires a single
   interactive Rork (Google/Apple) sign-in by a human; the sandbox cannot perform OAuth)
@@ -104,13 +118,14 @@ Edge Function runtime automatically** — functions never need them configured b
 
 ## CI → secret matrix
 
-| Secret | `build-apk.yml` | `backend-verification.yml` (connected) | `rork-auth` job |
-| --- | --- | --- | --- |
-| `EXPO_PUBLIC_SUPABASE_URL` | ✅ required | ✅ required (as `SUPABASE_URL`) | ✅ required (as `SUPABASE_URL`) |
-| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | ✅ required | ✅ required (as `SUPABASE_ANON_KEY`) | ✅ required (as `SUPABASE_ANON_KEY`) |
-| `EXPO_PUBLIC_RORK_APP_KEY` | ⚠️ warning when absent (Google/Apple only) | — | optional (enables the check) |
-| `EXPO_PUBLIC_MEDIA_BUCKET` | ✅ required | — | — |
-| `SUPABASE_SERVICE_ROLE_KEY` | never | ✅ required | — |
+| Secret | `build-apk.yml` | `migrate` job | `backend-verification.yml` (connected) | `rork-auth` job |
+| --- | --- | --- | --- | --- |
+| `EXPO_PUBLIC_SUPABASE_URL` | ✅ required | — | ✅ required (as `SUPABASE_URL`) | ✅ required (as `SUPABASE_URL`) |
+| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | ✅ required | — | ✅ required (as `SUPABASE_ANON_KEY`) | ✅ required (as `SUPABASE_ANON_KEY`) |
+| `EXPO_PUBLIC_RORK_APP_KEY` | ⚠️ warning when absent (Google/Apple only) | — | — | optional (enables the check) |
+| `EXPO_PUBLIC_MEDIA_BUCKET` | ✅ required | — | — | — |
+| `SUPABASE_SERVICE_ROLE_KEY` | never | never | ✅ required | — |
+| `SUPABASE_DB_URL` | never | ✅ required (also exported as `DATABASE_URL`) | — | — |
 | `RORK_TEST_REFRESH_TOKEN` | never | never | optional (check skipped when absent) |
 
 EAS builds (if adopted) need the four `EXPO_PUBLIC_*` values as EAS secrets too.

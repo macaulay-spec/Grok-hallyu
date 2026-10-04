@@ -7,6 +7,10 @@ name: Backend verification
 #                every function body is compiled, and the backend behaviour checks are replayed
 #                against that database. A SQL parser cannot see inside a function body, so this is
 #                the only place a body-level regression is caught before it reaches the project.
+#   migrate    — brings the LIVE project in step with supabase/migrations, in filename order, before
+#                anything is tested against it. The repository owns the schema; without this the live
+#                suite proves an older branch's behaviour and reports it as this branch's failures.
+#                Needs the privileged SUPABASE_DB_URL secret — CI only, never in a client bundle.
 #   connected  — the live suite against the real project (scripts/verify-backend.mjs). REQUIRED
 #                REPOSITORY SECRETS: the Supabase URL + anon key + service-role key. Missing =
 #                configuration failure (red), never a silent skip. This job gates the backend.
@@ -122,9 +126,65 @@ jobs:
       - name: Typecheck, lint and unit checks
         run: npm run check
 
+  migrate:
+    name: Apply migrations to the live project
+    needs: offline
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+
+    env:
+      # The one privileged connection this repository needs. It is the project's Postgres URL, it
+      # exists only inside this job, and it must never reach the APK or any client bundle — that is
+      # why it is a repository secret and not an EXPO_PUBLIC_* value. Set it once, from the project's
+      # Settings → Database → Connection string (the pooled URI on port 5432 is enough).
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Mask the database URL in the log
+        if: ${{ env.SUPABASE_DB_URL != '' }}
+        run: echo "::add-mask::$SUPABASE_DB_URL"
+
+      # Missing = a red configuration failure naming the exact secret, never a skip. A skipped apply
+      # would leave the project on an older schema and let the live suite report that as the state of
+      # this branch, which is the failure mode this job exists to remove.
+      - name: Require the database credential
+        run: |
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "::error title=Schema sync blocked::SUPABASE_DB_URL is not configured, so supabase/migrations cannot be applied to the live project. Add it under Settings → Secrets and variables → Actions (the project's pooled Postgres URI from Rork Cloud → the project → Database → Connection string). Until then the connected suite is testing an older schema, and its failures describe that project, not this branch."
+            exit 1
+          fi
+          echo "Database credential present — the live project will be brought up to this branch."
+
+      - name: Apply every migration in filename order
+        run: node scripts/ci/apply-migrations.mjs "$GITHUB_WORKSPACE" | tee migrate.log
+
+      - name: Write the apply summary
+        if: always()
+        run: |
+          {
+            echo "## Migrations applied to the live project"
+            echo ""
+            echo '```text'
+            cat migrate.log 2>/dev/null | head -200 || echo "(the apply step did not run)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   connected:
     name: Connected backend (live project)
-    needs: offline
+    needs: [offline, migrate]
+    # The live suite runs even when the apply step could not: a project that is behind needs its
+    # drift reported by name, not hidden behind the failure of the step that would have fixed it.
+    # It still waits for `offline`, so a broken migration set never reaches the live project.
+    if: ${{ always() && needs.offline.result == 'success' }}
     runs-on: ubuntu-22.04
     timeout-minutes: 20
 
@@ -318,6 +378,12 @@ jobs:
 #     EXPO_PUBLIC_SUPABASE_URL       https://<project-ref>.supabase.co          (client-safe)
 #     EXPO_PUBLIC_SUPABASE_ANON_KEY  the project's publishable/anon key          (client-safe)
 #     SUPABASE_SERVICE_ROLE_KEY      privileged key — CI only, never in a client bundle
+#
+#   REQUIRED for the migrate job (applies supabase/migrations to the live project):
+#     SUPABASE_DB_URL                the project's Postgres URI — privileged, CI only, never in the
+#                                    APK and never an EXPO_PUBLIC_* value (Rork Cloud → project →
+#                                    Database → Connection string; the pooled URI on port 5432 is
+#                                    enough). Without it the project cannot be brought forward.
 #
 #   OPTIONAL, used by the isolated rork-auth job (Google/Apple sign-in):
 #     EXPO_PUBLIC_RORK_APP_KEY       Rork app key (client-safe; identifies the app for Rork Auth)

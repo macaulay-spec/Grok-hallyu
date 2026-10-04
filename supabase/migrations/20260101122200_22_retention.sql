@@ -5,6 +5,13 @@
 
 -- Hard purge for accounts deleted more than `retention` ago. Never callable by a client: the only
 -- roles allowed are service_role (the Edge Function) and postgres.
+--
+-- `drop function` first: a later migration changes this function's RETURNS TABLE shape, and
+-- PostgreSQL refuses to redefine a function whose row type has changed (42P13). Dropping here is what
+-- makes the whole set re-appliable over a project that was provisioned from a newer or older branch —
+-- the live project cannot be rebuilt from scratch, it is brought forward file by file.
+drop function if exists public.purge_deleted_accounts(interval);
+
 create or replace function public.purge_deleted_accounts(retention interval default interval '30 days')
 returns table (profiles_purged integer, storage_objects_removed integer)
 language plpgsql

@@ -210,6 +210,12 @@ grant execute on function public.delete_account() to authenticated;
 
 -- The retention purge hard-deletes the tombstone. moderation_actions rows keep their handle and lose
 -- only the reference, so this delete can no longer be refused by the audit log.
+--
+-- `drop function` first, for the same reason as in migration 22: migration 37 changes this function's
+-- RETURNS TABLE shape (storage_objects_removed → storage_objects_queued) and PostgreSQL refuses to
+-- redefine a function whose row type has changed (42P13). The grants are re-issued below regardless.
+drop function if exists public.purge_deleted_accounts(interval);
+
 create or replace function public.purge_deleted_accounts(retention interval default interval '30 days')
 returns table (profiles_purged integer, storage_objects_removed integer)
 language plpgsql

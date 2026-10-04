@@ -317,6 +317,13 @@ grant execute on function public.media_drop_missing_objects() to service_role;
 
 -- Removes objects nothing points at. `avatars/` and `catalog/` are managed by the ingest job and are
 -- protected by the `protected` flag below; `u/<id>/…` is member content with a retention window.
+--
+-- `drop function` first: migration 37 changes this function's RETURNS TABLE shape (objects_removed →
+-- objects_queued), and PostgreSQL refuses to redefine a function whose row type has changed (42P13).
+-- On a fresh database there is nothing to drop and this is a no-op; on the live project it is what
+-- lets the migration set be applied again from the top instead of only to a virgin database.
+drop function if exists public.media_remove_orphans(interval, interval);
+
 create or replace function public.media_remove_orphans(
   p_older_than interval default interval '7 days',
   p_user_older_than interval default interval '30 days'

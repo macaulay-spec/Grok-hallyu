@@ -293,6 +293,77 @@ if (!failures.some((f) => f.includes('Storage API remove it'))) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// 9. The migration set must be re-appliable: a function whose row type changes is dropped first
+// ---------------------------------------------------------------------------------------------
+
+// `create or replace function` cannot change a function's row type. Redefining one whose
+// `RETURNS TABLE` differs from the version already in the database fails with 42P13, so a set that
+// only ever applies to a virgin database is not a set that can be applied to a live project brought
+// forward file by file — which is exactly what the connected workflow has to do.
+//
+// The rule: when one function signature is defined more than once with more than one return shape,
+// every one of those definitions must be preceded by `drop function if exists` for that signature.
+// On a fresh database the drop is a no-op, so this costs nothing and unblocks re-application.
+const signatures = new Map(); // name(args) -> [{ file, index, returns }]
+
+for (const file of files) {
+  const sql = await readFile(path.join(MIGRATIONS_DIR, file), 'utf8');
+
+  for (const match of sql.matchAll(
+    /create\s+(?:or\s+replace\s+)?function\s+(public\.)?([a-z0-9_]+)\s*\(/gi,
+  )) {
+    let depth = 1;
+    let cursor = match.index + match[0].length;
+    const argsStart = cursor;
+    for (; cursor < sql.length && depth > 0; cursor += 1) {
+      if (sql[cursor] === '(') depth += 1;
+      else if (sql[cursor] === ')') depth -= 1;
+    }
+    // `returns trigger` handlers are not called by name, so their row type is irrelevant here.
+    if (/^\s*returns\s+trigger\b/i.test(sql.slice(cursor, cursor + 40))) continue;
+
+    const returns = /returns\s+([\s\S]{0,200}?)\s*language\b/i.exec(sql.slice(cursor, cursor + 400));
+    const name = match[2].toLowerCase();
+    const key = `${name}(${sql.slice(argsStart, cursor - 1).replace(/\s+/g, ' ').trim()})`;
+    if (!signatures.has(key)) signatures.set(key, []);
+    signatures.get(key).push({
+      file,
+      name,
+      index: match.index,
+      returns: (returns?.[1] ?? '?').replace(/\s+/g, ' ').trim(),
+    });
+  }
+}
+
+let reapplyConflicts = 0;
+for (const [signature, definitions] of signatures) {
+  if (new Set(definitions.map((d) => d.returns)).size < 2) continue;
+  reapplyConflicts += 1;
+
+  for (const definition of definitions) {
+    const sql = await readFile(path.join(MIGRATIONS_DIR, definition.file), 'utf8');
+    const dropped = new RegExp(
+      `drop\\s+function\\s+(if\\s+exists\\s+)?(public\\.)?${definition.name}\\s*\\(`,
+      'i',
+    ).test(sql.slice(0, definition.index));
+    if (!dropped) {
+      fail(
+        definition.file,
+        `${definition.name}() is defined more than once with different return shapes (${signature}), and this definition is not preceded by \`drop function if exists ${definition.name}(...)\` — re-applying the set over a database that already has another version fails with 42P13 (see docs/RORK-CLOUD-CONNECTION-REPORT.md)`,
+      );
+    }
+  }
+}
+
+if (!failures.some((f) => f.includes('42P13'))) {
+  ok(
+    reapplyConflicts === 0
+      ? 'every function keeps one return shape across the migration set (nothing to drop)'
+      : `${reapplyConflicts} function signature(s) change shape; each definition drops the old version first`,
+  );
+}
+
+// ---------------------------------------------------------------------------------------------
 
 console.log('HALLYU SQL VALIDATION');
 console.log('=====================');
