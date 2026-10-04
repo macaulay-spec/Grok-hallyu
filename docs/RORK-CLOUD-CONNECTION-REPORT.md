@@ -286,3 +286,42 @@ trip, installed, cold-started, no JS crash), and the device sign-in gate passed 
 account signs in, lands on `/(onboarding)/fandoms`, and the session is restored after a force-stop and
 relaunch. Its one remaining failure was in this repository, not the device: `scripts/ci/test-account.mjs`
 queried `analytics_events.created_at`, and the table is partitioned by `occurred_at`.
+
+---
+
+## Final state of this branch
+
+Three further commits closed the loop on the last two live runs, and every check they added is
+reproduced offline.
+
+| Commit | What it fixes |
+| --- | --- |
+| `a8e57d6` | `storage.protect_delete()` (bytes leave through the Storage API via `media_removal_queue`), the `profiles_guard_privileges` trigger, and the CI account proof that read `analytics_events.created_at` |
+| `1be168a` | the RPC probe that reported a healthy project as empty, a raising function reported as unreachable, and a schema root fetched in a form that declares no relationships |
+| `b12263b` | `download()` returns a Blob (not an ArrayBuffer), the foreign-key check reported as blocked rather than failed, and the storage policies exercised offline for the first time |
+
+Workflow results on this branch:
+
+- **Build APK `37198148729` — success.** The release APK built, installed on an emulator, cold-started,
+  and reached `gate:connected` — a real RPC round trip against the live project. The device signed in
+  with a real CI test account, landed on `/(onboarding)/fandoms`, and the session was restored after a
+  force-stop and relaunch. `scripts/ci/test-account.mjs verify` confirmed the proof it exists for:
+  `auth.signin recorded for this member at 2026-10-04T11:23:35Z`.
+- **Backend verification `37198731329` — offline and rork-auth jobs pass; connected job fails**, because
+  the project still runs the schema from before `639d186`. The report now says so precisely:
+  **40 failed, 1 blocked, of 120 checks**, and **present: 114 · missing: 6 · unreachable: 0** — the six
+  are `genres_search_text`, `author_has_live_post`, `notify_at_for`, `queue_media_removal`,
+  `claim_media_removals`, `complete_media_removals`, i.e. exactly what this branch added. No failure is
+  a harness artefact any more, and the run no longer reports phantom "missing RPCs" or null-crashes.
+
+The one blocked check is honest about what it is: the project's schema document declares no
+relationships at all, so the suite cannot say whether the foreign keys exist. They are exercised
+behaviourally instead, and offline `repro.sql` proves the policies are scoped to the owner.
+
+**The remaining 40 failures are live drift, not repository defects.** Each one is a definition the
+project is still running and this branch has replaced — `posts_insert_own` recursing through
+`profiles_select_visible`, `text[] & text[]` in `recommended_titles`, the enum casts in
+`join_community` and `begin_media_upload`, the `syntax error at or near "union"/"if"` bodies, and
+`delete_account` deleting storage rows. Applying `supabase/migrations` in filename order (with
+`check_function_bodies = off` for the session) is the whole remedy, and it needs database credentials
+this workspace does not have.
