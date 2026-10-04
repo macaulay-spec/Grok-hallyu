@@ -10,6 +10,7 @@ import { Wordmark } from '../../components/ui/TopBar';
 import { colors, motion, space } from '../../constants/theme';
 import { useAuth } from '../../lib/auth';
 import { useLayout, useLoad } from '../../lib/hooks';
+import { isBackendConfigured } from '../../lib/api/client';
 import { catalog } from '../../lib/catalog';
 import { adoptDramas } from '../../lib/catalogSync';
 import { allDramas, useSlice } from '../../lib/store';
@@ -93,7 +94,9 @@ export default function Welcome() {
         </View>
 
         <Text variant="caption" tone="tertiary" align="center" style={{ marginTop: space.x4 }}>
-          Accounts, posts and watchlists are stored on this device only.
+          {isBackendConfigured()
+            ? 'Accounts, posts and watchlists sync through Hallyu’s backend.'
+            : 'Accounts, posts and watchlists are stored on this device only.'}
         </Text>
         <View style={styles.tmdb}>
           <Ionicons name="film-outline" size={12} color={colors.textDisabled} />

@@ -92,6 +92,29 @@ jobs:
         run: bun install --frozen-lockfile
 
       # ============================================================
+      # CONFIGURATION GATE
+      # ============================================================
+      # A release APK must be a CONNECTED build: the four client-safe values below are the only
+      # backend configuration that may ever enter this job (never the service-role key, never the
+      # Rork test token — see RORK-CREDENTIALS.md). Missing values are a red configuration failure,
+      # not a silent local-mode build.
+      - name: Require the client-safe backend configuration
+        run: |
+          missing=""
+          if [ -z "$EXPO_PUBLIC_SUPABASE_URL" ]; then missing="$missing EXPO_PUBLIC_SUPABASE_URL"; fi
+          if [ -z "$EXPO_PUBLIC_SUPABASE_ANON_KEY" ]; then missing="$missing EXPO_PUBLIC_SUPABASE_ANON_KEY"; fi
+          if [ -z "$EXPO_PUBLIC_MEDIA_BUCKET" ]; then missing="$missing EXPO_PUBLIC_MEDIA_BUCKET"; fi
+          if [ -n "$missing" ]; then
+            echo "::error title=Configuration failure::This build would ship without a backend — missing repository secrets:$missing"
+            echo "Add them under Settings → Secrets and variables → Actions (RORK-CREDENTIALS.md documents every name)."
+            exit 1
+          fi
+          if [ -z "$EXPO_PUBLIC_RORK_APP_KEY" ]; then
+            echo "::warning title=Optional credential absent::EXPO_PUBLIC_RORK_APP_KEY is not configured — email/password auth ships, Google/Apple sign-in is unavailable in this APK."
+          fi
+          echo "Client-safe backend configuration present."
+
+      # ============================================================
       # TYPECHECK
       # ============================================================
       - name: Typecheck
@@ -216,6 +239,14 @@ jobs:
           echo "APK install-safety verification passed."
 
       # ============================================================
+      # BAKED CONFIGURATION VERIFICATION
+      # ============================================================
+      # Read the values Metro actually inlined: the right Supabase project, no stale project, no dev
+      # host, no privileged marker. Ran on the artifact, not on the workflow's intentions.
+      - name: Verify the APK's baked backend configuration
+        run: node scripts/ci/verify-apk-config.mjs android/app/build/outputs/apk/release/app-release.apk
+
+      # ============================================================
       # KVM
       # ============================================================
       - name: Enable KVM permissions
@@ -227,22 +258,51 @@ jobs:
           sudo udevadm trigger --name-match=kvm || true
 
       # ============================================================
-      # EMULATOR BOOT TEST
+      # DEVICE TEST ACCOUNT (created for this run, removed at the end)
       # ============================================================
-      - name: Verify release APK boot on Android emulator
+      - name: Create the device-test member
+        env:
+          SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/ci/test-account.mjs create
+
+      # ============================================================
+      # EMULATOR BOOT + AUTH FLOW TEST
+      # ============================================================
+      - name: Verify release APK boot and authentication on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         env:
-          # "yes" only when the backend secrets were baked into this build — the boot gate then also
+          # "yes" when the backend secrets were baked into this build — the boot gate then also
           # asserts the connection gate reached "connected" (a real backend RPC round trip). A
           # connected build that falls back to local mode fails the build instead of passing.
-          CONNECTED_BUILD: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL != '' && 'yes' || 'no' }}
+          CONNECTED_BUILD: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL != '' && secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY != '' && 'yes' || 'no' }}
         with:
           api-level: 30
           target: default
           arch: x86_64
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: sh scripts/ci/boot-check.sh
+          # One command line (the action splits multiple lines): boot gate first, then the auth flow
+          # — sign in with this run's member through the real UI, restart, require a restored session.
+          script: sh scripts/ci/boot-check.sh && node scripts/ci/auth-flow-check.mjs
+
+      # ============================================================
+      # DEVICE → BACKEND PROOF
+      # ============================================================
+      # The app recorded `auth.signin` through the authenticated record_event RPC; the row must exist
+      # on the backend, owned by this run's member. Independent evidence that the device wrote.
+      - name: Verify the device actually reached the backend
+        env:
+          SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/ci/test-account.mjs verify
+
+      - name: Remove the device-test member
+        if: always()
+        env:
+          SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/ci/test-account.mjs cleanup
 
       # ============================================================
       # BOOT LOG ARTIFACT
@@ -327,8 +387,10 @@ jobs:
           Commit: ${SOURCE_COMMIT} (${SOURCE_REF}).
 
 
-          Connected build: auth, profiles, feeds, notifications and the connection gate are
-          server-side (Hallyu backend on Rork Cloud) when the EXPO_PUBLIC_SUPABASE_* secrets were
-          present at build time; catalog data still comes from TMDB.
+          Connected build: accounts, profiles, posts, comments, reactions, saves, follows,
+          watchlists, notifications, collections and the connection gate all run against the Hallyu
+          backend on Rork Cloud (Supabase). The catalog is served by the backend's TMDB ingest
+          pipeline, not read from TMDB by the device. The artifact check above proves the APK
+          carries exactly this project's client-safe configuration and no privileged credential.
 
           Install: download APK → allow unknown apps → open file."

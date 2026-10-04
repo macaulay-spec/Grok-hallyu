@@ -39,8 +39,9 @@ live in `.env.local` (gitignored); `.env.example` is the placeholder template.
 - **Purpose:** identifies Hallyu in the Rork Auth OAuth token exchange
   (`lib/api/client.ts` → `exchangeRorkToken()`), enabling Google/Apple sign-in.
 - **If missing:** email/password auth works; only the Google/Apple exchange path is unavailable.
-- **Local dev:** optional · **CI:** required for the connected backend job (Rork leg) and for
-  Google/Apple in APK builds.
+- **Local dev:** optional · **CI:** optional — the isolated `rork-auth` job in
+  `backend-verification.yml` verifies the exchange when this is present; APK builds warn (do not
+  fail) when it is absent, and require it only for Google/Apple sign-in.
 
 ### `EXPO_PUBLIC_MEDIA_BUCKET`
 - **Where stored:** GitHub Actions secrets ✅ (set to `media`) · constant default `media` in
@@ -77,8 +78,9 @@ NEVER expose to the Expo/client bundle. Never commit. CI-only or function-runtim
 - **Purpose:** lets `scripts/verify-backend.mjs` exercise the real Rork Auth path: refresh →
   access token → accepted by PostgREST.
 - **Rotation:** mint a fresh one any time by signing in again; update the secret.
-- **NEVER expose to client bundle.** · **Local dev:** optional · **CI:** required by the connected
-  backend job (configuration failure if absent, by design — never a silent skip).
+- **NEVER expose to client bundle.** · **Local dev:** optional (run `node scripts/verify-rork-auth.mjs`)
+  · **CI:** optional — the `rork-auth` job reports the absence plainly, and fails loudly when the
+  credentials ARE configured but the exchange breaks. The connected backend job never depends on it.
 
 ---
 
@@ -102,14 +104,14 @@ Edge Function runtime automatically** — functions never need them configured b
 
 ## CI → secret matrix
 
-| Secret | `build-apk.yml` | `backend-verification.yml` (connected) |
-| --- | --- | --- |
-| `EXPO_PUBLIC_SUPABASE_URL` | ✅ required | ✅ required (as `SUPABASE_URL`) |
-| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | ✅ required | ✅ required (as `SUPABASE_ANON_KEY`) |
-| `EXPO_PUBLIC_RORK_APP_KEY` | ✅ (Google/Apple) | ✅ required |
-| `EXPO_PUBLIC_MEDIA_BUCKET` | ✅ required | — |
-| `SUPABASE_SERVICE_ROLE_KEY` | never | ✅ required |
-| `RORK_TEST_REFRESH_TOKEN` | never | ✅ required |
+| Secret | `build-apk.yml` | `backend-verification.yml` (connected) | `rork-auth` job |
+| --- | --- | --- | --- |
+| `EXPO_PUBLIC_SUPABASE_URL` | ✅ required | ✅ required (as `SUPABASE_URL`) | ✅ required (as `SUPABASE_URL`) |
+| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | ✅ required | ✅ required (as `SUPABASE_ANON_KEY`) | ✅ required (as `SUPABASE_ANON_KEY`) |
+| `EXPO_PUBLIC_RORK_APP_KEY` | ⚠️ warning when absent (Google/Apple only) | — | optional (enables the check) |
+| `EXPO_PUBLIC_MEDIA_BUCKET` | ✅ required | — | — |
+| `SUPABASE_SERVICE_ROLE_KEY` | never | ✅ required | — |
+| `RORK_TEST_REFRESH_TOKEN` | never | never | optional (check skipped when absent) |
 
 EAS builds (if adopted) need the four `EXPO_PUBLIC_*` values as EAS secrets too.
 

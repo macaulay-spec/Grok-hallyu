@@ -19,6 +19,22 @@ name: Backend verification
 
 on:
   workflow_dispatch:
+  # Any change that can move the backend contract re-verifies the live project: migrations, edge
+  # functions, the type contract, the verification scripts themselves, the client API layer and the
+  # dependency set. (The GitHub App used by this workspace cannot dispatch workflows directly, so a
+  # push trigger is also what makes verification automatic rather than manual.)
+  push:
+    branches:
+      - main
+    paths:
+      - 'supabase/**'
+      - 'scripts/**'
+      - 'lib/api/**'
+      - 'lib/sync.ts'
+      - 'lib/auth.tsx'
+      - 'package.json'
+      - 'bun.lock'
+      - '.github/workflows/backend-verification.yml'
   schedule:
     # 04:23 UTC on Mondays — after the retention purge window, before anyone looks at it.
     - cron: '23 4 * * 1'

@@ -67,19 +67,19 @@ export function mirrorAction(action: Action, prev: AppState, next: AppState): vo
       void social.deletePost(action.id).catch(caught('deletePost'));
       return;
     case 'addComment':
-      void social.insertComment(action.comment).catch(caught('addComment'));
+      void social.insertComment(action.comment, action.comment.authorId || me).catch(caught('addComment'));
       return;
     case 'deleteComment':
       void social.deleteComment(action.id).catch(caught('deleteComment'));
       return;
     case 'react': {
       const target = action.isComment ? { commentId: action.targetId } : { postId: action.targetId };
-      void social.setReaction(target, action.kind).catch(caught('react'));
+      void social.setReaction(me, target, action.kind).catch(caught('react'));
       return;
     }
     case 'save': {
       const on = next.saves.includes(action.postId);
-      if (on !== prev.saves.includes(action.postId)) void social.setSaved(action.postId, on).catch(caught('save'));
+      if (on !== prev.saves.includes(action.postId)) void social.setSaved(me, action.postId, on).catch(caught('save'));
       return;
     }
     case 'follow': {

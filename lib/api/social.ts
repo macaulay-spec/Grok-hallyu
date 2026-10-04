@@ -141,13 +141,13 @@ export async function deletePost(id: string): Promise<void> {
 
 // ── Comments ──────────────────────────────────────────────────────────────────────────────────
 
-export async function insertComment(comment: Comment): Promise<void> {
+export async function insertComment(comment: Comment, authorId: string): Promise<void> {
   const { error } = await db()
     .from('comments')
     .insert({
       id: comment.id,
       post_id: comment.postId,
-      author_id: comment.authorId,
+      author_id: authorId,
       parent_id: isUuid(comment.parentId) ? comment.parentId : null,
       body: comment.body,
       spoiler: comment.spoiler,
@@ -163,26 +163,28 @@ export async function deleteComment(id: string): Promise<void> {
 
 // ── Reactions and saves (explicit, idempotent — the client state is authoritative) ─────────────
 
-/** Set or clear the member's one reaction on a post/comment. */
-export async function setReaction(target: { postId?: string; commentId?: string }, kind: ReactionKind | null): Promise<void> {
+/** Set or clear the member's one reaction on a post/comment. `user_id` has no column default. */
+export async function setReaction(userId: string, target: { postId?: string; commentId?: string }, kind: ReactionKind | null): Promise<void> {
   const column = target.commentId ? 'comment_id' : 'post_id';
   const targetId = target.commentId ?? target.postId;
-  if (!isUuid(targetId)) return;
+  if (!isUuid(userId) || !isUuid(targetId)) return;
   const client = db();
   // Owner-scoped by RLS: a member can only clear their own reaction.
   const { error } = await client.from('reactions').delete().eq(column, targetId);
   if (error) fail('reaction clear', error.message);
   if (!kind) return;
-  const insert = await client.from('reactions').insert({ [column]: targetId, kind });
+  const insert = await client.from('reactions').insert({ user_id: userId, [column]: targetId, kind });
   if (insert.error) fail('reaction set', insert.error.message);
 }
 
-/** Save/unsave a post. Idempotent on the (user, post) primary key. */
-export async function setSaved(postId: string, on: boolean): Promise<void> {
-  if (!isUuid(postId)) return;
+/** Save/unsave a post. Idempotent on the (user, post) primary key; save rows carry no default user. */
+export async function setSaved(userId: string, postId: string, on: boolean): Promise<void> {
+  if (!isUuid(userId) || !isUuid(postId)) return;
   const client = db();
   if (on) {
-    const { error } = await client.from('saves').upsert({ post_id: postId }, { ignoreDuplicates: true, onConflict: 'user_id,post_id' });
+    const { error } = await client
+      .from('saves')
+      .upsert({ user_id: userId, post_id: postId }, { ignoreDuplicates: true, onConflict: 'user_id,post_id' });
     if (error) fail('save', error.message);
   } else {
     const { error } = await client.from('saves').delete().eq('post_id', postId);
