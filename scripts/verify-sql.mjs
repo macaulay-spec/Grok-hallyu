@@ -253,6 +253,46 @@ if (!failures.some((f) => f.includes('credential'))) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// 8. No function may delete a storage row directly
+// ---------------------------------------------------------------------------------------------
+
+// Supabase installs `storage.protect_delete()`, which refuses `DELETE` on `storage.objects` and
+// `storage.buckets` for every role — "Direct deletion from storage tables is not allowed. Use the
+// Storage API instead." A function that does it parses, applies, compiles, and then fails at the
+// only moment it runs, which is why this is checked here and not left to the live project.
+//
+// The check reads the *final* definition of every function, not the text of every migration: an
+// earlier migration may define a function the way the platform forbade, as long as a later one
+// replaces it (migration 37 does exactly that). Only the definition that survives is a defect.
+const finalDefinitions = new Map(); // function name -> { file, sql }
+
+for (const file of files) {
+  const sql = await readFile(path.join(MIGRATIONS_DIR, file), 'utf8');
+
+  // Every definition, in the order they appear, so the *last* one for a name is the one that
+  // survives `supabase db push` — a file may redefine a function several times.
+  for (const match of sql.matchAll(/create\s+(or\s+replace\s+)?function\s+(public\.)?(\w+)\s*\(/gi)) {
+    finalDefinitions.set(match[3].toLowerCase(), {
+      file,
+      sql: sliceFunctionBody(sql.slice(match.index), match[3]),
+    });
+  }
+}
+
+for (const [name, { file, sql }] of finalDefinitions) {
+  for (const statement of sql.matchAll(/delete\s+from\s+storage\.(objects|buckets)/gi)) {
+    fail(
+      file,
+      `${name}() deletes storage.${statement[1]} directly — Supabase refuses that for every role; queue the path in public.media_removal_queue and let the Storage API remove it`,
+    );
+  }
+}
+
+if (!failures.some((f) => f.includes('Storage API remove it'))) {
+  ok(`no function deletes a storage row directly (${finalDefinitions.size} function definitions checked)`);
+}
+
+// ---------------------------------------------------------------------------------------------
 
 console.log('HALLYU SQL VALIDATION');
 console.log('=====================');

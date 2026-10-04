@@ -19,8 +19,12 @@
 // Exit codes:  0 = PASS   1 = FAIL   2 = NOT CONFIGURED (no credentials in this environment)
 
 import process from 'node:process';
+import path from 'node:path';
 import { createClient } from '@supabase/supabase-js';
 import { scanRepository } from './lib/secret-scan.mjs';
+import { expectedFunctions, nullArgsBody, classifyRpcProbe } from './lib/db-signatures.mjs';
+
+const REPO_ROOT = process.argv[2] ?? process.cwd();
 
 // supabase-js builds its Realtime client at createClient() time and needs a WebSocket global. Node 22
 // ships one natively (CI uses 22); on older Node the `ws` package fills in, and if neither exists we
@@ -59,6 +63,18 @@ const test = async (name, fn) => {
   } catch (error) {
     results.push({ group: currentGroup, name, ok: false, detail: error?.message ?? String(error) });
   }
+};
+
+/**
+ * A check that could not run at all, as opposed to one that ran and failed.
+ *
+ * The distinction matters: a gateway that will not serve the OpenAPI document means the schema
+ * shape is *unverified*, which is not the same as verified-and-wrong and must never be reported as a
+ * pass. Blocked checks are counted and reported on their own, and they fail the run — an
+ * unverified claim is not a verified one.
+ */
+const block = (name, reason) => {
+  results.push({ group: currentGroup, name, ok: false, blocked: true, detail: reason });
 };
 
 const assert = (condition, message) => {
@@ -113,6 +129,7 @@ if (!SUPABASE_URL || !ANON_KEY || !SERVICE_ROLE_KEY) {
 // ---------------------------------------------------------------------------------------------
 
 let openapi = null;
+let schemaUnavailable = null;
 let alice = null;
 let bob = null;
 let aliceId = null;
@@ -128,13 +145,39 @@ await test('Supabase reachable with the anon key', async () => {
 });
 
 await test('Project serves a PostgREST schema', async () => {
-  const response = await fetch(`${SUPABASE_URL}/rest/v1/`, {
-    headers: { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` },
-  });
-  assert(response.ok, `OpenAPI document returned ${response.status}`);
-  openapi = await response.json();
-  assert(openapi.definitions && Object.keys(openapi.definitions).length > 0, 'schema has no definitions');
-  return `${Object.keys(openapi.definitions).length} relations exposed`;
+  // The anon key is the client-safe credential and the one a real deployment would use, so it is
+  // tried first. A gateway in front of PostgREST may refuse the schema root to it, in which case
+  // the service-role key is asked — same document, privileged reader. If neither works the schema
+  // checks below are reported as blocked rather than as a wall of `Cannot read properties of null`.
+  const attempts = [
+    ['anon key', ANON_KEY],
+    ['service-role key', SERVICE_ROLE_KEY],
+  ];
+  const failures = [];
+
+  for (const [label, key] of attempts) {
+    if (!key) continue;
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/`, {
+      headers: { apikey: key, Authorization: `Bearer ${key}`, Accept: 'application/openapi+json, application/json' },
+    });
+
+    if (!response.ok) {
+      failures.push(`${label}: HTTP ${response.status}`);
+      continue;
+    }
+
+    const document = await response.json();
+    if (!document?.definitions || Object.keys(document.definitions).length === 0) {
+      failures.push(`${label}: the document has no definitions`);
+      continue;
+    }
+
+    openapi = document;
+    return `${Object.keys(document.definitions).length} relations exposed (via the ${label})`;
+  }
+
+  schemaUnavailable = `the project's OpenAPI document is not readable (${failures.join('; ')})`;
+  assert(false, schemaUnavailable);
 });
 
 startGroup('Schema');
@@ -192,47 +235,54 @@ const EXPECTED_COLUMNS = {
   reports: ['id', 'reporter_id', 'target_type', 'target_id', 'status'],
 };
 
-await test('Every expected table exists', async () => {
-  const defined = new Set(Object.keys(openapi.definitions));
-  const missing = EXPECTED_TABLES.filter((table) => !defined.has(table));
-  assert(missing.length === 0, `missing tables: ${missing.join(', ')}`);
-  return `${EXPECTED_TABLES.length} tables present`;
-});
+const requireSchema = () => {
+  if (!openapi) block('Schema document', schemaUnavailable ?? 'the OpenAPI document was not read');
+  return Boolean(openapi);
+};
 
-await test('Key columns exist', async () => {
-  for (const [table, columns] of Object.entries(EXPECTED_COLUMNS)) {
-    const definition = openapi.definitions[table];
-    assert(definition, `table ${table} is not exposed`);
-    const present = new Set(Object.keys(definition.properties ?? {}));
-    const missing = columns.filter((column) => !present.has(column));
-    assert(missing.length === 0, `${table} is missing ${missing.join(', ')}`);
-  }
-  return `${Object.keys(EXPECTED_COLUMNS).length} tables column-checked`;
-});
+if (requireSchema()) {
+  await test('Every expected table exists', async () => {
+    const defined = new Set(Object.keys(openapi.definitions));
+    const missing = EXPECTED_TABLES.filter((table) => !defined.has(table));
+    assert(missing.length === 0, `missing tables: ${missing.join(', ')}`);
+    return `${EXPECTED_TABLES.length} tables present`;
+  });
 
-await test('Foreign keys are declared (PostgREST relationships)', async () => {
-  const problems = [];
-  const expectRelationships = {
-    posts: ['profiles', 'titles', 'communities'],
-    comments: ['posts', 'profiles'],
-    reactions: ['profiles', 'posts', 'comments'],
-    follows: ['profiles'],
-    watchlist_items: ['profiles', 'titles'],
-    collection_items: ['collections', 'titles'],
-  };
+  await test('Key columns exist', async () => {
+    for (const [table, columns] of Object.entries(EXPECTED_COLUMNS)) {
+      const definition = openapi.definitions[table];
+      assert(definition, `table ${table} is not exposed`);
+      const present = new Set(Object.keys(definition.properties ?? {}));
+      const missing = columns.filter((column) => !present.has(column));
+      assert(missing.length === 0, `${table} is missing ${missing.join(', ')}`);
+    }
+    return `${Object.keys(EXPECTED_COLUMNS).length} tables column-checked`;
+  });
 
-  for (const [table, targets] of Object.entries(expectRelationships)) {
-    const definition = openapi.definitions[table];
-    const relationships = definition?.relationships ?? [];
-    for (const target of targets) {
-      if (!relationships.some((r) => r.referencedTable === target)) {
-        problems.push(`${table} → ${target}`);
+  await test('Foreign keys are declared (PostgREST relationships)', async () => {
+    const problems = [];
+    const expectRelationships = {
+      posts: ['profiles', 'titles', 'communities'],
+      comments: ['posts', 'profiles'],
+      reactions: ['profiles', 'posts', 'comments'],
+      follows: ['profiles'],
+      watchlist_items: ['profiles', 'titles'],
+      collection_items: ['collections', 'titles'],
+    };
+
+    for (const [table, targets] of Object.entries(expectRelationships)) {
+      const definition = openapi.definitions[table];
+      const relationships = definition?.relationships ?? [];
+      for (const target of targets) {
+        if (!relationships.some((r) => r.referencedTable === target)) {
+          problems.push(`${table} → ${target}`);
+        }
       }
     }
-  }
-  assert(problems.length === 0, `missing relationships: ${problems.join(', ')}`);
-  return 'posts, comments, reactions, follows, watchlist, collection items are related';
-});
+    assert(problems.length === 0, `missing relationships: ${problems.join(', ')}`);
+    return 'posts, comments, reactions, follows, watchlist, collection items are related';
+  });
+}
 
 startGroup('RPCs');
 const RPCS = [
@@ -323,16 +373,32 @@ const RPCS = [
 ];
 
 await test('Every documented RPC exists', async () => {
+  // PostgREST resolves an RPC by name *and* parameter list, so the probe has to send the parameters
+  // the migrations declare — all null, which any writer refuses before it touches a row. Probing
+  // with a made-up parameter name answers PGRST202 for every function, present or not, which is how
+  // this check used to report the whole API missing against a healthy project.
+  const declared = expectedFunctions(path.join(REPO_ROOT, 'supabase', 'migrations'));
   const service = admin();
   const missing = [];
+  const undeclared = [];
+  const unreachable = [];
+
   for (const rpc of RPCS) {
-    // A deliberately invalid call must fail with a *validation* error, never "function not found".
-    const { error } = await service.rpc(rpc, { __probe__: true });
-    const code = error?.code ?? '';
-    const message = error?.message ?? '';
-    const notFound = code === 'PGRST202' || /Could not find the function|does not exist/i.test(message);
-    if (notFound) missing.push(rpc);
+    const signature = declared.get(rpc);
+    if (!signature) {
+      undeclared.push(rpc);
+      continue;
+    }
+
+    const { error, status } = await service.rpc(rpc, JSON.parse(nullArgsBody(signature.argText)));
+    const verdict = classifyRpcProbe({ code: error?.code, message: error?.message, status });
+
+    if (verdict === 'missing') missing.push(rpc);
+    else if (verdict === 'unreachable') unreachable.push(`${rpc} (${error?.message})`);
   }
+
+  assert(undeclared.length === 0, `the suite requires RPCs the migrations do not define: ${undeclared.join(', ')}`);
+  assert(unreachable.length === 0, `unreachable: ${unreachable.join(', ')}`);
   assert(missing.length === 0, `missing RPCs: ${missing.join(', ')}`);
   return `${RPCS.length} RPCs exposed`;
 });
@@ -1713,7 +1779,7 @@ await test('An announced upload is completed and attached to a post', async () =
   return `upload ${begun.data} attached to post_media ${completed.data}`;
 });
 
-await test('A failed upload removes its object immediately', async () => {
+await test('A failed upload queues its object for removal', async () => {
   const path = `u/${aliceId}/posts/failed-${suffix}.png`;
   const bytes = Buffer.from('89504e470d0a1a0a', 'hex');
   await alice.storage.from('media').upload(path, bytes, { contentType: 'image/png', upsert: true });
@@ -1722,21 +1788,51 @@ await test('A failed upload removes its object immediately', async () => {
   const failed = await alice.rpc('fail_media_upload', { p_upload_id: begun.data, p_error: 'verification' });
   assert(!failed.error, `fail_media_upload failed: ${failed.error?.message}`);
 
-  const { error: downloadError } = await alice.storage.from('media').download(path);
-  assert(downloadError, 'the object of a failed upload still exists');
-
   const { data } = await admin().from('media_uploads').select('state').eq('id', begun.data).single();
   assert(data.state === 'failed', `state is "${data.state}", expected failed`);
-  return 'object removed, row marked failed';
+
+  // The database cannot delete the object itself: Supabase's storage.protect_delete() refuses a
+  // direct DELETE on storage.objects for every role. What it can do is record the path, and the
+  // queue is the promise that the bytes go away (media-cleanup drains it through the Storage API).
+  const { data: queued, error: queueError } = await admin()
+    .from('media_removal_queue')
+    .select('path, reason')
+    .eq('path', path)
+    .single();
+  assert(!queueError, `the failed upload was not queued for removal: ${queueError?.message}`);
+  assert(queued.reason === 'failed_upload', `queued with reason "${queued.reason}", expected failed_upload`);
+
+  // The owner may also remove it through their own Storage API connection, and then it is gone.
+  const { error: removeError } = await alice.storage.from('media').remove([path]);
+  assert(!removeError, `the owner could not remove the queued object: ${removeError?.message}`);
+  const { error: gone } = await alice.storage.from('media').download(path);
+  assert(gone, 'the object survived the removal');
+
+  await admin().rpc('complete_media_removals', { p_paths: [path] });
+  return 'row marked failed, path queued as failed_upload, object removed by its owner';
+});
+
+await test('No client can read or write the media removal queue', async () => {
+  // The table is not granted to `authenticated` at all, so PostgREST either refuses the read or
+  // returns nothing. Both are the guarantee; a single visible row is not.
+  const { data } = await alice.from('media_removal_queue').select('*').limit(5);
+  assert((data ?? []).length === 0, `a member read ${(data ?? []).length} queue row(s)`);
+
+  const { error: insertError } = await alice.from('media_removal_queue').insert({
+    path: `u/${aliceId}/posts/forged-${suffix}.png`,
+    reason: 'orphaned',
+  });
+  assert(insertError, 'a client queued an object for deletion');
+  return 'reads return nothing, writes are refused';
 });
 
 await test('The reconciliation job runs and reports what it did', async () => {
   const { data, error } = await admin().rpc('job_reconcile_media', { p_user_retention: '30 days' });
   assert(!error, `job_reconcile_media failed: ${error?.message}`);
-  for (const key of ['broken_rows_removed', 'orphan_objects_removed', 'upload_rows_purged']) {
+  for (const key of ['broken_rows_removed', 'orphan_objects_queued', 'upload_rows_purged', 'queue_depth']) {
     assert(typeof data[key] === 'number', `${key} is not a number`);
   }
-  return `removed ${data.broken_rows_removed} broken row(s), ${data.orphan_objects_removed} orphan object(s)`;
+  return `removed ${data.broken_rows_removed} broken row(s), queued ${data.orphan_objects_queued} orphan object(s)`;
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -1964,6 +2060,10 @@ await test('delete_account only deletes the caller', async () => {
   const { data, error } = await bob.rpc('delete_account');
   assert(!error, `delete_account failed: ${error?.message}`);
   assert(data.deleted === true, 'delete_account did not report success');
+  assert(
+    typeof data.media_objects_queued === 'number' && data.media_objects_queued >= 1,
+    `delete_account queued ${data.media_objects_queued} object(s) — the member's uploads would outlive the account`,
+  );
 
   const { data: profile } = await admin().from('profiles').select('account_status, display_name').eq('id', bobId).single();
   assert(profile.account_status === 'deleted', "bob's profile was not marked deleted");
@@ -2131,7 +2231,8 @@ for (const group of order) {
   if (!groupOk) failed += 1;
   console.log(`${group.padEnd(24)} ${groupOk ? 'PASS' : 'FAIL'}`);
   for (const r of inGroup) {
-    console.log(`   ${r.ok ? '·' : '✗'} ${r.name}${r.detail ? ` — ${r.detail}` : ''}`);
+    const mark = r.ok ? '·' : r.blocked ? '⊘' : '✗';
+    console.log(`   ${mark} ${r.name}${r.detail ? ` — ${r.detail}` : ''}`);
   }
 }
 
@@ -2142,6 +2243,16 @@ if (failed === 0) {
   process.exit(0);
 }
 
-const failures = results.filter((r) => !r.ok);
-console.log(`OVERALL STATUS: FAIL (${failures.length} of ${results.length} checks)`);
+const failures = results.filter((r) => !r.ok && !r.blocked);
+const blocked = results.filter((r) => r.blocked);
+
+if (blocked.length > 0) {
+  console.log('');
+  console.log(`${blocked.length} check(s) could not run at all — an unverified claim is not a pass:`);
+  for (const r of blocked) console.log(`  ⊘ ${r.group}: ${r.name} — ${r.detail}`);
+}
+
+console.log(
+  `OVERALL STATUS: FAIL (${failures.length} failed${blocked.length ? `, ${blocked.length} blocked` : ''} of ${results.length} checks)`,
+);
 process.exit(1);

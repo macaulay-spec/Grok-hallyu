@@ -102,7 +102,9 @@ if (mode === 'verify') {
   for (let attempt = 0; attempt < 10 && !found; attempt += 1) {
     const { data, error } = await admin
       .from('analytics_events')
-      .select('id, name, created_at')
+      // `occurred_at`, not `created_at`: the table is partitioned by it (migration 11), which is
+      // exactly why it is named that — and why a query against the wrong column fails outright.
+      .select('id, name, occurred_at')
       .eq('user_id', userId)
       .eq('name', 'auth.signin')
       .limit(1);
@@ -118,7 +120,7 @@ if (mode === 'verify') {
     console.error('::error title=Backend proof missing::the device signed in but no `auth.signin` event reached the backend for this member — the on-device session did not complete an authenticated RPC.');
     process.exit(1);
   }
-  console.log(`device → backend proof: auth.signin recorded for this member at ${found.created_at} (event ${found.id}).`);
+  console.log(`device → backend proof: auth.signin recorded for this member at ${found.occurred_at} (event ${found.id}).`);
   process.exit(0);
 }
 

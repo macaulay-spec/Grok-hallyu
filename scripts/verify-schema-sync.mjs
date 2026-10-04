@@ -12,8 +12,8 @@
 // Env: SUPABASE_URL (or EXPO_PUBLIC_SUPABASE_URL), SUPABASE_SERVICE_ROLE_KEY
 // Exit: 0 = the project has every function the repository defines, 1 = drift, 2 = not configured
 import process from 'node:process';
-import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
+import { expectedFunctions, namedArgs } from './lib/db-signatures.mjs';
 
 if (typeof globalThis.WebSocket === 'undefined') {
   try {
@@ -35,72 +35,9 @@ if (!URL_BASE || !SERVICE_KEY) {
 const REPO = process.argv[2] ?? process.cwd();
 const MIGRATIONS = path.join(REPO, 'supabase', 'migrations');
 
-/** `create [or replace] function public.foo(a integer default 1, b text)` → { name, args }. */
-function* declaredFunctions() {
-  const files = readdirSync(MIGRATIONS).filter((f) => f.endsWith('.sql')).sort();
-  for (const file of files) {
-    const sql = readFileSync(path.join(MIGRATIONS, file), 'utf8');
-    const pattern = /create\s+(?:or\s+replace\s+)?function\s+(?:public\.)?([a-z0-9_]+)\s*\(/gi;
-    let match;
-    while ((match = pattern.exec(sql)) !== null) {
-      // Walk to the matching close paren of the parameter list, ignoring quoted text.
-      let depth = 1;
-      let index = match.index + match[0].length;
-      const start = index;
-      for (; index < sql.length && depth > 0; index += 1) {
-        if (sql[index] === '(') depth += 1;
-        else if (sql[index] === ')') depth -= 1;
-      }
-      // `returns trigger` functions are trigger handlers: PostgREST never exposes them, so probing
-      // them would report drift against a perfectly healthy project.
-      if (/\breturns\s+trigger\b/i.test(sql.slice(index, index + 120))) continue;
-      yield { name: match[1].toLowerCase(), argText: sql.slice(start, index - 1), file };
-    }
-  }
-}
-
-const splitTopLevel = (text) => {
-  const parts = [];
-  let depth = 0;
-  let current = '';
-  let quote = null;
-  for (const ch of text) {
-    if (quote) {
-      current += ch;
-      if (ch === quote) quote = null;
-      continue;
-    }
-    if (ch === '"' || ch === "'") {
-      quote = ch;
-      current += ch;
-      continue;
-    }
-    if ('(['.includes(ch)) depth += 1;
-    if (')]'.includes(ch)) depth -= 1;
-    if (ch === ',' && depth === 0) {
-      parts.push(current);
-      current = '';
-    } else current += ch;
-  }
-  if (current.trim()) parts.push(current);
-  return parts;
-};
-
-const namedArgs = (argText) =>
-  splitTopLevel(argText)
-    .map((raw) => raw.trim())
-    .filter(Boolean)
-    .map((raw) => {
-      const space = raw.search(/\s/);
-      const name = (space === -1 ? raw : raw.slice(0, space)).replace(/"/g, '');
-      const eq = raw.toLowerCase().indexOf(' default ');
-      const literal = eq === -1 ? null : raw.slice(eq + ' DEFAULT '.length).trim();
-      return { name, literal };
-    });
-
-// The last CREATE of a name wins (migrations replace earlier definitions).
-const expected = new Map();
-for (const fn of declaredFunctions()) expected.set(fn.name, fn);
+// The declared signatures — and the parameters a presence probe has to send — live in
+// scripts/lib/db-signatures.mjs, shared with the live suite.
+const expected = expectedFunctions(MIGRATIONS);
 
 const call = async (fn) => {
   const args = namedArgs(fn.argText);

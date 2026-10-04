@@ -240,3 +240,49 @@ failing until `supabase/migrations` is applied to the Rork Cloud project again. 
 credentials this workspace does not have. `scripts/verify-schema-sync.mjs` runs after the live suite
 and names every function the project is missing, so the next run states the cause instead of a wall
 of symptoms.
+
+---
+
+## Second live run: two platform rules the schema had never met
+
+Run `37196389209` (commit `639d186`) still failed 45 of 119 live checks, but most of the remaining
+failures were symptoms of two things that have nothing to do with the fourteen body defects above.
+Both were found by reproducing the run against a real PostgreSQL, and both are fixed in migration 37.
+
+**1. SQL is not allowed to delete storage.** Supabase installs `storage.protect_delete()`, a
+`BEFORE DELETE` trigger on `storage.objects` and `storage.buckets` that refuses a direct `DELETE` for
+*every* role: *"Direct deletion from storage tables is not allowed. Use the Storage API instead."*
+Migrations 20, 22, 30 and 36 all removed bytes that way, so `delete_account()` could never delete an
+account and the media sweeper could never remove an orphan — the two promises the product makes
+about personal data. The division of labour is now explicit: SQL decides what disappears and writes
+the path to `media_removal_queue`; `media-cleanup` and `purge-deleted-accounts` drain it through the
+Storage API (`_shared/media-removal.ts`). The queue is durable rather than a returned array because
+`purge_deleted_accounts()` hard-deletes the rows that identify the paths in the same transaction.
+`scripts/verify-sql.mjs` now fails the build if any surviving function definition deletes a storage
+row, and `scripts/localdb/apply.mjs` emulates `protect_delete()` so the local gate reproduces the
+live failure.
+
+**2. `profiles_update_self` did not protect `role`.** The policy checked `id` and `account_status`,
+which looks closed; it could not compare the stored row with the incoming one, so
+`update { role: 'admin' }` on your own profile passed both clauses. `profiles_guard_privileges()`
+(37) refuses `role`, `verified`, `account_status` and `deleted_at` changes to anything that is not an
+admin, the service role, or a write that did not come from a client at all. It is deliberately *not*
+`SECURITY DEFINER` — a definer trigger runs with its owner's `current_user`, which is exactly the
+privilege it exists to withhold; `verify-backend-surface.mjs` fails the build if that ever changes.
+
+Two harness defects were fixed at the same time, because they were reporting fiction:
+
+- `verify-backend.mjs` probed every RPC with a made-up `__probe__` parameter. PostgREST resolves calls
+  by name *and* parameter list, so that reports **every** function as missing — which is why the last
+  run claimed 70 missing RPCs on a project that has them. The probe now sends the parameters the
+  migrations declare (all null), through the shared parser in `scripts/lib/db-signatures.mjs`, and
+  `scripts/test-db-signatures.mjs` pins the classification with the live project's own error strings.
+- When the OpenAPI document could not be read at all, every schema check died with
+  `Cannot read properties of null`, and the RPC check inherited the failure. An unreadable schema is
+  now reported as *blocked* — counted, named, and never counted as a pass.
+
+**APK run `37196389143` (same commit):** the boot gate passed (`gate:connected`, a real RPC round
+trip, installed, cold-started, no JS crash), and the device sign-in gate passed — a brand-new CI
+account signs in, lands on `/(onboarding)/fandoms`, and the session is restored after a force-stop and
+relaunch. Its one remaining failure was in this repository, not the device: `scripts/ci/test-account.mjs`
+queried `analytics_events.created_at`, and the table is partitioned by `occurred_at`.

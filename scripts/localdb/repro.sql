@@ -324,3 +324,204 @@ begin
 exception when others then
   raise notice 'CHECK profiles-select: ERROR %', sqlerrm;
 end $$;
+
+-- ── 20. A member cannot promote themselves (live: "a member promoted themselves to admin") ────
+do $$
+begin
+  perform set_config('role', 'authenticated', true);
+  perform set_config('request.jwt.claim.sub', '11111111-1111-4111-8111-111111111111', true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+
+  begin
+    update public.profiles set role = 'admin', verified = true
+     where id = '11111111-1111-4111-8111-111111111111';
+  exception when insufficient_privilege then
+    raise notice 'CHECK self-promotion: OK (role change refused)';
+    return;
+  end;
+
+  raise notice 'CHECK self-promotion: FAIL the update succeeded';
+exception when others then
+  raise notice 'CHECK self-promotion: ERROR %', sqlerrm;
+end $$;
+
+-- ── 21. …but the member's own data is still editable, and an admin can still promote ─────────
+do $$
+begin
+  perform set_config('role', 'authenticated', true);
+  perform set_config('request.jwt.claim.sub', '11111111-1111-4111-8111-111111111111', true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+
+  update public.profiles set display_name = 'Verification Alice', bio = 'still mine'
+   where id = '11111111-1111-4111-8111-111111111111';
+
+  if exists (
+    select 1 from public.profiles
+     where id = '11111111-1111-4111-8111-111111111111'
+       and (role <> 'member' or verified or account_status <> 'active')
+  ) then
+    raise notice 'CHECK self-edit-allowed: FAIL the refused update left a change behind';
+    return;
+  end if;
+
+  -- Promotion by the service role, which is how a moderator is actually made.
+  perform set_config('role', 'service_role', true);
+  perform set_config('request.jwt.claim.role', 'service_role', true);
+  update public.profiles set role = 'admin'
+   where id = '11111111-1111-4111-8111-111111111111';
+
+  if not exists (
+    select 1 from public.profiles where id = '11111111-1111-4111-8111-111111111111' and role = 'admin'
+  ) then
+    raise notice 'CHECK self-edit-allowed: FAIL the service role could not promote a member';
+    return;
+  end if;
+
+  -- …and an admin acting through the API is still allowed to change those columns.
+  perform set_config('role', 'authenticated', true);
+  perform set_config('request.jwt.claim.sub', '11111111-1111-4111-8111-111111111111', true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+  update public.profiles set verified = true
+   where id = '11111111-1111-4111-8111-111111111111';
+
+  if not exists (
+    select 1 from public.profiles where id = '11111111-1111-4111-8111-111111111111' and verified
+  ) then
+    raise notice 'CHECK self-edit-allowed: FAIL an admin could not set the verified badge';
+    return;
+  end if;
+
+  raise notice 'CHECK self-edit-allowed: OK (own data editable, admin promotion intact)';
+exception when others then
+  raise notice 'CHECK self-edit-allowed: ERROR %', sqlerrm;
+end $$;
+
+-- ── 22. Direct deletion of a storage row is refused, exactly as Supabase refuses it ──────────
+do $$
+declare refused boolean := false;
+begin
+  perform set_config('role', 'service_role', true);
+  perform set_config('request.jwt.claim.role', 'service_role', true);
+  perform set_config('request.jwt.claim.sub', '', true);
+
+  insert into storage.objects (bucket_id, name) values ('media', 'u/11111111-1111-4111-8111-111111111111/probe.png')
+  on conflict do nothing;
+
+  begin
+    delete from storage.objects where name = 'u/11111111-1111-4111-8111-111111111111/probe.png';
+  exception when others then
+    refused := true;
+  end;
+
+  if not refused then
+    raise notice 'CHECK storage-delete-refused: FAIL the harness let a direct storage DELETE through';
+    return;
+  end if;
+
+  raise notice 'CHECK storage-delete-refused: OK (storage.protect_delete refused the DELETE)';
+end $$;
+
+-- ── 23. A failed upload queues its object instead of deleting it ─────────────────────────────
+do $$
+declare v_upload uuid; v_queued integer;
+begin
+  perform set_config('role', 'authenticated', true);
+  perform set_config('request.jwt.claim.sub', '11111111-1111-4111-8111-111111111111', true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+
+  v_upload := public.begin_media_upload('u/11111111-1111-4111-8111-111111111111/queued.png', 'image');
+
+  if not public.fail_media_upload(v_upload, 'verification') then
+    raise notice 'CHECK failed-upload-queued: FAIL fail_media_upload did not mark the row';
+    return;
+  end if;
+
+  perform set_config('role', 'service_role', true);
+  perform set_config('request.jwt.claim.role', 'service_role', true);
+  perform set_config('request.jwt.claim.sub', '', true);
+
+  v_queued := (select count(*)::integer from public.media_removal_queue
+                where path = 'u/11111111-1111-4111-8111-111111111111/queued.png'
+                  and reason = 'failed_upload');
+
+  if v_queued <> 1 then
+    raise notice 'CHECK failed-upload-queued: FAIL % queue row(s) for the failed upload', v_queued;
+    return;
+  end if;
+
+  if not exists (select 1 from public.media_uploads where id = v_upload and state = 'failed') then
+    raise notice 'CHECK failed-upload-queued: FAIL the upload row is not marked failed';
+    return;
+  end if;
+
+  -- The Storage API drains the queue: claim a batch, then settle it.
+  if not exists (
+    select 1 from public.claim_media_removals(10)
+     where path = 'u/11111111-1111-4111-8111-111111111111/queued.png' and attempts >= 1
+  ) then
+    raise notice 'CHECK failed-upload-queued: FAIL claim_media_removals did not hand the path over';
+    return;
+  end if;
+
+  perform public.complete_media_removals(array['u/11111111-1111-4111-8111-111111111111/queued.png']);
+
+  if exists (select 1 from public.media_removal_queue
+              where path = 'u/11111111-1111-4111-8111-111111111111/queued.png') then
+    raise notice 'CHECK failed-upload-queued: FAIL the queue row survived a settled removal';
+    return;
+  end if;
+
+  raise notice 'CHECK failed-upload-queued: OK (queued, claimed and settled)';
+exception when others then
+  raise notice 'CHECK failed-upload-queued: ERROR %', sqlerrm;
+end $$;
+
+-- ── 24. delete_account() completes: scrubbed identity, no rows left, objects queued ───────────
+do $$
+declare v_result jsonb; v_queued integer;
+begin
+  perform set_config('role', 'authenticated', true);
+  perform set_config('request.jwt.claim.sub', '22222222-2222-4222-8222-222222222222', true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+
+  -- One upload of his own, so there is an object the deletion has to deal with.
+  perform public.begin_media_upload('u/22222222-2222-4222-8222-222222222222/removed.png', 'image');
+
+  v_result := public.delete_account();
+
+  if (v_result ->> 'deleted') is distinct from 'true' then
+    raise notice 'CHECK delete-account: FAIL the function did not report success';
+    return;
+  end if;
+
+  -- The queue and the scrubbed profile are service-role reads: no authenticated policy reaches
+  -- them, which is itself part of the guarantee.
+  perform set_config('role', 'service_role', true);
+  perform set_config('request.jwt.claim.role', 'service_role', true);
+  perform set_config('request.jwt.claim.sub', '', true);
+
+  if not exists (
+    select 1 from public.profiles
+     where id = '22222222-2222-4222-8222-222222222222'
+       and account_status = 'deleted' and display_name = 'Deleted member'
+  ) then
+    raise notice 'CHECK delete-account: FAIL the tombstone was not scrubbed';
+    return;
+  end if;
+
+  if exists (select 1 from public.media_uploads where user_id = '22222222-2222-4222-8222-222222222222') then
+    raise notice 'CHECK delete-account: FAIL media_uploads rows outlived the account';
+    return;
+  end if;
+
+  v_queued := (select count(*)::integer from public.media_removal_queue where requested_by = '22222222-2222-4222-8222-222222222222');
+
+  if v_queued < 1 then
+    raise notice 'CHECK delete-account: FAIL no object was queued for removal';
+    return;
+  end if;
+
+  raise notice 'CHECK delete-account: OK (scrubbed, rows gone, % object(s) queued)', v_queued;
+exception when others then
+  raise notice 'CHECK delete-account: ERROR %', sqlerrm;
+end $$;

@@ -190,6 +190,41 @@ export type Database = {
         };
         Relationships: [];
       };
+      media_removal_queue: {
+        Row: {
+          attempts: number;
+          created_at: string;
+          last_error: string | null;
+          path: string;
+          reason: Database['public']['Enums']['media_removal_reason'];
+          requested_by: string | null;
+        };
+        Insert: {
+          attempts?: number;
+          created_at?: string;
+          last_error?: string | null;
+          path: string;
+          reason: Database['public']['Enums']['media_removal_reason'];
+          requested_by?: string | null;
+        };
+        Update: {
+          attempts?: number;
+          created_at?: string;
+          last_error?: string | null;
+          path?: string;
+          reason?: Database['public']['Enums']['media_removal_reason'];
+          requested_by?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: 'media_removal_queue_requested_by_fkey';
+            columns: ['requested_by'];
+            isOneToOne: false;
+            referencedRelation: 'profiles';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       media_uploads: {
         Row: {
           byte_size: number | null;
@@ -2264,7 +2299,23 @@ export type Database = {
       };
       media_remove_orphans: {
         Args: { p_older_than?: string; p_user_older_than?: string };
-        Returns: { objects_removed: number; uploads_purged: number }[];
+        Returns: { objects_queued: number; uploads_purged: number }[];
+      };
+      claim_media_removals: {
+        Args: { p_limit?: number };
+        Returns: { attempts: number; path: string; reason: Database['public']['Enums']['media_removal_reason'] }[];
+      };
+      complete_media_removals: {
+        Args: { p_error?: string | null; p_paths: string[] };
+        Returns: number;
+      };
+      queue_media_removal: {
+        Args: {
+          p_paths: string[];
+          p_reason: Database['public']['Enums']['media_removal_reason'];
+          p_requested_by?: string | null;
+        };
+        Returns: number;
       };
       moderate_community_post: {
         Args: { p_action: string; p_post_id: string; p_reason?: string };
@@ -2505,7 +2556,7 @@ export type Database = {
       };
       purge_deleted_accounts: {
         Args: { retention?: string };
-        Returns: { profiles_purged: number; storage_objects_removed: number }[];
+        Returns: { profiles_purged: number; storage_objects_queued: number }[];
       };
       record_event: {
         Args: {
@@ -2580,6 +2631,12 @@ export type Database = {
       delivery_status: 'queued' | 'sending' | 'sent' | 'failed' | 'invalid_token' | 'skipped';
       discussion_kind: 'general' | 'theory' | 'ending' | 'character' | 'scene' | 'question';
       media_state: 'pending' | 'attached' | 'failed' | 'orphaned';
+      media_removal_reason:
+        | 'failed_upload'
+        | 'orphaned'
+        | 'stale_catalog'
+        | 'account_deleted'
+        | 'retention_purge';
       media_type: 'tv' | 'movie';
       membership_status: 'active' | 'pending' | 'banned';
       moderation_action_kind:

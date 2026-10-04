@@ -97,6 +97,26 @@ create table if not exists storage.objects (
   metadata jsonb
 );
 alter table storage.objects enable row level security;
+
+-- Supabase installs this on every project: a BEFORE DELETE trigger that refuses direct deletion of
+-- storage rows for every role, with exactly this message. Emulated here because it is the reason
+-- migration 37 exists — without it a local run would happily accept the \`delete from storage.objects\`
+-- that fails in production, and the whole point of this layer is that it does not.
+create or replace function storage.protect_delete()
+returns trigger
+language plpgsql
+as $$
+begin
+  raise exception 'Direct deletion from storage tables is not allowed. Use the Storage API instead.'
+    using errcode = '42501';
+end;
+$$;
+
+drop trigger if exists objects_protect_delete on storage.objects;
+create trigger objects_protect_delete
+  before delete on storage.objects
+  for each row execute function storage.protect_delete();
+
 grant usage on schema storage to anon, authenticated, service_role;
 grant all on storage.buckets, storage.objects to service_role;
 grant select, insert, update, delete on storage.objects to authenticated;

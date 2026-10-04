@@ -147,7 +147,7 @@ Identity and account:
 - `complete_onboarding(p_genres text[], p_step int, p_worlds text[]) -> profiles`
 - `upsert_watchlist_item(p_title_id uuid, p_status watch_status, p_season int, p_episode int, p_total int, p_note text) -> watchlist_items`
 - `handle_is_available(p_handle text) -> boolean`
-- `delete_account() -> json` (`{ deleted, media_objects_removed, deleted_at }`)
+- `delete_account() -> json` (`{ deleted, media_objects_queued, deleted_at }` — the objects are queued; only the Storage API may delete them, see migration 37)
 - `set_follow(p_kind text, p_target_id uuid, p_on bool)`, `set_block(p_user_id uuid, p_on bool)`,
   `set_mute(p_kind text, p_target_id uuid, p_on bool)`
 
@@ -230,6 +230,12 @@ Operations (service role only, never called by the app): `run_scheduled_jobs(p_j
 `report_delivery(p_delivery_id, p_sent, p_invalid, p_error, p_provider_message_id)`,
 `record_moderation_action(...)`, `job_reconcile_media(p_user_retention)`, `media_remove_orphans(...)`,
 `media_drop_missing_objects()`, plus the 12 job bodies.
+
+**Storage deletion is not an RPC.** Supabase's `storage.protect_delete()` refuses a direct `DELETE` on
+`storage.objects` for every role, so nothing in this schema deletes bytes. SQL records the path in
+`media_removal_queue` (reason: `failed_upload | orphaned | stale_catalog | account_deleted |
+retention_purge`) and the Edge Functions drain it through the Storage API:
+`claim_media_removals(p_limit)` → `storage.from('media').remove(paths)` → `complete_media_removals(paths)`.
 
 Direct table writes remain legal (RLS restricts them to the owner) for: `posts`, `comments`,
 `collections`, `collection_items`, `title_alerts`, `community_members`. Everything else goes through

@@ -4,10 +4,16 @@
 // the other half of that promise: after the retention window it hard-deletes the account, its posts,
 // its comments and every storage object it uploaded.
 //
+// The objects go through the Storage API, because SQL is not allowed to delete them — see
+// _shared/media-removal.ts. The order matters: the purge hard-deletes the profile rows that identify
+// the paths, so the queue has to be written (by the SQL function) and drained afterwards, never
+// recomputed from rows that no longer exist.
+//
 // Schedule it with pg_cron (see supabase/migrations/20260101122200_22_retention.sql) or run it by
 // hand from the Supabase dashboard's function tester with the service-role bearer token.
 
 import { adminClient, requireServiceRole } from '../_shared/supabase.ts';
+import { drainRemovalQueue } from '../_shared/media-removal.ts';
 import { corsHeaders, errorResponse, jsonResponse } from '../_shared/cors.ts';
 
 const DEFAULT_RETENTION_DAYS = 30;
@@ -47,7 +53,17 @@ Deno.serve(async (request: Request) => {
 
   const ids = (doomed ?? []).map((p) => p.id as string);
   if (ids.length === 0) {
-    return jsonResponse({ purged: 0, retention_days: retentionDays, profiles: [], storage_objects_removed: 0 });
+    // Nothing to purge, but an earlier run may have left objects queued — this is the run that
+    // would have removed them, so it still drains the queue before reporting.
+    const leftovers = await drainRemovalQueue();
+    return jsonResponse({
+      purged: 0,
+      retention_days: retentionDays,
+      profiles: [],
+      storage_objects_queued: 0,
+      storage_objects_removed: leftovers.removed,
+      queue_remaining: leftovers.remaining,
+    });
   }
 
   // 2. Audit the events that go with them (analytics rows are nulled on delete, so count first).
@@ -66,11 +82,19 @@ Deno.serve(async (request: Request) => {
 
   const row = Array.isArray(removed) ? removed[0] : removed;
 
+  // The purge only queued the paths; this is where the bytes actually go.
+  const removals = await drainRemovalQueue();
+  if (removals.error) {
+    return errorResponse(`the accounts were purged but the Storage API refused a batch: ${removals.error}`, 500);
+  }
+
   return jsonResponse({
     purged: row?.profiles_purged ?? ids.length,
     retention_days: retentionDays,
     profiles: (doomed ?? []).map((p) => ({ id: p.id, handle: p.handle, deleted_at: p.deleted_at })),
-    storage_objects_removed: row?.storage_objects_removed ?? 0,
+    storage_objects_queued: row?.storage_objects_queued ?? 0,
+    storage_objects_removed: removals.removed,
+    queue_remaining: removals.remaining,
     events_deleted_for_these_accounts: eventCount ?? 0,
   });
 });

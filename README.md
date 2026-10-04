@@ -38,6 +38,7 @@ migration validation and the type-contract drift check.
 ```
 node scripts/verify-sql.mjs        # offline: parses every migration, checks RLS + security invariants
 node scripts/verify-db-types.mjs   # offline: the TypeScript contract matches the migrations
+node scripts/test-db-signatures.mjs # offline: the RPC presence probe reads the real signatures
 node scripts/verify-backend.mjs    # live: real CRUD, RLS isolation and storage against a project
 ```
 
@@ -50,6 +51,11 @@ node scripts/localdb/apply.mjs     # applies supabase/migrations verbatim, in fi
 node scripts/localdb/check.mjs     # replays the backend behaviour checks against that database
 node scripts/localdb/surface.mjs   # compiles and plans every function body
 ```
+
+The local database stubs Supabase's own restrictions, so the behaviour checks fail here for the same
+reasons they fail in production — including `storage.protect_delete()`, which refuses every direct
+`DELETE` on `storage.objects` (bytes are removed through the Storage API; SQL only queues them in
+`media_removal_queue`).
 
 `.github/workflows/backend-verification.yml` runs all of it, then the live suite from GitHub Secrets,
 and fails the build when a live check fails. It also reports **schema drift**: if the project does

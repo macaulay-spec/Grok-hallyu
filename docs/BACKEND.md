@@ -83,6 +83,7 @@ supabase/
 | 34 | `20260101123400_34_search.sql` | the federated search across titles, people, rooms, collections and members |
 | 35 | `20260101123500_35_feed_pagination.sql` | `feed_page` with keyset cursors, the cursor codec, `comment_page` |
 | 36 | `20260101123600_36_audit_and_deletion.sql` | a survivable audit log (`actor_handle`), and `delete_account`/`purge_deleted_accounts` completed for the new tables |
+| 37 | `20260101123700_37_storage_removal_queue.sql` | `media_removal_queue` and the claim/complete RPCs — storage deletion goes through the Storage API — plus the `profiles_guard_privileges` trigger |
 
 ## Freshness, ranking and discovery
 

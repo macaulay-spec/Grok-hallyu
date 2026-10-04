@@ -368,10 +368,26 @@ for (const name of ['job_queue_upcoming_episodes', 'job_queue_new_episodes', 'jo
 
 assertRealImplementation('begin_media_upload', ['storage_owner', 'media_uploads']);
 assertRealImplementation('complete_media_upload', ['post_media']);
-assertRealImplementation('fail_media_upload', ['storage.objects']);
+// Removal is a queue entry, not a DELETE: storage.protect_delete() refuses those (migration 37).
+assertRealImplementation('fail_media_upload', ['media_uploads', 'queue_media_removal']);
 assertRealImplementation('media_drop_missing_objects', ['storage.objects', 'post_media']);
-assertRealImplementation('media_remove_orphans', ['storage.objects', 'post_media', 'profiles']);
+assertRealImplementation('media_remove_orphans', ['storage.objects', 'post_media', 'profiles', 'queue_media_removal']);
 assertRealImplementation('job_reconcile_media', ['media_drop_missing_objects', 'media_remove_orphans']);
+
+// The queue is the only path from a decision to a deletion, and only the service role can drain it.
+assertRealImplementation('queue_media_removal', ['media_removal_queue']);
+assertRealImplementation('claim_media_removals', ['media_removal_queue']);
+assertRealImplementation('complete_media_removals', ['media_removal_queue']);
+
+if (!/grant select, insert, update, delete on public\.media_removal_queue to service_role/i.test(allSql)) {
+  fail('media_removal_queue is not granted to service_role — the Storage API drain would be refused');
+}
+
+for (const policy of allSql.matchAll(/create policy[^;]*;/gi)) {
+  if (/on public\.media_removal_queue/i.test(policy[0]) && /to (authenticated|anon)\b/i.test(policy[0])) {
+    fail('media_removal_queue has a client policy — no member may read or write the removal queue');
+  }
+}
 
 // Video transcoding is explicitly out of scope: its presence means the phase drifted.
 if (/\btranscod|ffmpeg|video_encoding|mediaconvert\b/i.test(executableSql)) {
@@ -461,6 +477,25 @@ for (const [name, needles] of MODERATION_FUNCTIONS) assertRealImplementation(nam
 
 if (!/create table if not exists public\.moderation_actions/i.test(allSql)) {
   fail('moderation_actions table is missing — moderation decisions are not recorded');
+}
+
+// A member owns their profile row, which means the policy that lets them edit it also lets them
+// write `role`. `profiles_update_self` checks `id` and `account_status`; the columns that decide
+// what a member may *do* need a comparison against the stored row, which is a trigger's job.
+if (!/create trigger profiles_guard_privileges/i.test(allSql)) {
+  fail('profiles has no privilege guard trigger — a member can set their own role to admin');
+}
+
+for (const column of ['role', 'verified', 'account_status', 'deleted_at']) {
+  if (!new RegExp(`new\\.${column} is distinct from old\\.${column}`, 'i').test(functionSql('guard_profile_privileges'))) {
+    fail(`guard_profile_privileges() does not protect profiles.${column} — the column is client-writable`);
+  }
+}
+
+// …and it must not be security definer, or it would run with its owner's privileges and never see
+// the member it is meant to refuse.
+if (/create or replace function public\.guard_profile_privileges\(\)[\s\S]{0,200}security definer/i.test(allSql)) {
+  fail('guard_profile_privileges() is SECURITY DEFINER — it cannot tell who is updating the row');
 }
 
 // The audit log has to outlive the profile it names: an ON DELETE RESTRICT or NOT NULL actor_id would
@@ -601,9 +636,29 @@ for (const dir of REQUIRED_FUNCTIONS_DIRS) {
   }
 }
 
-for (const shared of ['supabase.ts', 'cors.ts', 'tmdb.ts']) {
+for (const shared of ['supabase.ts', 'cors.ts', 'tmdb.ts', 'media-removal.ts']) {
   if (!existsSync(path.join(FUNCTIONS_DIR, '_shared', shared))) {
     fail(`supabase/functions/_shared/${shared} is missing`);
+  }
+}
+
+// Every function that produces a storage deletion must drain the queue through the Storage API — SQL
+// cannot do it, and a queue nothing drains is a promise the product does not keep.
+const removalDrain = existsSync(path.join(FUNCTIONS_DIR, '_shared', 'media-removal.ts'))
+  ? await readFile(path.join(FUNCTIONS_DIR, '_shared', 'media-removal.ts'), 'utf8')
+  : '';
+
+for (const needle of ['claim_media_removals', 'complete_media_removals', '.storage.from(', '.remove(']) {
+  if (removalDrain && !removalDrain.includes(needle)) {
+    fail(`_shared/media-removal.ts does not use ${needle} — the queue would never be emptied`);
+  }
+}
+
+for (const dir of ['media-cleanup', 'purge-deleted-accounts']) {
+  const entry = path.join(FUNCTIONS_DIR, dir, 'index.ts');
+  const source = existsSync(entry) ? await readFile(entry, 'utf8') : '';
+  if (source && !source.includes('drainRemovalQueue')) {
+    fail(`${dir} does not drain the media removal queue — objects queued in SQL would never be deleted`);
   }
 }
 
