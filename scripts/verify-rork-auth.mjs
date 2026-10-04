@@ -24,6 +24,17 @@
 import process from 'node:process';
 import { createClient } from '@supabase/supabase-js';
 
+// See scripts/verify-backend.mjs: supabase-js needs a WebSocket global at createClient() time.
+if (typeof globalThis.WebSocket === 'undefined') {
+  try {
+    const { default: NodeWebSocket } = await import('ws');
+    globalThis.WebSocket = NodeWebSocket;
+  } catch {
+    console.error('This suite needs Node.js 22+ (native WebSocket) or the `ws` package installed.');
+    process.exit(1);
+  }
+}
+
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.EXPO_PUBLIC_SUPABASE_URL || '';
 const ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
 const RORK_APP_KEY = process.env.RORK_APP_KEY || process.env.EXPO_PUBLIC_RORK_APP_KEY || '';

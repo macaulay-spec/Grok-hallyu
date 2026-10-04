@@ -19,6 +19,18 @@ import { randomBytes } from 'node:crypto';
 import process from 'node:process';
 import { createClient } from '@supabase/supabase-js';
 
+// This script runs inside the APK job, which builds on Node 20: supabase-js needs a WebSocket
+// global at createClient() time, so borrow the `ws` implementation that Expo/Metro already install.
+if (typeof globalThis.WebSocket === 'undefined') {
+  try {
+    const { default: NodeWebSocket } = await import('ws');
+    globalThis.WebSocket = NodeWebSocket;
+  } catch {
+    console.error('::error::test-account needs a WebSocket implementation — Node.js 22+ or the `ws` package.');
+    process.exit(1);
+  }
+}
+
 const URL = process.env.SUPABASE_URL || process.env.EXPO_PUBLIC_SUPABASE_URL || '';
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const mode = process.argv[2] ?? '';

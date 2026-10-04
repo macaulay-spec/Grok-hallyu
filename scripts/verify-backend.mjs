@@ -22,6 +22,19 @@ import process from 'node:process';
 import { createClient } from '@supabase/supabase-js';
 import { scanRepository } from './lib/secret-scan.mjs';
 
+// supabase-js builds its Realtime client at createClient() time and needs a WebSocket global. Node 22
+// ships one natively (CI uses 22); on older Node the `ws` package fills in, and if neither exists we
+// say so plainly instead of reporting the backend as broken.
+if (typeof globalThis.WebSocket === 'undefined') {
+  try {
+    const { default: NodeWebSocket } = await import('ws');
+    globalThis.WebSocket = NodeWebSocket;
+  } catch {
+    console.error('This suite needs Node.js 22+ (native WebSocket) or the `ws` package installed — the Supabase client cannot be constructed without one.');
+    process.exit(1);
+  }
+}
+
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.EXPO_PUBLIC_SUPABASE_URL || '';
 const ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';

@@ -118,6 +118,15 @@ const tap = (node, label) => {
 
 const byText = (nodes, text) => nodes.find((n) => n.text === text) ?? nodes.find((n) => n.text.includes(text)) ?? null;
 
+/** Largest node matching a label — the button, not the header that happens to share the word. */
+const biggestByText = (nodes, text) => {
+  const matches = nodes.filter((n) => n.text === text || n.text.includes(text));
+  return matches.sort((a, b) => {
+    const area = (n) => (n.bounds ? (n.bounds.x2 - n.bounds.x1) * (n.bounds.y2 - n.bounds.y1) : 0);
+    return area(b) - area(a);
+  })[0] ?? null;
+};
+
 // ── Phase 1 · clean state → welcome ───────────────────────────────────────────────────────────
 note('phase 1: clear app data and cold-start to the welcome screen');
 adb(['shell', 'pm', 'clear', PKG]);
@@ -170,7 +179,7 @@ if (!toTabs) {
   note('ENTER did not submit — dismissing the keyboard and tapping the Sign in button');
   adb(['shell', 'input', 'keyevent', '4']);
   await sleep(800);
-  const button = byText(dumpNodes(), 'Sign in');
+  const button = biggestByText(dumpNodes(), 'Sign in');
   if (button) tap(button, '"Sign in"');
   toTabs = await waitFor('index:redirect:tabs after tapping Sign in', () => trail().includes('index:redirect:tabs'), 60_000, 2000);
 }

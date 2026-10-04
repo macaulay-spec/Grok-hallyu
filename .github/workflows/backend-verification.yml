@@ -59,7 +59,9 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Node 22: supabase-js builds its Realtime client at createClient() time and needs a
+          # native WebSocket; Node 20 has none, which reads as a backend failure when it is not.
+          node-version: 22
 
       - name: Set up bun
         uses: oven-sh/setup-bun@v2
@@ -106,7 +108,9 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Node 22: supabase-js builds its Realtime client at createClient() time and needs a
+          # native WebSocket; Node 20 has none, which reads as a backend failure when it is not.
+          node-version: 22
 
       - name: Set up bun
         uses: oven-sh/setup-bun@v2
@@ -189,7 +193,9 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Node 22: supabase-js builds its Realtime client at createClient() time and needs a
+          # native WebSocket; Node 20 has none, which reads as a backend failure when it is not.
+          node-version: 22
 
       - name: Set up bun
         uses: oven-sh/setup-bun@v2
