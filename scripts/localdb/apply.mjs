@@ -120,6 +120,10 @@ create trigger objects_protect_delete
 grant usage on schema storage to anon, authenticated, service_role;
 grant all on storage.buckets, storage.objects to service_role;
 grant select, insert, update, delete on storage.objects to authenticated;
+-- Supabase grants the API roles read access to storage.objects by default and lets the *policies*
+-- decide what is readable — that is what makes a public prefix readable by an anonymous visitor. The
+-- stub has to match, or an anonymous read fails on the grant instead of on the policy under test.
+grant select on storage.objects to anon;
 
 grant usage on schema public to anon, authenticated, service_role;
 

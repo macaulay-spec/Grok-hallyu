@@ -2,6 +2,12 @@
 -- (run 37188183939, scripts/verify-backend.mjs). Each block prints CHECK <name>: OK/ERROR.
 -- Applied to the database built by scripts/localdb/apply.mjs.
 --
+-- expects: 27 checks
+--
+-- Run against a freshly applied database (`node scripts/localdb/apply.mjs . && node
+-- scripts/localdb/check.mjs .`, which is what `npm run test:db-exec` does). The blocks create
+-- members, posts and objects, so a second run over the same database is not a valid signal.
+--
 -- Role + JWT emulation mirrors PostgREST: `set_config('role', …)` is SET ROLE, and the
 -- auth.uid()/auth.role() stubs read request.jwt.claim.* the same way Supabase's do.
 
@@ -524,4 +530,110 @@ begin
   raise notice 'CHECK delete-account: OK (scrubbed, rows gone, % object(s) queued)', v_queued;
 exception when others then
   raise notice 'CHECK delete-account: ERROR %', sqlerrm;
+end $$;
+
+-- ── 25. A member may write only their own storage folder ───────────────────────────────────────
+do $$
+declare refused boolean := false;
+begin
+  perform set_config('role', 'authenticated', true);
+  perform set_config('request.jwt.claim.sub', '11111111-1111-4111-8111-111111111111', true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+
+  insert into storage.objects (bucket_id, name, owner)
+  values ('media', 'u/11111111-1111-4111-8111-111111111111/own.png', '11111111-1111-4111-8111-111111111111');
+
+  begin
+    insert into storage.objects (bucket_id, name, owner)
+    values ('media', 'u/22222222-2222-4222-8222-222222222222/forged.png', '11111111-1111-4111-8111-111111111111');
+  exception when others then
+    refused := true;
+  end;
+
+  if not refused then
+    raise notice 'CHECK storage-upload-own-folder: FAIL a member wrote into somebody else''s folder';
+    return;
+  end if;
+
+  raise notice 'CHECK storage-upload-own-folder: OK (own folder writable, another''s folder refused)';
+exception when others then
+  raise notice 'CHECK storage-upload-own-folder: ERROR %', sqlerrm;
+end $$;
+
+-- ── 26. Reads follow the same rule; the public prefixes are the only anonymous read ───────────
+do $$
+declare v_mine integer; v_theirs integer; v_public integer;
+begin
+  perform set_config('role', 'service_role', true);
+  perform set_config('request.jwt.claim.role', 'service_role', true);
+  perform set_config('request.jwt.claim.sub', '', true);
+
+  insert into storage.objects (bucket_id, name) values ('media', 'catalog/poster.png')
+  on conflict do nothing;
+
+  perform set_config('role', 'authenticated', true);
+  perform set_config('request.jwt.claim.sub', '11111111-1111-4111-8111-111111111111', true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+
+  select count(*) into v_mine from storage.objects
+   where name = 'u/11111111-1111-4111-8111-111111111111/own.png';
+  select count(*) into v_public from storage.objects where name = 'catalog/poster.png';
+
+  perform set_config('request.jwt.claim.sub', '22222222-2222-4222-8222-222222222222', true);
+  select count(*) into v_theirs from storage.objects
+   where name = 'u/11111111-1111-4111-8111-111111111111/own.png';
+
+  if v_mine <> 1 then
+    raise notice 'CHECK storage-read-scope: FAIL the owner cannot read their own object (% row)', v_mine;
+    return;
+  end if;
+
+  if v_theirs <> 0 then
+    raise notice 'CHECK storage-read-scope: FAIL another member read a private object (% row(s))', v_theirs;
+    return;
+  end if;
+
+  if v_public <> 1 then
+    raise notice 'CHECK storage-read-scope: FAIL the public catalog prefix is not readable (% row)', v_public;
+    return;
+  end if;
+
+  -- Anonymous readers get the public prefixes and nothing else.
+  perform set_config('role', 'anon', true);
+  perform set_config('request.jwt.claim.sub', '', true);
+  perform set_config('request.jwt.claim.role', 'anon', true);
+
+  if exists (select 1 from storage.objects where name = 'u/11111111-1111-4111-8111-111111111111/own.png') then
+    raise notice 'CHECK storage-read-scope: FAIL an anonymous reader saw a member''s object';
+    return;
+  end if;
+
+  raise notice 'CHECK storage-read-scope: OK (owner reads own, others cannot, catalog/ is public)';
+exception when others then
+  raise notice 'CHECK storage-read-scope: ERROR %', sqlerrm;
+end $$;
+
+-- ── 27. The delete policy is scoped to the owner ──────────────────────────────────────────────
+-- A DELETE cannot be exercised here at all: storage.protect_delete() refuses every one of them, for
+-- every role. The policy is therefore asserted structurally — it must exist, and it must name the
+-- folder owner rather than admit anyone.
+do $$
+declare v_qual text;
+begin
+  select qual into v_qual from pg_policies
+   where schemaname = 'storage' and tablename = 'objects' and policyname = 'media_delete_own_folder';
+
+  if v_qual is null then
+    raise notice 'CHECK storage-delete-policy: FAIL storage.objects has no media_delete_own_folder policy';
+    return;
+  end if;
+
+  if v_qual !~ 'storage_owner' or v_qual !~ 'auth\.uid\(\)' then
+    raise notice 'CHECK storage-delete-policy: FAIL the delete policy is not scoped to the owner: %', v_qual;
+    return;
+  end if;
+
+  raise notice 'CHECK storage-delete-policy: OK (scoped to storage_owner(name) = auth.uid())';
+exception when others then
+  raise notice 'CHECK storage-delete-policy: ERROR %', sqlerrm;
 end $$;

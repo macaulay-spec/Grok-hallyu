@@ -263,40 +263,44 @@ if (requireSchema()) {
     return `${Object.keys(EXPECTED_COLUMNS).length} tables column-checked`;
   });
 
-  await test('Foreign keys are declared (PostgREST relationships)', async () => {
-    const problems = [];
-    const expectRelationships = {
-      posts: ['profiles', 'titles', 'communities'],
-      comments: ['posts', 'profiles'],
-      reactions: ['profiles', 'posts', 'comments'],
-      follows: ['profiles'],
-      watchlist_items: ['profiles', 'titles'],
-      collection_items: ['collections', 'titles'],
-    };
+  // PostgREST only publishes relationship metadata in its OpenAPI 3 document. If the document
+  // carries none at all, this check cannot say anything about foreign keys — that is *blocked*, not
+  // failed. Failing here would claim thirteen broken constraints on a project that may have every
+  // one of them; the constraints are exercised behaviourally by the cascade and delete checks below.
+  const declaresRelationships = Object.values(openapi.definitions).some(
+    (definition) => Array.isArray(definition?.relationships) && definition.relationships.length > 0,
+  );
 
-    // PostgREST only publishes relationship metadata in its OpenAPI 3 document. If the document
-    // carries none at all, that is a different fact from "these foreign keys are missing", and
-    // saying so stops thirteen phantom failures from reading as thirteen broken constraints.
-    const declaresAny = Object.values(openapi.definitions).some(
-      (definition) => Array.isArray(definition?.relationships) && definition.relationships.length > 0,
-    );
-    assert(
-      declaresAny,
-      'the schema document declares no relationships at all — it is not the OpenAPI 3 document, so this check cannot say anything about foreign keys',
-    );
+  if (declaresRelationships) {
+    await test('Foreign keys are declared (PostgREST relationships)', async () => {
+      const problems = [];
+      const expectRelationships = {
+        posts: ['profiles', 'titles', 'communities'],
+        comments: ['posts', 'profiles'],
+        reactions: ['profiles', 'posts', 'comments'],
+        follows: ['profiles'],
+        watchlist_items: ['profiles', 'titles'],
+        collection_items: ['collections', 'titles'],
+      };
 
-    for (const [table, targets] of Object.entries(expectRelationships)) {
-      const definition = openapi.definitions[table];
-      const relationships = definition?.relationships ?? [];
-      for (const target of targets) {
-        if (!relationships.some((r) => r.referencedTable === target)) {
-          problems.push(`${table} → ${target}`);
+      for (const [table, targets] of Object.entries(expectRelationships)) {
+        const definition = openapi.definitions[table];
+        const relationships = definition?.relationships ?? [];
+        for (const target of targets) {
+          if (!relationships.some((r) => r.referencedTable === target)) {
+            problems.push(`${table} → ${target}`);
+          }
         }
       }
-    }
-    assert(problems.length === 0, `missing relationships: ${problems.join(', ')}`);
-    return 'posts, comments, reactions, follows, watchlist, collection items are related';
-  });
+      assert(problems.length === 0, `missing relationships: ${problems.join(', ')}`);
+      return 'posts, comments, reactions, follows, watchlist, collection items are related';
+    });
+  } else {
+    block(
+      'Foreign keys are declared (PostgREST relationships)',
+      "the project's schema document declares no relationships at all, so this check cannot say whether the foreign keys exist",
+    );
+  }
 }
 
 startGroup('RPCs');
@@ -2133,10 +2137,11 @@ await test('Member uploads into their own folder', async () => {
 await test('Member reads their own object back', async () => {
   const { data, error } = await alice.storage.from('media').download(uploadedPath);
   assert(!error, `download failed: ${error?.message}`);
-  // The size is reported either way: an empty body with no error is a different failure from a
-  // refused read, and only the number tells them apart.
-  assert(data.byteLength > 0, `the object came back empty (${data.byteLength} bytes of ${typeof data})`);
-  return `${data.byteLength} bytes retrieved`;
+  // supabase-js returns a Blob, which has `size`, not `byteLength`. Reading the wrong one reports an
+  // empty object on a perfectly healthy download — this check failed for two live runs because of it.
+  const size = data?.byteLength ?? data?.size ?? 0;
+  assert(size > 0, `the object came back empty (${size} bytes of ${typeof data})`);
+  return `${size} bytes retrieved`;
 });
 
 await test('Another member cannot delete the object', async () => {

@@ -7,9 +7,12 @@
 // communities, media, feed/search, jobs, bootstrap), replayed here as SQL so a regression is caught
 // before the connected job ever talks to a real project.
 //
+// The header of repro.sql declares how many CHECK lines it emits. A block that fails to compile
+// emits none, which would otherwise look like a smaller suite rather than a broken one.
+//
 // Usage: node scripts/localdb/check.mjs [repoRoot]
 import { spawnSync } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -39,8 +42,12 @@ for (const pass of results.filter((r) => r.outcome.startsWith('OK'))) {
   console.log(`✓ ${pass.name}: ${pass.outcome}`);
 }
 console.log(`\n${results.length} behaviour check(s): ${results.length - failures.length} passed, ${failures.length} failed.`);
-if (results.length === 0) {
-  console.error('No CHECK lines were produced — the repro script did not run.');
+
+// A block whose body fails to compile produces no CHECK line, and a missing line is indistinguishable
+// from a passing suite. repro.sql declares how many it should emit; a shortfall means a block died.
+const expected = Number(/--\s*expects:\s*(\d+)\s+checks/i.exec(readFileSync(SQL, 'utf8'))?.[1] ?? 0);
+if (expected > 0 && results.length < expected) {
+  console.error(`::error::repro.sql produced ${results.length} check lines but declares ${expected} — a block failed to compile and its checks are missing, not passing.`);
   process.exit(1);
 }
 process.exit(failures.length === 0 ? 0 : 1);
