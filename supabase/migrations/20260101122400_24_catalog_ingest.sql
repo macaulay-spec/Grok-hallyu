@@ -204,7 +204,7 @@ as $$
 declare
   actor uuid := auth.uid();
   target_provider text := coalesce(p_provider_id, 'tmdb');
-  external_id text;
+  v_external_id text;
   kind public.media_type;
   world_id text;
   title_name text;
@@ -223,14 +223,14 @@ begin
     raise exception 'payload must be a JSON object' using errcode = 'invalid_parameter_value';
   end if;
 
-  external_id := nullif(btrim(p_payload ->> 'external_id'), '');
+  v_external_id := nullif(btrim(p_payload ->> 'external_id'), '');
   kind := nullif(p_payload ->> 'media_type', '')::public.media_type;
   world_id := nullif(btrim(p_payload ->> 'world'), '');
   title_name := nullif(btrim(p_payload ->> 'title'), '');
   release_year := (p_payload ->> 'year')::integer;
   status_value := coalesce(nullif(p_payload ->> 'status', '')::public.title_status, 'upcoming');
 
-  if external_id is null then
+  if v_external_id is null then
     raise exception 'payload.external_id is required' using errcode = 'invalid_parameter_value';
   end if;
   if kind is null then
@@ -269,15 +269,16 @@ begin
 
   select t.id, t.content_hash into row_id, existing_hash
   from public.titles t
-  where t.provider_id = target_provider and t.external_id = external_id and t.media_type = kind;
+  where t.provider_id = target_provider and t.external_id = v_external_id and t.media_type = kind;
 
   if row_id is not null and existing_hash = payload_hash then
     -- Nothing changed, but the record is confirmed present: reset the missing streak and stamp it.
+    -- (`id` is also this function's RETURNS TABLE out-column; qualify the table column.)
     update public.titles
        set catalog_synced_at = now(),
            catalog_missing_count = 0,
            catalog_unavailable_at = null
-     where id = row_id;
+     where public.titles.id = row_id;
 
     return query select row_id, false;
     return;
@@ -291,7 +292,7 @@ begin
     catalog_synced_at, catalog_missing_count, catalog_unavailable_at
   )
   values (
-    target_provider, external_id, kind, world_id, left(title_name, 200),
+    target_provider, v_external_id, kind, world_id, left(title_name, 200),
     nullif(left(p_payload ->> 'original_title', 200), ''),
     release_year,
     greatest(release_year, coalesce(nullif(p_payload ->> 'end_year', '')::integer, release_year)),

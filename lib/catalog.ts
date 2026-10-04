@@ -10,6 +10,7 @@
 import { Platform } from 'react-native';
 import { TMDB_ACCESS_TOKEN, TMDB_API_KEY } from '../constants/keys';
 import { FANDOMS, Fandom, fandomById, formatFandomOf, inferFormat } from './fandoms';
+import { clearServerCatalogLists, serverProvider } from './api/serverCatalog';
 import { Actor, Drama, Episode, FandomId, MediaType } from './model';
 
 // Credentials live in constants/keys.ts (wired into the app; env overrides only when non-empty).
@@ -162,7 +163,7 @@ export interface CatalogHealth {
 }
 let health: CatalogHealth = { state: 'idle' };
 const healthListeners = new Set<(h: CatalogHealth) => void>();
-function setHealth(next: CatalogHealth) {
+export function setHealth(next: CatalogHealth) {
   // Throttle "still fine" updates so a busy screen doesn't re-render on every request.
   if (next.state === 'ok' && health.state === 'ok' && next.at && health.at && next.at - health.at < 15_000) return;
   health = next;
@@ -620,9 +621,10 @@ function memo<T>(key: string, ttlMs: number, run: () => Promise<T>): Promise<T> 
   return value;
 }
 const TEN_MIN = 10 * 60_000;
-/** Drop memoised editorial lists (pull-to-refresh). */
+/** Drop memoised editorial lists (pull-to-refresh) — server and device-local adapters both. */
 export function invalidateCatalogLists() {
   memoStore.clear();
+  clearServerCatalogLists();
 }
 
 const keywordIds = new Map<string, Promise<number | null>>();
@@ -1028,4 +1030,22 @@ export const tmdbProvider: CatalogProvider = {
   },
 };
 
-export const catalog: CatalogProvider = tmdbProvider;
+// ── The active catalog ──────────────────────────────────────────────────────────────────────────
+//
+// Production (connected) builds talk to the Hallyu backend ONLY — ingest, freshness, ranking and
+// recommendations are server-owned, and a backend failure surfaces as a catalog error, never as a
+// silent TMDB retry. The TMDB adapter answers exclusively in device-local builds (no backend env
+// baked in — the connection gate says "local mode"), which is the honest pre-connection behaviour.
+//
+// The indirection is a lazy proxy, not a plain const: it keeps the module cycle between this file
+// and lib/api/serverCatalog.ts safe no matter which module a bundler evaluates first.
+function activeProvider(): CatalogProvider {
+  return serverProvider.available ? serverProvider : tmdbProvider;
+}
+export const catalog: CatalogProvider = new Proxy({} as CatalogProvider, {
+  get(_target, prop) {
+    const provider = activeProvider();
+    const value = Reflect.get(provider as object, prop);
+    return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(provider) : value;
+  },
+});

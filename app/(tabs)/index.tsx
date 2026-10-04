@@ -28,13 +28,14 @@ import { Text } from '../../components/ui/Text';
 import { TopBar, LiveIndicator, Wordmark } from '../../components/ui/TopBar';
 import { colors, radius, space } from '../../constants/theme';
 import { useAuth } from '../../lib/auth';
-import { haptic, useApp, useLoad, useReduceMotion } from '../../lib/hooks';
+import { haptic, useApp, useBackendHealth, useLoad, useReduceMotion } from '../../lib/hooks';
 import { Episode, FandomId, Post } from '../../lib/model';
 import { activeWorlds, airingEpisodes, anchorDrama, crossWorldLocal, forYou, following, recommendedDramas, recommendedPeople, shorts, trendingDiscussions, upNext, worldCounts } from '../../lib/selectors';
 import { FANDOMS, formatFandomOf } from '../../lib/fandoms';
 import { getState } from '../../lib/store';
 import { catalog } from '../../lib/catalog';
 import { adoptDramas } from '../../lib/catalogSync';
+import { fetchHomeDiscovery } from '../../lib/api/homeDiscovery';
 import { useInteractionGate } from '../../lib/interactive';
 
 type Row =
@@ -105,6 +106,17 @@ function Home() {
   // Home must be usable the instant it appears: the live catalog work below waits for the first
   // touch (or an idle ceiling), and everything on screen is already complete without it.
   const { ready: deferred, capture } = useInteractionGate();
+  // §6 — Home hydrates from the backend's own ranking: one get_home_discovery() round trip adopts
+  // the server-ranked rails (tonight/trending/upcoming/recent/continue) into the store as soon as
+  // the connection gate reports a real backend. Signed-in members only; guests keep guest rails.
+  // Backend errors belong to the gate's copy — Home stays editorial either way.
+  const backend = useBackendHealth();
+  useEffect(() => {
+    if (guest || backend.status !== 'connected') return;
+    const controller = new AbortController();
+    void fetchHomeDiscovery(controller.signal).catch(() => {});
+    return () => controller.abort();
+  }, [guest, backend.status]);
 
 
   const tonight = useMemo(() => {

@@ -176,3 +176,42 @@ constraint); `profiles_select_visible` applied directly after migration 08.
 3. Per-screen RPC adoption (§9 list) — foundation is in place; screens roll over one by one.
 4. Rork Auth Google/Apple UI wiring on the sign-in screens (`exchangeRorkToken()` is ready).
 5. `app/settings/about.tsx` diagnostics: extend the existing panel with `useBackendHealth()`.
+
+---
+
+## Completion update (connection loop finished)
+
+State after the completion pass — `RORK-CREDENTIALS.md` is the credential inventory:
+
+- **GitHub Actions secrets configured** (written via the repo API, values never transited chat):
+  `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`, `EXPO_PUBLIC_MEDIA_BUCKET`,
+  `SUPABASE_SERVICE_ROLE_KEY`, `EXPO_PUBLIC_RORK_APP_KEY`. Two value gaps: the Rork app key's
+  value is platform-held (fill from Rork project settings — builds degrade to email/password until
+  then), and `RORK_TEST_REFRESH_TOKEN` needs one interactive Rork sign-in to mint — until then the
+  connected CI job fails loudly, by design (§9).
+- **Scheduler live (§7/§11):** `hallyu-scheduled-jobs` (`*/15` → in-database
+  `run_scheduled_jobs()`; ticks verified firing on their own, `job_runs` recorded) plus four
+  Vault-backed HTTP schedules via pg_net — `hallyu-catalog-sync` (hourly TMDB refresh),
+  `hallyu-push-dispatch`, `hallyu-media-cleanup`, `hallyu-purge` — registered idempotently by
+  `public.wire_scheduled_functions(p_service_key, p_project_url)` (service-role only, re-runnable
+  for rotation; Vault names `hallyu_service_role` / `hallyu_project_url`).
+- **Two live-only ingest bugs fixed** (unreachable by offline parsing): plpgsql name collisions in
+  `catalog_upsert_title` — the local `external_id` vs the column, and the `RETURNS TABLE (id,…)`
+  out-column vs `titles.id` in the unchanged-row branch. Fixed live and in migration 24. First
+  real TMDB run after the fix: **80 items seen, 13 written, 67 unchanged confirmations, 0 errors**;
+  catalog serving real titles over anon PostgREST.
+- **Production catalog path is server-only (§5/§6):** `lib/api/serverCatalog.ts` implements the
+  full `CatalogProvider` on backend RPCs/PostgREST; `lib/catalog.ts` selects it for every connected
+  build — the TMDB adapter answers only in device-local builds (honest local mode, gate-labelled).
+  Home hydrates from `get_home_discovery()` (`lib/api/homeDiscovery.ts`) when signed in +
+  connected; the connection gate still reports only a real RPC round trip as connected (§5).
+- **CI (§8/§9):** `backend-verification.yml` split into offline + connected jobs with the
+  `EXPO_PUBLIC_*` → script-env mapping (one Supabase project everywhere) and configuration /
+  authentication / test failures clearly separated — missing secrets are red, never a silent skip.
+  `build-apk.yml` passes `CONNECTED_BUILD` to `scripts/ci/boot-check.sh`, which now fails a
+  connected build that does not reach `gate:connected` (a real backend RPC round trip) before
+  navigation; crash/navigation/FATAL assertions unchanged.
+- **Media flow verified live (§7):** private `media` bucket upload → metadata → signed URL →
+  authenticated fetch → anonymous read blocked → delete, all green.
+- **Remaining:** mint `RORK_TEST_REFRESH_TOKEN` (one sign-in), fill `EXPO_PUBLIC_RORK_APP_KEY`'s
+  value, then run the connected workflow once; EAS secrets if EAS builds are adopted.

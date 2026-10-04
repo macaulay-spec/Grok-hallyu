@@ -1,7 +1,17 @@
 name: Backend verification
 
-# Proves the Hallyu backend actually works: the offline checks always run, and the live verification
-# runs whenever the project secrets are configured. A failing live test fails this workflow.
+# Proves the Hallyu backend actually works, in two clearly separated layers:
+#
+#   offline    — always runs, needs no project: SQL invariants, type contract, capability surface,
+#                secret scan, typecheck/lint.
+#   connected  — the live suite against the real project. REQUIRED REPOSITORY SECRETS; a missing
+#                secret is a configuration failure (red), never a silent skip. The suite
+#                distinguishes configuration, authentication and test failures in its summary.
+#
+# Secret naming: the repository stores the client-safe connection values under the SAME names the
+# Expo build consumes (EXPO_PUBLIC_*) so one Supabase project serves builds and verification. This
+# workflow maps them onto the verification script's backend-only env names. RORK-CREDENTIALS.md is
+# the authoritative inventory.
 
 on:
   workflow_dispatch:
@@ -18,18 +28,56 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  verify:
-    name: Verify the Hallyu backend
+  offline:
+    name: Offline validation (no credentials)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Set up bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Validate migrations (SQL parse + RLS + security invariants)
+        run: node scripts/verify-sql.mjs
+
+      - name: Check the type contract against the migrations
+        run: node scripts/verify-db-types.mjs
+
+      - name: Check the backend capability surface
+        run: node scripts/verify-backend-surface.mjs
+
+      - name: Scan the repository for committed credentials
+        run: node scripts/verify-no-secrets.mjs
+
+      - name: Typecheck, lint and unit checks
+        run: npm run check
+
+  connected:
+    name: Connected backend (live project)
+    needs: offline
     runs-on: ubuntu-22.04
     timeout-minutes: 20
 
     env:
       # Credentials exist only as environment variables inside this job. They are masked before any
       # command runs, are never echoed, and are never written to the repository or the summary.
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      # EXPO_PUBLIC_* → script names: one underlying Supabase project, no duplicated credentials.
+      SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-      RORK_APP_KEY: ${{ secrets.RORK_APP_KEY }}
+      RORK_APP_KEY: ${{ secrets.EXPO_PUBLIC_RORK_APP_KEY }}
       RORK_TEST_REFRESH_TOKEN: ${{ secrets.RORK_TEST_REFRESH_TOKEN }}
 
     steps:
@@ -57,90 +105,66 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      # ── Offline validation: always meaningful, needs no project ────────────────────────────────
-      - name: Validate migrations (SQL parse + RLS + security invariants)
-        run: node scripts/verify-sql.mjs | tee sql-validation.log
-
-      - name: Check the type contract against the migrations
-        run: node scripts/verify-db-types.mjs | tee db-types-validation.log
-
-      - name: Check the backend capability surface
-        run: node scripts/verify-backend-surface.mjs | tee backend-surface-validation.log
-
-      - name: Scan the repository for committed credentials
-        run: node scripts/verify-no-secrets.mjs | tee secret-scan.log
-
-      - name: Typecheck, lint and unit checks
-        run: npm run check
-
-      # ── Live verification: real database and storage operations ─────────────────────────────────
-      - name: Report credential status
-        id: credentials
+      # ── Configuration gate: a missing secret is a RED configuration failure, not a skip ────────
+      - name: Require the repository secrets
         run: |
-          if [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_ANON_KEY" ] && [ -n "$SUPABASE_SERVICE_ROLE_KEY" ]; then
-            echo "configured=true" >> "$GITHUB_OUTPUT"
-            echo "Supabase credentials are configured; the live verification will run."
-          else
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::warning title=Backend not connected::SUPABASE_URL / SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY are not set, so the live backend verification was skipped. Add them as repository secrets to enable it."
+          missing=""
+          if [ -z "$SUPABASE_URL" ]; then missing="$missing EXPO_PUBLIC_SUPABASE_URL"; fi
+          if [ -z "$SUPABASE_ANON_KEY" ]; then missing="$missing EXPO_PUBLIC_SUPABASE_ANON_KEY"; fi
+          if [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then missing="$missing SUPABASE_SERVICE_ROLE_KEY"; fi
+          if [ -z "$RORK_APP_KEY" ]; then missing="$missing EXPO_PUBLIC_RORK_APP_KEY"; fi
+          if [ -z "$RORK_TEST_REFRESH_TOKEN" ]; then missing="$missing RORK_TEST_REFRESH_TOKEN"; fi
+          if [ -n "$missing" ]; then
+            echo "::error title=Configuration failure::Connected verification cannot start — missing repository secrets:$missing"
+            echo "Add them under Settings → Secrets and variables → Actions."
+            echo "RORK-CREDENTIALS.md documents every name, where the value comes from, and who consumes it."
+            exit 1
           fi
+          echo "All required backend secrets are present."
 
-      - name: Run the backend verification
-        id: verify
-        if: steps.credentials.outputs.configured == 'true'
+      - name: Run the live backend suite
+        id: live
         run: |
           set +e
           node scripts/verify-backend.mjs | tee backend-verification.log
-          status=${PIPESTATUS[0]}
-          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
-          exit 0
+          code=${PIPESTATUS[0]}
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" = "0" ]; then
+            echo "OVERALL STATUS: PASS — the live backend behaves as this repository describes it."
+            exit 0
+          fi
+          if [ "$code" = "2" ]; then
+            echo "::error title=Configuration failure::verify-backend.mjs reports NOT CONFIGURED — the mapped secrets did not reach the environment."
+            exit 1
+          fi
+          if grep -q '✗ Rork-minted access token' backend-verification.log; then
+            echo "::error title=Authentication failure::The Rork Auth leg failed — mint a fresh RORK_TEST_REFRESH_TOKEN (one interactive sign-in) and update the secret. See RORK-CREDENTIALS.md."
+          fi
+          echo "::error title=Backend failure::The live suite FAILED (exit $code) — failing checks are listed in the job summary."
+          exit 1
 
       - name: Write the run summary
         if: always()
         run: |
           {
-            echo "## Hallyu backend verification"
+            echo "## Hallyu backend verification — connected"
             echo ""
-            if [ -f backend-verification.log ]; then
-              echo '```text'
-              cat backend-verification.log
-              echo '```'
-            else
-              echo "Live verification skipped — project credentials are not configured on this repository."
-            fi
-            echo ""
-            echo "### Offline validation"
             echo '```text'
-            cat sql-validation.log db-types-validation.log backend-surface-validation.log secret-scan.log
+            cat backend-verification.log 2>/dev/null || echo "(no log — the configuration gate failed)"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Fail when the live verification fails
-        if: steps.credentials.outputs.configured == 'true' && steps.verify.outputs.exit_code != '0'
-        run: |
-          echo "::error::The Hallyu backend verification FAILED (exit code ${{ steps.verify.outputs.exit_code }}). See the job summary for the individual checks."
-          exit 1
-
-      - name: Report the result
-        if: always()
-        run: |
-          if [ "${{ steps.verify.outputs.exit_code }}" = "0" ]; then
-            echo "OVERALL STATUS: PASS — the backend behaves as this repository describes it."
-          elif [ "${{ steps.credentials.outputs.configured }}" = "true" ]; then
-            echo "OVERALL STATUS: FAIL — see the failing checks above."
-          else
-            echo "OVERALL STATUS: NOT CONFIGURED — offline validation passed; live verification needs the project secrets."
-          fi
 
 # ────────────────────────────────────────────────────────────────────────────────────────────────
 # Required repository secrets (Settings → Secrets and variables → Actions → New repository secret):
 #
-#   SUPABASE_URL               https://<project-ref>.supabase.co
-#   SUPABASE_ANON_KEY          the project's publishable/anon key (client-safe: the app ships it)
-#   SUPABASE_SERVICE_ROLE_KEY  the service-role key — privileged, CI only, never shipped to a client
-#   RORK_APP_KEY               Rork app key (client-safe; used by the Rork token check)
-#   RORK_TEST_REFRESH_TOKEN    a refresh token for a real Rork test member (optional; enables the
-#                              Rork-authenticated path in the verification script)
+#   EXPO_PUBLIC_SUPABASE_URL       https://<project-ref>.supabase.co          (client-safe)
+#   EXPO_PUBLIC_SUPABASE_ANON_KEY  the project's publishable/anon key          (client-safe)
+#   SUPABASE_SERVICE_ROLE_KEY      privileged key — CI only, never in a client bundle
+#   EXPO_PUBLIC_RORK_APP_KEY       Rork app key (client-safe; identifies the app for Rork Auth)
+#   RORK_TEST_REFRESH_TOKEN        refresh token for a real Rork test member (one interactive
+#                                  sign-in mints it; rotate any time)
+#   EXPO_PUBLIC_MEDIA_BUCKET       consumed by connected APK builds (build-apk.yml), not here
 #
 # Never commit any of these. `.gitignore` blocks `.env*` apart from `.env.example`.
+# RORK-CREDENTIALS.md is the complete inventory.
 # ────────────────────────────────────────────────────────────────────────────────────────────────

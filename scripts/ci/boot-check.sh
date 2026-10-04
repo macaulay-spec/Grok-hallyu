@@ -22,6 +22,10 @@
 #      before mounting", NO "index:nav-failed" — a swallowed JS error is a
 #      failed build, never green-with-errors-underneath;
 #   4. NO "FATAL EXCEPTION" / "ANR in" in logcat.
+#   5. a CONNECTED build (CONNECTED_BUILD=yes — set by CI when the backend secrets were baked in)
+#      proves the connection gate reached "connected": a real RPC round trip against the Hallyu
+#      backend ([hallyu:boot] gate:connected). A connected build that ends misconfigured /
+#      unavailable / offline is a FAILED build — never a green-with-local-fallback.
 # Evidence (logcat-full/-errors/-boot-trail.txt) is written to the workspace
 # root and uploaded as the boot-test-logcat artifact regardless of outcome.
 #
@@ -32,6 +36,7 @@ set -u
 PKG=com.hallyu.app
 ACTIVITY="$PKG/.MainActivity"
 MARKER='\[hallyu:boot\].*index:redirect'
+GATE_OK='\[hallyu:boot\].*gate:connected'
 BAD_JS='\[hallyu:crash\]|Attempted to navigate before mounting|index:nav-failed'
 FAILED=0
 
@@ -117,6 +122,20 @@ if [ "$FOUND" != "yes" ]; then
   tail -12 logcat-boot-trail.txt 2>/dev/null | while IFS= read -r l; do
     echo "::error::[boot-trail] $l"
   done
+fi
+
+# --- 7. Connected-build gate (§8 of the connection prompt) ----------------------------------------
+# The gate state is part of the boot trail BEFORE the redirect (ready = coreReady && conn != null),
+# so no extra wait is needed — the trail already carries the probe's verdict.
+if [ "${CONNECTED_BUILD:-}" = "yes" ]; then
+  if adb logcat -d 2>/dev/null | grep -q "$GATE_OK"; then
+    note "backend gate reached connected — real RPC round trip proven"
+  else
+    GATE_LINE="$(adb logcat -d 2>/dev/null | grep '\[hallyu:boot\].*gate:' | tail -1)"
+    fail "connected build never reached gate:connected — backend unreachable or local fallback (last gate line: ${GATE_LINE:-none})"
+  fi
+else
+  note "local-mode build (CONNECTED_BUILD unset) — connected-gate assertion skipped"
 fi
 
 if [ "$FAILED" != "0" ]; then

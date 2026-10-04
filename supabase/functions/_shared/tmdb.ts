@@ -9,8 +9,12 @@
 // bundle means rotating it does not require shipping a new APK.
 
 export const TMDB_BASE = Deno.env.get('TMDB_API_BASE') ?? 'https://api.themoviedb.org/3';
-export const TMDB_TOKEN = Deno.env.get('TMDB_ACCESS_TOKEN') ?? '';
-export const TMDB_API_KEY = Deno.env.get('TMDB_API_KEY') ?? '';
+// Credentials come from the function environment. The fallbacks are the SAME public, read-only,
+// write-less TMDB catalog credential the client app ships in constants/keys.ts (allow-listed by
+// value in scripts/lib/secret-scan.mjs). Set TMDB_ACCESS_TOKEN / TMDB_API_KEY function secrets to
+// override; never put a privileged credential here.
+export const TMDB_TOKEN = Deno.env.get('TMDB_ACCESS_TOKEN') ?? 'eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJmZjAxZjI4ZmM1YzQ3NzkxZTI4MDM4MzQ5NDQ1YmY1OCIsIm5iZiI6MTc4OTAyMDA1Ny43NzksInN1YiI6IjZhYTI0Nzk5OGQ1YWFjZTczMzY2ODJkMyIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.ETon7kqWQjj7jtJJOXyRgAWme9Sh9B7OUrdAI61uuH8';
+export const TMDB_API_KEY = Deno.env.get('TMDB_API_KEY') ?? 'ff01f28fc5c47791e28038349445bf58';
 
 /** TMDB image CDN. Posters and backdrops are referenced by absolute URL from the ingest payload. */
 export const TMDB_IMAGE_BASE = Deno.env.get('TMDB_IMAGE_BASE') ?? 'https://image.tmdb.org/t/p';
